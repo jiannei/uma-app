@@ -49,7 +49,7 @@ cd src-tauri && cargo check
 cd src-tauri && cargo clippy
 ```
 
-Override the hook server port by setting `UMA_PET_PORT` before launching Tauri (read by both `lib.rs` and `hook_installer.rs`; the installer uses this to write the correct URL into `~/.claude/settings.json`).
+Override the hook server port by setting `UMA_PET_PORT` before launching Tauri (read by both `lib.rs` and `adapters/claude_code.rs`; the installer uses this to write the correct URL into `~/.claude/settings.json`).
 
 There is **no test suite** — no `cargo test` target, no Vitest config. Linting is `cargo clippy` for Rust and `vue-tsc --noEmit` (already part of `bun run build`) for TypeScript.
 
@@ -72,22 +72,23 @@ There is also a `pet-hit.html` file in repo root — a separate hit-zone window 
 ### Backend layout (`src-tauri/src/`)
 
 - **`lib.rs`** — Tauri entry point. Defines:
-  - `Settings` struct (mirrors what's stored in plugin-store)
-  - `SettingsStore`, `BubblePositionStore`, `PendingStore` shared state
-  - `#[tauri::command]` handlers: `get_settings`, `set_theme`, `set_dnd`, `set_bubble_position`, `pet_permission_response`, `check_hook_installed`, `install_claude_hook`, `uninstall_claude_hook`
+  - `Settings` struct (mirrors what's stored in plugin-store — does NOT include per-agent install state; read that from `list_agents` instead)
+  - `SettingsStore`, `BubblePositionStore`, `PendingStore`, `AlwaysAllowStore` shared state
+  - `#[tauri::command]` handlers: `get_settings`, `set_theme`, `set_dnd`, `set_bubble_position`, `pet_permission_response`, `list_agents`, `check_agent_installed`, `install_agent_hook`, `uninstall_agent_hook`, `clear_always_allow_session`
   - `setup` hook: loads persisted settings, registers a `CloseRequested` interceptor on the main window (prevents exit), spawns the HTTP server, installs the tray.
+- **`agent.rs`** — defines the `Agent` trait (id / display_name / config_path / install / uninstall / parse_state_payload / parse_permission_payload / build_permission_response) and the `KNOWN_AGENTS` compile-time registry. State machine and HTTP server only deal with the canonical `HookEvent` / `PermissionRequest` types — they never touch agent-specific DTOs. See [CONTEXT.md](./CONTEXT.md) and [ADR-0002](./docs/adr/0002-in-process-agent-adapter.md).
+- **`adapters/`** — one module per supported agent. `adapters/claude_code.rs` holds all Claude-Code-specific DTOs (`ClaudeCodeHookPayload`, `ClaudeCodePermissionPayload`), validation, the `translate_event` function that maps Claude Code's event names to the canonical 8-event vocabulary, and the `Agent` trait impl. Adding a new agent = new file under `adapters/` + one line in `KNOWN_AGENTS`.
 - **`http_server.rs`** — axum router bound to `127.0.0.1:17373`. Routes:
   - `GET /health`
-  - `POST /state` — non-blocking; broadcasts `agent-hook-event` to all windows + emits to the `pet` window.
-  - `POST /permission` — blocking (up to 5 min); inserts a `oneshot::Sender` into `PendingStore`, emits `permission-request` to the bubble window, awaits a response, then writes the Claude-Code-shaped `{hookSpecificOutput.decision.behavior}` JSON back. The "always" decision also adds the tool name to an in-memory always-allow set (lost on restart — intentional MVP scope).
-  - Security: bound to loopback, no auth, length caps in DTO `validate()` methods, `MAX_PENDING_REQUESTS = 50` to cap the pending map.
-- **`hook_installer.rs`** — reads/writes `~/.claude/settings.json`. Adds HTTP-hook entries under `hooks.<Event>` with URL prefix `http://127.0.0.1:`. Idempotent: `add_http_hook` skips if the URL is already present. Uninstall removes only entries whose URL starts with our prefix — leaves other hooks untouched and creates a `.json.bak` backup before writing.
+  - `POST /agents/{id}/state` — non-blocking; looks up the agent by `:id`, calls `adapter.parse_state_payload`, broadcasts `agent-hook-event` to all windows + emits to the `pet` window. Unknown agent id → 404.
+  - `POST /agents/{id}/permission` — blocking (up to 5 min); inserts a `oneshot::Sender` into `PendingStore`, emits `permission-request` (with the canonical `PermissionRequest` payload, including `agent` and `agent_display_name`) to the bubble window, awaits a response, then writes the agent-specific permission response (e.g. Claude Code's `{hookSpecificOutput.decision.behavior}`) back. The "always" decision adds the tool to the per-(agent, session) `AlwaysAllowStore`, drained automatically on `SessionEnd` (see [ADR-0003](./docs/adr/0003-always-allow-scope.md)).
+  - Security: bound to loopback, no auth, length caps in each adapter's `validate()` method, `MAX_PENDING_REQUESTS = 50` to cap the pending map.
 - **`tray.rs`** — system tray with Theme submenu, DND / Sound check items, Mini / Settings / Quit items. Left click shows the menu; menu events mutate the shared `SettingsStore` and broadcast the corresponding Tauri event.
 
 ### Frontend layout (`src/`)
 
-- **`App.vue`** — settings window. Loads from `plugin-store` on mount, also re-syncs from Rust via `get_settings`. Toggles write back to the store and (where relevant) invoke a Rust command. Theme / DND / bubble-position changes flow through Tauri commands; sound / auto-start bypass Rust and write to plugin-store directly.
-- **`pet/state-machine.js`** — pure-JS class `StateMachine` that maps Claude Code event names → display states. Tracks per-session state, active subagent counts (Task/Agent tool invocations map to `juggling` / `subagent-groove` / `building`). `STATE_PRIORITY` resolves which state to show when multiple sessions are active (error > notification > attention > … > idle). Exposes `EVENT_TO_STATE`, `ALL_STATES`, `STATE_PRIORITY`, `SUBAGENT_TOOLS` for callers.
+- **`App.vue`** — settings window. Loads from `plugin-store` on mount, also re-syncs from Rust via `get_settings`. Calls `list_agents` and renders one card per known agent with its `display_name`, `config_path`, install/uninstall button, and current `is_installed` state. Toggles write back to the store and (where relevant) invoke a Rust command. Theme / DND / bubble-position changes flow through Tauri commands; sound / auto-start bypass Rust and write to plugin-store directly.
+- **`pet/state-machine.js`** — pure-JS class `StateMachine` that consumes the **canonical 8-event vocabulary** (`SessionStart` / `SessionEnd` / `UserPromptSubmit` / `ToolCallStart` / `ToolCallEnd` / `AgentTurnEnd` / `Notification` / `PermissionRequest`) and resolves them to display states. Agent-specific event names are translated upstream by each `Agent` adapter — this file never sees `PreToolUse` or `Stop`. Tracks per-(agent, session) state via nested `Map<AgentId, Map<SessionId, SessionEntry>>` (B1 key strategy; see [CONTEXT.md](./CONTEXT.md) → Session). Subagent counting happens on `ToolCallStart` / `ToolCallEnd` for `tool_name` in `SUBAGENT_TOOLS` (Task / Agent) — drives the `juggling` / `subagent-groove` / `building` states. `ToolCallEnd` with `success=false` overrides to `error`. `STATE_PRIORITY` resolves the highest-priority state across all sessions (error > notification > attention > … > idle). Exposes `EVENT_TO_STATE`, `ALL_STATES`, `STATE_PRIORITY`, `SUBAGENT_TOOLS` for callers.
 - **`pet/theme-manager.js`** — `ThemeManager` class. Themes are registered programmatically (in `pet.html`) — each theme is `{ name, states: { <displayState>: { file, type } } }`. The `displayHintMap` field in `theme.json` is **not** consumed by this manager (it's an artifact of a larger upstream theme spec that the current PoC ignores) — when adding a new theme here, define the `states` map inline in the `registerTheme(...)` call.
 - **`pet.html`** — wires `ThemeManager` + `StateMachine` together, listens for `agent-hook-event` and `pet-theme-change` Tauri events, runs the drag/edge-snap/mini-mode logic, and triggers 10s-cooldown sound effects. Asset paths resolve to `themes/<themeId>/assets/...`.
 
@@ -107,31 +108,31 @@ To add a new theme, create the directory + `assets/`, then register the state→
 
 ### Tauri event names (Rust → JS)
 
-| Event                | Emitted by                                   | Consumed by                              |
-|----------------------|----------------------------------------------|------------------------------------------|
-| `pet-theme-change`   | `set_theme` cmd, tray theme menu             | `pet.html` (ThemeManager), bubble        |
-| `pet-dnd-change`     | `set_dnd` cmd, tray DND toggle               | `pet.html` (pauses sounds)               |
-| `pet-toggle-mini`    | tray "Mini Mode" item                        | `pet.html` (resize/edge-snap)            |
-| `agent-hook-event`   | `POST /state` handler                        | `pet.html` (StateMachine)                |
-| `permission-request` | `POST /permission` handler                   | `pet-bubble.html`                        |
-| `tauri://move`       | built-in (window moved)                      | `pet.html` (post-drag edge-snap check)   |
+| Event                | Emitted by                                                | Consumed by                              |
+|----------------------|-----------------------------------------------------------|------------------------------------------|
+| `pet-theme-change`   | `set_theme` cmd, tray theme menu                          | `pet.html` (ThemeManager), bubble        |
+| `pet-dnd-change`     | `set_dnd` cmd, tray DND toggle                            | `pet.html` (pauses sounds)               |
+| `pet-toggle-mini`    | tray "Mini Mode" item                                     | `pet.html` (resize/edge-snap)            |
+| `agent-hook-event`   | `POST /agents/{id}/state` handler (canonical `HookEvent`) | `pet.html` (StateMachine)                |
+| `permission-request` | `POST /agents/{id}/permission` handler (canonical `PermissionRequest`) | `pet-bubble.html`                        |
+| `tauri://move`       | built-in (window moved)                                   | `pet.html` (post-drag edge-snap check)   |
 
-JS → Rust: bubble calls `invoke('pet_permission_response', { decision: { request_id, decision, reason } })`. App.vue calls the various `*_claude_hook` / `set_*` commands.
+JS → Rust: bubble calls `invoke('pet_permission_response', { decision: { request_id, decision, reason } })`. App.vue calls the `set_*` commands for user preferences and the `*_agent_hook` / `list_agents` commands for agent management. The pet window invokes `clear_always_allow_session` on `SessionEnd` to drain the in-memory allow set.
 
 ### Legacy / unused files
 
-> ⚠️ **请勿接入 `hooks/claude-hook.js`。** 它请求的 `/hook/event` 端点在服务器上不存在（服务器只暴露 `/state` 和 `/permission`）。这是早期 hook 设计的遗留文件。**当前的安装路径是** `install_claude_hook` → `hook_installer.rs`，直接把 HTTP-hook 条目写入 `~/.claude/settings.json`。
+> ⚠️ **请勿接入 `hooks/claude-hook.js`。** 它请求的 `/hook/event` 端点在服务器上不存在（服务器只暴露 `/health` 和 `/agents/{id}/...`）。这是早期 hook 设计的遗留文件。**当前的安装路径是** `install_agent_hook('claude-code')` → `adapters/claude_code.rs::install`，直接把 HTTP-hook 条目写入 `~/.claude/settings.json`。
 
 - `hooks/claude-hook.js` — 遗留的独立 Node 脚本（见上方警告）。
 - `pet-hit.html` — 独立的命中区域窗口，未在任何地方注册。仅用于调试。
 
-### "始终允许" 仅在会话内有效
+### "始终允许" 仅在 (agent, session) 范围内有效
 
-权限气泡里的"始终允许"会把工具名加进 `http_server.rs` 里的内存 `HashSet`。**不会**持久化到 `settings.json`，应用重启后会清空。这是 MVP 范围内有意为之 — 如果用户重启后又看到弹窗，这是预期行为，不是 bug。
+权限气泡里的"始终允许"会把工具名加进 `AlwaysAllowStore`（内存的 `HashMap<(agent_id, session_id), HashSet<tool_name>>`）。同 agent 的同一 session 内重复调用同一工具会被自动放行；session 关闭时由 `pet.html` 监听 `SessionEnd` 调用 `clear_always_allow_session` 清空。**不会**持久化到 `settings.json`，应用重启后会清空。这是 MVP 范围内有意为之 —— 如果用户重启后又看到弹窗，或者关闭重开同一个 session 又被问，是预期行为，不是 bug。详见 [ADR-0003](./docs/adr/0003-always-allow-scope.md)。
 
 ### `~/.claude/settings.json` ownership
 
-`hook_installer.rs` is the only thing that mutates the user's `hooks` block. Uninstall is scoped to entries matching the `http://127.0.0.1:` URL prefix, so re-running install is safe and uninstall leaves any other hooks the user has configured alone. A `.json.bak` is written before each save.
+`adapters/claude_code.rs` is the only thing that mutates the user's `hooks` block for Claude Code. Uninstall is scoped to entries matching the `http://127.0.0.1:` URL prefix (more precisely, `http://127.0.0.1:{port}/agents/claude-code/...`), so re-running install is safe and uninstall leaves any other hooks the user has configured alone. A `.json.bak` is written before each save.
 
 ---
 

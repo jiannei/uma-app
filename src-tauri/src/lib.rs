@@ -14,6 +14,9 @@ use tokio::sync::Mutex;
 
 // ── Settings ──
 
+/// User-facing preferences, persisted in `settings.json` via
+/// `tauri-plugin-store`. Per-agent installation state is NOT here
+/// anymore — read it from `list_agents` (see ADR-0002).
 #[derive(Clone, serde::Serialize, serde::Deserialize, Debug)]
 pub struct Settings {
     pub theme: String,
@@ -21,7 +24,6 @@ pub struct Settings {
     pub mini_mode: bool,
     pub sound_enabled: bool,
     pub auto_start: bool,
-    pub hook_installed: bool,
 }
 
 impl Default for Settings {
@@ -32,7 +34,6 @@ impl Default for Settings {
             mini_mode: false,
             sound_enabled: true,
             auto_start: false,
-            hook_installed: false,
         }
     }
 }
@@ -346,10 +347,6 @@ pub fn run() {
                         .unwrap_or(true),
                     auto_start: pstore
                         .get("auto_start")
-                        .and_then(|v| v.as_bool())
-                        .unwrap_or(false),
-                    hook_installed: pstore
-                        .get("hook_installed")
                         .and_then(|v| v.as_bool())
                         .unwrap_or(false),
                 }
