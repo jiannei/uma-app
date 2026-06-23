@@ -289,13 +289,14 @@ fn hide_bubble_window(app: &AppHandle) {
 pub fn build_router(
     app: AppHandle,
     pending: Arc<Mutex<HashMap<String, oneshot::Sender<PermissionResponse>>>>,
+    always_allow: Arc<Mutex<HashMap<(String, String), std::collections::HashSet<String>>>>,
     bubble_position: Arc<std::sync::Mutex<String>>,
 ) -> Router {
     let state = Arc::new(AppState {
         app,
         pending,
         request_counter: Arc::new(Mutex::new(0)),
-        always_allow: Arc::new(Mutex::new(HashMap::new())),
+        always_allow,
         bubble_position,
     });
     Router::new()
@@ -311,10 +312,11 @@ pub fn build_router(
 pub async fn run(
     app: AppHandle,
     pending: Arc<Mutex<HashMap<String, oneshot::Sender<PermissionResponse>>>>,
+    always_allow: Arc<Mutex<HashMap<(String, String), std::collections::HashSet<String>>>>,
     port: u16,
     bubble_position: Arc<std::sync::Mutex<String>>,
 ) {
-    let router = build_router(app, pending, bubble_position);
+    let router = build_router(app, pending, always_allow, bubble_position);
     let addr = std::net::SocketAddr::from(([127, 0, 0, 1], port));
 
     eprintln!("[http] starting hook server on http://{addr}");

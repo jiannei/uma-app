@@ -52,6 +52,21 @@ pub struct SettingsStore(pub Arc<std::sync::Mutex<Settings>>);
 #[derive(Clone)]
 pub struct BubblePositionStore(pub Arc<std::sync::Mutex<String>>);
 
+/// Per-(agent, session) "always allow" tool set. Scope follows ADR-0003:
+/// a tool name is auto-approved only for that specific agent and
+/// session. The HTTP server writes to this when the user clicks
+/// "Always", and reads it on every incoming permission request.
+///
+/// The pet frontend invokes `clear_always_allow_session` on
+/// `SessionEnd` so a closed session's allow rules don't bleed into
+/// the next session opened by the same agent.
+///
+/// Memory-only, lost on restart (intentional MVP scope).
+#[derive(Clone)]
+pub struct AlwaysAllowStore(
+    pub Arc<Mutex<HashMap<(String, String), std::collections::HashSet<String>>>>,
+);
+
 #[derive(serde::Deserialize)]
 pub struct PermissionDecision {
     pub request_id: String,
@@ -220,6 +235,25 @@ fn uninstall_agent_hook(agent_id: String) -> Result<(), String> {
     lookup_or_404(&agent_id)?.uninstall()
 }
 
+/// Drop the always-allow set for a (agent_id, session_id) pair.
+/// Invoked from the pet frontend on `SessionEnd` so a closed
+/// session's allow rules don't leak to the next session opened by
+/// the same agent. No-op if the key isn't present.
+#[tauri::command]
+async fn clear_always_allow_session(
+    store: State<'_, AlwaysAllowStore>,
+    agent_id: String,
+    session_id: String,
+) -> Result<(), String> {
+    let mut allow = store.0.lock().await;
+    if allow.remove(&(agent_id.clone(), session_id.clone())).is_some() {
+        eprintln!(
+            "[clawd] cleared always-allow for {agent_id}/{session_id}"
+        );
+    }
+    Ok(())
+}
+
 // ── App entry ──
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -232,11 +266,13 @@ pub fn run() {
     let pending = Arc::new(Mutex::new(
         HashMap::<String, tokio::sync::oneshot::Sender<http_server::PermissionResponse>>::new(),
     ));
+    let always_allow: AlwaysAllowStore = AlwaysAllowStore(Arc::new(Mutex::new(HashMap::new())));
 
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_store::Builder::new().build())
         .manage(PendingStore(pending.clone()))
+        .manage(always_allow.clone())
         .manage(SettingsStore(Arc::new(std::sync::Mutex::new(
             Settings::default(),
         ))))
@@ -250,10 +286,12 @@ pub fn run() {
             check_agent_installed,
             install_agent_hook,
             uninstall_agent_hook,
+            clear_always_allow_session,
         ])
         .setup(move |app| {
             let app_handle = app.handle().clone();
             let pending_for_http = pending.clone();
+            let always_allow_for_http = always_allow.0.clone();
             let port = hook_port;
 
             // Load persisted bubble_position (default bottom-right)
@@ -269,7 +307,14 @@ pub fn run() {
             app.manage(BubblePositionStore(bubble_pos_store.clone()));
 
             tauri::async_runtime::spawn(async move {
-                http_server::run(app_handle, pending_for_http, port, bubble_pos_store).await;
+                http_server::run(
+                    app_handle,
+                    pending_for_http,
+                    always_allow_for_http,
+                    port,
+                    bubble_pos_store,
+                )
+                .await;
             });
 
             // Intercept main window close → hide instead of exit

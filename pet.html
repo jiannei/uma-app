@@ -187,6 +187,19 @@
           agent: payload.agent,
           success: payload.success,
         });
+        // ADR-0003 cleanup: when a session ends, drop its
+        // always-allow set so a future session opened by the same
+        // agent starts from a clean slate. The HTTP server holds
+        // the in-memory map; we tell it to forget this (agent,
+        // session) key.
+        if (payload.event_type === 'SessionEnd' && payload.session_id) {
+          window.__TAURI__.core
+            .invoke('clear_always_allow_session', {
+              agentId: payload.agent || 'unknown',
+              sessionId: payload.session_id,
+            })
+            .catch((err) => console.warn('[pet] clear_always_allow_session failed:', err));
+        }
       });
       window.__TAURI__.event.listen('pet-theme-change', (e) => {
         const themeId = e.payload?.theme;
