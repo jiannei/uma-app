@@ -27,14 +27,14 @@
     }
     #hit-zone {
       position: absolute;
-      left: 50%;
-      top: 50%;
-      transform: translate(-50%, -50%);
-      width: 144px;
-      height: 144px;
       pointer-events: auto;
       cursor: grab;
       touch-action: none;
+      /* Position + size set by JS via theme-manager.computeScreenHitRect() */
+      left: 0;
+      top: 0;
+      width: 0;
+      height: 0;
     }
     #hit-zone:active { cursor: grabbing; }
     #pet-sprite {
@@ -79,6 +79,22 @@
 
     themeManager.registerTheme('clawd', {
       name: 'Clawd',
+      // viewBox / hitBox / fileHitBox / wide + sleeping file lists copied
+      // verbatim from uma-pet's themes/clawd/theme.json (assets are
+      // byte-identical, md5 verified). Keys translated w→width, h→height.
+      // See ADR-0004.
+      viewBox: { x: -15, y: -25, width: 45, height: 45 },
+      fileViewBoxes: {},
+      hitBoxes: {
+        default: { x: -1, y: 5, width: 17, height: 12 },
+        sleeping: { x: -2, y: 9, width: 19, height: 7 },
+        wide: { x: -3, y: 3, width: 21, height: 14 },
+      },
+      fileHitBoxes: {
+        'clawd-working-typing.svg': { x: -2, y: -7, width: 20, height: 24 },
+      },
+      wideHitboxFiles: ['clawd-error.svg', 'clawd-notification.svg'],
+      sleepingHitboxFiles: ['clawd-sleeping.svg', 'clawd-collapse-sleep.svg'],
       states: {
         idle: { file: 'clawd-idle-follow.svg', type: 'svg' },
         thinking: { file: 'clawd-working-thinking.svg', type: 'svg' },
@@ -97,6 +113,23 @@
     });
     themeManager.registerTheme('calico', {
       name: 'Calico',
+      // viewBox / hitBox / wide + sleeping file lists copied verbatim from
+      // uma-pet's themes/calico/theme.json (assets byte-identical, md5
+      // verified). Keys translated w→width, h→height. See ADR-0004.
+      viewBox: { x: 0, y: 0, width: 266, height: 200 },
+      fileViewBoxes: {},
+      hitBoxes: {
+        default: { x: 80, y: 30, width: 106, height: 140 },
+        sleeping: { x: 60, y: 60, width: 146, height: 100 },
+        wide: { x: 50, y: 20, width: 166, height: 160 },
+      },
+      fileHitBoxes: {},
+      wideHitboxFiles: [
+        'calico-error.apng',
+        'calico-notification.apng',
+        'calico-working-conducting.apng',
+      ],
+      sleepingHitboxFiles: ['calico-sleeping.apng', 'calico-collapsing.apng'],
       states: {
         idle: { file: 'calico-idle.apng', type: 'apng' },
         thinking: { file: 'calico-thinking.apng', type: 'apng' },
@@ -125,11 +158,30 @@
       if (url) sprite.src = url;
     }
 
+    // Map current state's viewBox hit-box through the sprite's actual rendered
+    // rect and write the result onto #hit-zone. Fires on state change, theme
+    // change, and tauri://move (so mini-mode / peek resize the hit area).
+    // See ADR-0004.
+    function updateHitZone() {
+      const renderedRect = sprite.getBoundingClientRect();
+      const hitRect = themeManager.computeScreenHitRect(currentDisplayState, renderedRect);
+      if (!hitRect) {
+        hitZone.style.display = 'none';
+        return;
+      }
+      hitZone.style.display = 'block';
+      hitZone.style.left = `${hitRect.x}px`;
+      hitZone.style.top = `${hitRect.y}px`;
+      hitZone.style.width = `${hitRect.width}px`;
+      hitZone.style.height = `${hitRect.height}px`;
+    }
+
     function setDisplayState(state) {
       if (state === currentDisplayState) return;
       const prevState = currentDisplayState;
       currentDisplayState = state;
       refreshSprite();
+      updateHitZone();
       statusEl.textContent = state;
       statusEl.style.color = state === 'error' ? '#ff6b6b' : 'white';
 
@@ -175,7 +227,18 @@
     }
 
     stateMachine.onChange(({ display }) => setDisplayState(display));
-    themeManager.onChange(() => refreshSprite());
+    themeManager.onChange(() => {
+      refreshSprite();
+      updateHitZone();
+    });
+
+    // Initial paint: the state machine doesn't emit anything in its
+    // constructor, so setDisplayState('idle') would early-return against
+    // currentDisplayState's initial 'idle' value. Without this, the hit-zone
+    // stays at its 0×0 default until the first agent-hook-event arrives —
+    // a regression from the old fixed 144×144 div which was always live.
+    refreshSprite();
+    updateHitZone();
 
     if (window.__TAURI__?.event?.listen) {
       window.__TAURI__.event.listen('agent-hook-event', (e) => {
@@ -207,7 +270,7 @@
       });
     }
 
-    // Drag on hit-zone only (the centered 100x100 sprite area)
+    // Drag on hit-zone only (the asset-specific rectangle, updated by JS).
     hitZone.addEventListener('pointerdown', (e) => {
       if (e.button !== 0) return;
       e.preventDefault();
@@ -327,10 +390,11 @@
       }
     }
 
-    // Listen for drag end → check edge snap
+    // Listen for drag end → check edge snap + recompute hit-zone
     if (window.__TAURI__?.event?.listen) {
       window.__TAURI__.event.listen('tauri://move', () => {
         if (!isMiniMode) checkEdgeSnap();
+        updateHitZone();
       });
     }
 

@@ -82,6 +82,75 @@ class ThemeManager {
   }
 
   /**
+   * Resolve hit-box data for a state — returns the viewBox + hitBox (both in
+   * viewBox coords) for the asset currently bound to that state. Used by the
+   * pet window to compute the actual screen-space drag rectangle.
+   *
+   * Override order (matches ADR-0004 / uma-pet):
+   *   fileHitBoxes[file] > hitBoxes.sleeping (if file ∈ sleepingHitboxFiles)
+   *                    > hitBoxes.wide (if file ∈ wideHitboxFiles)
+   *                    > hitBoxes.default
+   *
+   * viewBox: fileViewBoxes[file] || theme.viewBox
+   *
+   * Returns null when state is unknown OR hitBoxes.default is missing (uma-pet
+   * semantics — no fallback to full viewBox; caller treats null as no drag area).
+   */
+  getHitBoxDataForState(state) {
+    if (!this.currentTheme) return null;
+    const manifest = this.currentTheme.manifest;
+    if (!manifest || !manifest.states) return null;
+    const stateDef = manifest.states[state];
+    if (!stateDef) return null;
+    const file = stateDef.file;
+
+    const fileViewBoxes = manifest.fileViewBoxes || {};
+    const fileHitBoxes = manifest.fileHitBoxes || {};
+    const wideFiles = new Set(manifest.wideHitboxFiles || []);
+    const sleepingFiles = new Set(manifest.sleepingHitboxFiles || []);
+    const hitBoxes = manifest.hitBoxes || {};
+
+    const viewBox = fileViewBoxes[file] || manifest.viewBox || null;
+
+    let hitBox = null;
+    if (fileHitBoxes[file]) {
+      hitBox = fileHitBoxes[file];
+    } else if (sleepingFiles.has(file) && hitBoxes.sleeping) {
+      hitBox = hitBoxes.sleeping;
+    } else if (wideFiles.has(file) && hitBoxes.wide) {
+      hitBox = hitBoxes.wide;
+    } else if (hitBoxes.default) {
+      hitBox = hitBoxes.default;
+    }
+
+    return { file, viewBox, hitBox };
+  }
+
+  /**
+   * Compute the screen-space drag rectangle for a state, by mapping the
+   * viewBox hit-box through the asset's actual rendered DOM rect.
+   *
+   * `renderedRect` is the sprite element's bounding rect (e.g.
+   * `#pet-sprite.getBoundingClientRect()`); the caller is responsible for
+   * reading it because this class is DOM-agnostic.
+   *
+   * Returns null when hit-box data is incomplete or renderedRect is missing.
+   */
+  computeScreenHitRect(state, renderedRect) {
+    const data = this.getHitBoxDataForState(state);
+    if (!data || !data.viewBox || !data.hitBox || !renderedRect) return null;
+    const { viewBox, hitBox } = data;
+    const scaleX = renderedRect.width / viewBox.width;
+    const scaleY = renderedRect.height / viewBox.height;
+    return {
+      x: renderedRect.x + (hitBox.x - viewBox.x) * scaleX,
+      y: renderedRect.y + (hitBox.y - viewBox.y) * scaleY,
+      width: hitBox.width * scaleX,
+      height: hitBox.height * scaleY,
+    };
+  }
+
+  /**
    * Subscribe to theme changes
    */
   onChange(listener) {
