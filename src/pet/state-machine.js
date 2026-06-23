@@ -21,7 +21,9 @@ const EVENT_TO_STATE = {
   // Default for ToolCallEnd; overridden to 'error' if success=false
   // (see processEvent).
   ToolCallEnd: 'working',
-  AgentTurnEnd: 'attention',
+  // AgentTurnEnd: 'idle' (was 'attention') — the celebration
+  // animation is now a transient one-shot set in processEvent.
+  AgentTurnEnd: 'idle',
   Notification: 'notification',
   PermissionRequest: 'notification',
 };
@@ -73,6 +75,12 @@ const SUBAGENT_TOOLS = new Set(['Task', 'Agent', 'task']);
 /// single bucket so we don't lose sessions.
 const UNKNOWN_AGENT = 'unknown';
 
+/// MVP: AgentTurnEnd fires a global one-shot `attention` celebration
+/// on top of the underlying `idle` state. Auto-returns after
+/// `ONESHOT_DURATION_MS`. Promote to a theme-driven `ONESHOT_DURATIONS`
+/// map (per state) when the full one-shot framework lands.
+const ONESHOT_DURATION_MS = 1500;
+
 class StateMachine {
   constructor() {
     // Nested map: agentId → sessionId → SessionEntry.
@@ -88,6 +96,11 @@ class StateMachine {
     // Same nesting for the per-session active subagent count.
     this.activeSubagents = new Map();
     this.listeners = new Set();
+    // MVP: single global one-shot slot. Currently used only for
+    // AgentTurnEnd → 'attention'; promote to a per-state slot when
+    // ONESHOT_STATES is introduced.
+    this.activeOneShot = null;
+    this.oneShotTimer = null;
   }
 
   /**
@@ -156,6 +169,13 @@ class StateMachine {
       success: event_type === 'ToolCallEnd' ? success : undefined,
     });
 
+    // MVP: AgentTurnEnd fires a one-shot 'attention' celebration
+    // that auto-returns to the underlying 'idle' state. Replaces any
+    // prior one-shot — re-trigger does not queue.
+    if (event_type === 'AgentTurnEnd') {
+      this.setOneShot('attention', ONESHOT_DURATION_MS);
+    }
+
     const display = this.getDisplayState();
     this.notify({ agentId: aid, sessionId: sid, state, display, event });
     return display;
@@ -167,6 +187,19 @@ class StateMachine {
    * loudest state.
    */
   getDisplayState() {
+    // MVP: an active one-shot (e.g. 'attention' from AgentTurnEnd)
+    // takes priority over the underlying aggregate while it lasts.
+    if (this.activeOneShot) {
+      if (this.activeOneShot.expiresAt > Date.now()) {
+        return this.activeOneShot.state;
+      }
+      // Expired — clear and fall through to aggregate.
+      this.activeOneShot = null;
+      if (this.oneShotTimer) {
+        clearTimeout(this.oneShotTimer);
+        this.oneShotTimer = null;
+      }
+    }
     if (this.sessions.size === 0) return 'idle';
     let best = 'idle';
     let bestPriority = 0;
@@ -180,6 +213,30 @@ class StateMachine {
       }
     }
     return best;
+  }
+
+  /**
+   * MVP: arm a global one-shot display state. Replaces any prior
+   * one-shot (single slot, no queueing). The setTimeout broadcasts
+   * a 'one-shot-expired' event when the duration elapses, so the
+   * renderer can re-resolve to the underlying aggregate.
+   * @param {string} state
+   * @param {number} durationMs
+   */
+  setOneShot(state, durationMs) {
+    if (this.oneShotTimer) clearTimeout(this.oneShotTimer);
+    this.activeOneShot = { state, expiresAt: Date.now() + durationMs };
+    this.oneShotTimer = setTimeout(() => {
+      this.activeOneShot = null;
+      this.oneShotTimer = null;
+      this.notify({
+        agentId: null,
+        sessionId: null,
+        state: this.getDisplayState(),
+        display: this.getDisplayState(),
+        event: 'one-shot-expired',
+      });
+    }, durationMs);
   }
 
   /**
