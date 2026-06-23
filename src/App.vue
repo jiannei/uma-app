@@ -1,7 +1,9 @@
 <script setup lang="ts">
-import { ref, onMounted } from "vue";
+import { ref, reactive, onMounted } from "vue";
 import { invoke } from "@tauri-apps/api/core";
 import { load } from "@tauri-apps/plugin-store";
+
+// ── Types ──────────────────────────────────────────────────────
 
 interface Settings {
   theme: string;
@@ -9,8 +11,18 @@ interface Settings {
   mini_mode: boolean;
   sound_enabled: boolean;
   auto_start: boolean;
-  hook_installed: boolean;
+  bubble_position: string;
 }
+
+/// Mirrors `AgentInfo` in src-tauri/src/lib.rs.
+interface AgentInfo {
+  id: string;
+  display_name: string;
+  config_path: string;
+  is_installed: boolean;
+}
+
+// ── Reactive state ──────────────────────────────────────────────
 
 const settings = ref<Settings>({
   theme: 'clawd',
@@ -18,7 +30,7 @@ const settings = ref<Settings>({
   mini_mode: false,
   sound_enabled: true,
   auto_start: false,
-  hook_installed: false,
+  bubble_position: 'bottom-right',
 });
 
 const themes = [
@@ -28,12 +40,16 @@ const themes = [
 
 const isLoading = ref(true);
 const status = ref('');
-const isHookBusy = ref(false);
 const bubblePosition = ref('bottom-right');
+
+// Agents (registered with KNOWN_AGENTS in Rust)
+const agents = ref<AgentInfo[]>([]);
+const agentBusy = reactive<Record<string, boolean>>({});
+
+// ── Loaders ─────────────────────────────────────────────────────
 
 async function loadSettings() {
   try {
-    // Load from plugin-store on the JS side
     const store = await load('settings.json', { autoSave: false, defaults: {} });
     const theme = (await store.get<string>('theme')) || 'clawd';
     const dnd = (await store.get<boolean>('dnd')) ?? false;
@@ -49,7 +65,7 @@ async function loadSettings() {
       mini_mode,
       sound_enabled,
       auto_start,
-      hook_installed: settings.value.hook_installed,
+      bubble_position: storedPos,
     };
 
     // Also sync from Rust (in case anything diverged)
@@ -59,9 +75,6 @@ async function loadSettings() {
     } catch {
       /* ignore */
     }
-
-    // Check hook status
-    await refreshHookStatus();
   } catch (err) {
     status.value = 'Failed to load settings: ' + err;
   } finally {
@@ -69,14 +82,28 @@ async function loadSettings() {
   }
 }
 
-async function refreshHookStatus() {
+async function loadAgents() {
   try {
-    const installed = await invoke<boolean>('check_hook_installed');
-    settings.value.hook_installed = installed;
+    agents.value = await invoke<AgentInfo[]>('list_agents');
   } catch (err) {
-    console.warn('check_hook_installed failed:', err);
+    console.warn('list_agents failed:', err);
+    status.value = 'Failed to list agents: ' + err;
   }
 }
+
+async function refreshAgent(agentId: string) {
+  try {
+    const installed = await invoke<boolean>('check_agent_installed', { agentId });
+    const idx = agents.value.findIndex((a) => a.id === agentId);
+    if (idx >= 0) {
+      agents.value[idx] = { ...agents.value[idx], is_installed: installed };
+    }
+  } catch (err) {
+    console.warn(`check_agent_installed(${agentId}) failed:`, err);
+  }
+}
+
+// ── Settings mutators ───────────────────────────────────────────
 
 async function setTheme(theme: string) {
   try {
@@ -138,7 +165,7 @@ async function setBubblePosition(position: string) {
     const store = await load('settings.json', { autoSave: true, defaults: {} });
     await store.set('bubble_position', position);
     await store.save();
-    bubblePosition.value = position;  // Update reactive ref so UI highlights change
+    bubblePosition.value = position;
     status.value = `Bubble position: ${position}`;
     setTimeout(() => { status.value = ''; }, 1500);
   } catch (err) {
@@ -146,35 +173,42 @@ async function setBubblePosition(position: string) {
   }
 }
 
-async function installHook() {
-  isHookBusy.value = true;
+// ── Agent install / uninstall ───────────────────────────────────
+
+async function installAgent(agentId: string) {
+  agentBusy[agentId] = true;
   try {
-    await invoke('install_claude_hook');
-    await refreshHookStatus();
-    status.value = 'Hook installed';
+    await invoke('install_agent_hook', { agentId });
+    await refreshAgent(agentId);
+    const agent = agents.value.find((a) => a.id === agentId);
+    status.value = `${agent?.display_name ?? agentId}: hook installed`;
     setTimeout(() => { status.value = ''; }, 2000);
   } catch (err) {
-    status.value = 'Install failed: ' + err;
+    status.value = `Install failed: ${err}`;
   } finally {
-    isHookBusy.value = false;
+    agentBusy[agentId] = false;
   }
 }
 
-async function uninstallHook() {
-  isHookBusy.value = true;
+async function uninstallAgent(agentId: string) {
+  agentBusy[agentId] = true;
   try {
-    await invoke('uninstall_claude_hook');
-    await refreshHookStatus();
-    status.value = 'Hook uninstalled';
+    await invoke('uninstall_agent_hook', { agentId });
+    await refreshAgent(agentId);
+    const agent = agents.value.find((a) => a.id === agentId);
+    status.value = `${agent?.display_name ?? agentId}: hook uninstalled`;
     setTimeout(() => { status.value = ''; }, 2000);
   } catch (err) {
-    status.value = 'Uninstall failed: ' + err;
+    status.value = `Uninstall failed: ${err}`;
   } finally {
-    isHookBusy.value = false;
+    agentBusy[agentId] = false;
   }
 }
 
-onMounted(loadSettings);
+onMounted(async () => {
+  await loadSettings();
+  await loadAgents();
+});
 </script>
 
 <template>
@@ -215,35 +249,43 @@ onMounted(loadSettings);
 
     <section>
       <h2>Agent 集成</h2>
-      <div class="agent-card">
+      <div v-if="agents.length === 0" class="empty-hint">
+        No agents registered. (Rust side: check KNOWN_AGENTS.)
+      </div>
+      <div
+        v-for="agent in agents"
+        :key="agent.id"
+        class="agent-card"
+      >
         <div class="agent-info">
-          <div class="agent-name">Claude Code</div>
-          <div class="agent-status" :class="{ installed: settings.hook_installed }">
-            {{ settings.hook_installed ? '✅ 已安装' : '❌ 未安装' }}
+          <div class="agent-name">{{ agent.display_name }}</div>
+          <div class="agent-config">{{ agent.config_path }}</div>
+          <div class="agent-status" :class="{ installed: agent.is_installed }">
+            {{ agent.is_installed ? '✅ 已安装' : '❌ 未安装' }}
           </div>
         </div>
         <div class="agent-actions">
           <button
-            v-if="!settings.hook_installed"
+            v-if="!agent.is_installed"
             class="btn-primary"
-            :disabled="isHookBusy"
-            @click="installHook"
+            :disabled="agentBusy[agent.id]"
+            @click="installAgent(agent.id)"
           >
-            {{ isHookBusy ? '安装中...' : '安装' }}
+            {{ agentBusy[agent.id] ? '安装中...' : '安装' }}
           </button>
           <button
             v-else
             class="btn-secondary"
-            :disabled="isHookBusy"
-            @click="uninstallHook"
+            :disabled="agentBusy[agent.id]"
+            @click="uninstallAgent(agent.id)"
           >
-            {{ isHookBusy ? '卸载中...' : '卸载' }}
+            {{ agentBusy[agent.id] ? '卸载中...' : '卸载' }}
           </button>
         </div>
       </div>
       <p class="agent-hint">
-        安装后，Claude Code 的事件将通过 HTTP hook 转发到本地 17373 端口。<br>
-        卸载会移除 ~/.claude/settings.json 中本应用添加的条目，保留其他 hooks。
+        安装后，agent 的事件将通过 HTTP hook 转发到本地 17373 端口。<br>
+        卸载会从该 agent 的配置文件中移除本应用添加的条目，保留其他 hooks。
       </p>
     </section>
 
@@ -446,11 +488,22 @@ footer {
   display: flex;
   flex-direction: column;
   gap: 4px;
+  min-width: 0;
+  flex: 1;
 }
 
 .agent-name {
   font-size: 14px;
   font-weight: 600;
+}
+
+.agent-config {
+  font-size: 11px;
+  color: #6c7086;
+  font-family: monospace;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .agent-status {
@@ -460,6 +513,15 @@ footer {
 
 .agent-status.installed {
   color: #a6e3a1;
+}
+
+.empty-hint {
+  font-size: 12px;
+  color: #888;
+  padding: 14px 16px;
+  background: #1e1e2e;
+  border-radius: 10px;
+  margin-bottom: 8px;
 }
 
 .agent-actions button {

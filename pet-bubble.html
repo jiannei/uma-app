@@ -107,10 +107,14 @@
       const toolInputJson = req.tool_input
         ? JSON.stringify(req.tool_input, null, 2).slice(0, 200)
         : '(no input)';
+      // agent_display_name comes from the canonical PermissionRequest
+      // emitted by the HTTP server. Falls back to a generic title for
+      // older payloads that may not carry it.
+      const agentLabel = req.agent_display_name || 'Permission';
       bubble.innerHTML = `
         <div id="header">
           <div id="icon">🔐</div>
-          <span id="title">Permission Request</span>
+          <span id="title">${escapeHtml(agentLabel)} wants permission</span>
           <span id="tool-name">${escapeHtml(req.tool_name)}</span>
         </div>
         <div id="details">${escapeHtml(toolInputJson)}</div>
