@@ -6,6 +6,20 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 A transparent, always-on-top animated pet that lives on the user's desktop and reacts to events from Claude Code (or other agents) via HTTP webhooks. Includes a system tray, a settings window, and a permission-request "bubble" that pauses the agent until the user approves/denies.
 
+## Agent skills
+
+### Issue tracker
+
+Issues live as markdown files under `.scratch/<feature>/`. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Five canonical labels, default names. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context — one `CONTEXT.md` + `docs/adr/` at the repo root. See `docs/agents/domain.md`.
+
 ## Tech stack
 
 - **Shell / windows**: Tauri 2 (Rust) — three webview windows
