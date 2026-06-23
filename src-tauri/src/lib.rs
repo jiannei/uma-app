@@ -1,7 +1,8 @@
 // src-tauri/src/lib.rs — Main application entry point
 // Manages settings, system tray, and Tauri commands
 
-mod hook_installer;
+mod adapters;
+mod agent;
 mod http_server;
 mod tray;
 
@@ -165,28 +166,58 @@ async fn pet_permission_response(
     Ok(())
 }
 
-// ── Hook installer commands ──
+// ── Agent Tauri commands ──
 
-#[tauri::command]
-fn check_hook_installed() -> Result<bool, String> {
-    hook_installer::check_installed()
+/// Information about a registered agent, surfaced to the settings UI.
+#[derive(serde::Serialize)]
+struct AgentInfo {
+    id: String,
+    display_name: String,
+    config_path: String,
+    is_installed: bool,
 }
 
-#[tauri::command]
-fn install_claude_hook() -> Result<(), String> {
-    // Port is read from UMA_PET_PORT env var, falling back to 17373.
-    // We deliberately do not accept `port` from the frontend — the Rust
-    // side is the single source of truth for what port the server binds.
-    let port: u16 = std::env::var("UMA_PET_PORT")
+/// Read the pet port the HTTP server binds to. Falls back to 17373.
+/// The frontend does NOT pass this in — the Rust side is the single
+/// source of truth for what port the server binds.
+fn pet_port() -> u16 {
+    std::env::var("UMA_PET_PORT")
         .ok()
         .and_then(|s| s.parse().ok())
-        .unwrap_or(17373);
-    hook_installer::install(port)
+        .unwrap_or(17373)
+}
+
+fn lookup_or_404(agent_id: &str) -> Result<&'static dyn agent::Agent, String> {
+    agent::lookup_agent(agent_id).ok_or_else(|| format!("unknown agent: {agent_id}"))
 }
 
 #[tauri::command]
-fn uninstall_claude_hook() -> Result<(), String> {
-    hook_installer::uninstall()
+fn list_agents() -> Vec<AgentInfo> {
+    agent::KNOWN_AGENTS
+        .iter()
+        .map(|a| AgentInfo {
+            id: a.id().to_string(),
+            display_name: a.display_name().to_string(),
+            config_path: a.config_path().to_string_lossy().to_string(),
+            is_installed: a.is_installed().unwrap_or(false),
+        })
+        .collect()
+}
+
+#[tauri::command]
+fn check_agent_installed(agent_id: String) -> Result<bool, String> {
+    lookup_or_404(&agent_id)?.is_installed()
+}
+
+#[tauri::command]
+fn install_agent_hook(agent_id: String) -> Result<(), String> {
+    let adapter = lookup_or_404(&agent_id)?;
+    adapter.install(pet_port())
+}
+
+#[tauri::command]
+fn uninstall_agent_hook(agent_id: String) -> Result<(), String> {
+    lookup_or_404(&agent_id)?.uninstall()
 }
 
 // ── App entry ──
@@ -215,9 +246,10 @@ pub fn run() {
             set_dnd,
             set_bubble_position,
             pet_permission_response,
-            check_hook_installed,
-            install_claude_hook,
-            uninstall_claude_hook,
+            list_agents,
+            check_agent_installed,
+            install_agent_hook,
+            uninstall_agent_hook,
         ])
         .setup(move |app| {
             let app_handle = app.handle().clone();
