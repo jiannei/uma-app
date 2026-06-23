@@ -54,6 +54,11 @@ impl From<&str> for AgentId {
 // ── Canonical types (state machine + bubble see only these) ──────
 
 /// Canonical hook event after adapter conversion. See ADR-0001.
+///
+/// All 8 canonical event types share the same flat shape; per-event
+/// fields are populated only when meaningful:
+/// - `success` + `error` are set on `ToolCallEnd` (the only event that
+///   carries a result). They are `None` on every other event type.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HookEvent {
     pub session_id: String,
@@ -66,6 +71,14 @@ pub struct HookEvent {
     pub agent: Option<AgentId>,
     #[serde(default)]
     pub cwd: Option<String>,
+    /// `Some(true)` / `Some(false)` only on `ToolCallEnd`. The state
+    /// machine uses this to flip into `error` on a failed tool call.
+    #[serde(default)]
+    pub success: Option<bool>,
+    /// Human-readable failure reason. `Some(_)` only on
+    /// `ToolCallEnd` with `success = false`.
+    #[serde(default)]
+    pub error: Option<String>,
 }
 
 /// Canonical permission request, already routed to the right agent and

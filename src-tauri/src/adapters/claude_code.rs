@@ -173,13 +173,16 @@ impl Agent for ClaudeCodeAdapter {
         let payload: ClaudeCodeHookPayload = serde_json::from_value(raw)
             .map_err(|e| format!("invalid Claude Code hook payload: {e}"))?;
         payload.validate()?;
+        let (event_type, success, error) = translate_event(&payload.hook_event_name);
         Ok(HookEvent {
             session_id: payload.session_id,
-            event_type: payload.hook_event_name,
+            event_type,
             tool_name: payload.tool_name,
             tool_input: payload.tool_input,
             agent: Some(AgentId(AGENT_ID.into())),
             cwd: payload.cwd,
+            success,
+            error,
         })
     }
 
@@ -218,6 +221,42 @@ impl Agent for ClaudeCodeAdapter {
                 "decision": { "behavior": behavior },
             }
         }))
+    }
+}
+
+// ── Event translation (Claude Code → canonical 8 events, ADR-0001) ─
+
+/// Translate Claude Code's `hook_event_name` into the canonical 8-event
+/// vocabulary. Returns `(canonical_name, success, error)`:
+/// - `success` is set only for `ToolCallEnd` (true for PostToolUse,
+///   false for PostToolUseFailure).
+/// - `error` is set only on failed `ToolCallEnd`. The MVP doesn't
+///   capture the tool's error string — we just flip the success flag
+///   so the state machine can show the `error` animation.
+/// - Events without a canonical mapping (e.g. `SubagentStart` /
+///   `SubagentStop`) are passed through unchanged. The state machine
+///   logs them as "unknown event" and ignores them. This way Claude
+///   Code can add new event types in the future without breaking the
+///   pet — they just don't drive a display state.
+fn translate_event(
+    hook_event_name: &str,
+) -> (String, Option<bool>, Option<String>) {
+    match hook_event_name {
+        "SessionStart" => ("SessionStart".into(), None, None),
+        "SessionEnd" => ("SessionEnd".into(), None, None),
+        "UserPromptSubmit" => ("UserPromptSubmit".into(), None, None),
+        "PreToolUse" => ("ToolCallStart".into(), None, None),
+        "PostToolUse" => ("ToolCallEnd".into(), Some(true), None),
+        "PostToolUseFailure" => ("ToolCallEnd".into(), Some(false), None),
+        "Stop" => ("AgentTurnEnd".into(), None, None),
+        "Notification" => ("Notification".into(), None, None),
+        // Pass-through for subagent + permission events. The state
+        // machine doesn't act on these; the bubble / HTTP layer does.
+        "SubagentStart" | "SubagentStop" | "PermissionRequest" => {
+            (hook_event_name.to_string(), None, None)
+        }
+        // Truly unknown — pass through so we never silently drop data.
+        other => (other.to_string(), None, None),
     }
 }
 

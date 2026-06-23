@@ -185,6 +185,7 @@
           event_type: payload.event_type,
           tool_name: payload.tool_name,
           agent: payload.agent,
+          success: payload.success,
         });
       });
       window.__TAURI__.event.listen('pet-theme-change', (e) => {

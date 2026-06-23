@@ -1,22 +1,32 @@
 // src/pet/state-machine.js — State machine + subagent tracking
-// Handles agent hook events and resolves to display state
+// Implements ADR-0001 (canonical 8-event vocabulary) and the
+// (agentId, sessionId) nested key structure (see CONTEXT.md → Session).
+//
+// Receives canonical `HookEvent`s from the HTTP server via the
+// `agent-hook-event` Tauri event. Each event is normalized upstream
+// by the agent's adapter — this file never sees agent-specific event
+// names like `PreToolUse` or `Stop` (those are translated to
+// `ToolCallStart` / `AgentTurnEnd` in `adapters/claude_code.rs`).
 
-// Agent event → internal state mapping (aligned with uma-pet)
+// ── Canonical 8-event vocabulary (ADR-0001) ─────────────────────
+
+/// Agent event → internal display state. The keys here are the
+/// canonical event names from CONTEXT.md (HookEvent), NOT agent-
+/// specific event names. Adapters do the translation upstream.
 const EVENT_TO_STATE = {
   SessionStart: 'idle',
   SessionEnd: 'sleeping',
   UserPromptSubmit: 'thinking',
-  PreToolUse: 'working',
-  PostToolUse: 'working',
-  PostToolUseFailure: 'error',
-  Stop: 'attention',
+  ToolCallStart: 'working',
+  // Default for ToolCallEnd; overridden to 'error' if success=false
+  // (see processEvent).
+  ToolCallEnd: 'working',
+  AgentTurnEnd: 'attention',
   Notification: 'notification',
   PermissionRequest: 'notification',
-  SubagentStart: 'working',
-  SubagentStop: 'working',
 };
 
-// All supported display states (aligned with uma-pet)
+/// All supported display states. Themes map these to sprite files.
 const ALL_STATES = [
   'idle',
   'thinking',
@@ -33,7 +43,9 @@ const ALL_STATES = [
   'juggling',
 ];
 
-// Priority order — higher number wins when multiple sessions are active
+/// Priority order — higher number wins when multiple sessions are
+/// active. error > notification > attention > juggling > subagent-
+/// groove > building > thinking > working > ... > idle.
 const STATE_PRIORITY = {
   error: 100,
   notification: 90,
@@ -50,53 +62,81 @@ const STATE_PRIORITY = {
   idle: 0,
 };
 
-// Tools that count as subagent spawning
+/// Tool names that count as a subagent spawn. Today every agent
+/// uses the same name (the "Task" tool is the universal subagent
+/// convention), but this stays a Set so a future agent with its
+/// own vocabulary can extend it.
 const SUBAGENT_TOOLS = new Set(['Task', 'Agent', 'task']);
+
+/// Used when an incoming event has no `agent` field (e.g. legacy
+/// payloads from before the adapter rewrite). Coalesce into a
+/// single bucket so we don't lose sessions.
+const UNKNOWN_AGENT = 'unknown';
 
 class StateMachine {
   constructor() {
-    this.sessions = new Map(); // sessionId → { state, lastEvent, toolName, subagentCount, timestamp }
-    this.activeSubagents = new Map(); // sessionId → count of active subagents
+    // Nested map: agentId → sessionId → SessionEntry.
+    // See CONTEXT.md (Session): the pet may observe multiple
+    // sessions from multiple agents simultaneously, and a session
+    // is uniquely identified by (host, agentId, sessionId). `host`
+    // is always 'local' for the Tauri build, so we key on the
+    // remaining two.
+    //
+    // SessionEntry: { state, lastEvent, toolName, subagentCount,
+    //                 timestamp, success? }
+    this.sessions = new Map();
+    // Same nesting for the per-session active subagent count.
+    this.activeSubagents = new Map();
     this.listeners = new Set();
   }
 
   /**
-   * Process an incoming hook event from an agent
-   * @param {object} event - { session_id, event_type, tool_name, ... }
-   * @returns {string} - The new resolved display state
+   * Process an incoming hook event from an agent.
+   * @param {object} event - { session_id, event_type, tool_name, agent, success?, error? }
+   * @returns {string} The new resolved display state
    */
   processEvent(event) {
-    const { session_id, event_type, tool_name } = event;
+    const { session_id, event_type, tool_name, success } = event;
     if (!session_id) {
       console.warn('[state] event missing session_id:', event);
       return this.getDisplayState();
     }
 
     const sid = String(session_id);
+    const aid = event.agent || UNKNOWN_AGENT;
     const now = Date.now();
     let state = EVENT_TO_STATE[event_type];
 
     if (!state) {
-      console.log(`[state] unknown event: ${event_type}`);
+      // SubagentStart / SubagentStop from older payloads, or any
+      // future event the adapter hasn't taught us about. Log and
+      // move on — the session's existing state stays in place.
+      console.log(`[state] unknown canonical event: ${event_type}`);
       return this.getDisplayState();
     }
 
-    // Track subagent lifecycle (Task tool = Claude Code's subagent)
-    if (SUBAGENT_TOOLS.has(tool_name)) {
-      if (event_type === 'PreToolUse') {
-        const count = this.activeSubagents.get(sid) || 0;
-        this.activeSubagents.set(sid, count + 1);
-        console.log(`[state] subagent spawned in ${sid}, count: ${count + 1}`);
-      } else if (event_type === 'PostToolUse') {
-        const count = this.activeSubagents.get(sid) || 0;
-        if (count > 0) this.activeSubagents.set(sid, count - 1);
-        console.log(`[state] subagent completed in ${sid}, count: ${count - 1}`);
-      }
+    // ToolCallEnd with success=false → 'error' state, regardless of
+    // whether the tool was a subagent tool or not.
+    if (event_type === 'ToolCallEnd' && success === false) {
+      state = 'error';
     }
 
-    // Override state for Task tool (build/subagent states)
-    if (SUBAGENT_TOOLS.has(tool_name) && (event_type === 'PreToolUse' || event_type === 'PostToolUse')) {
-      const activeCount = this.activeSubagents.get(sid) || 0;
+    // Subagent counting (per ADR-0001 subagent decision: count via
+    // Task tool calls, NOT via a dedicated SubagentStart event).
+    if (SUBAGENT_TOOLS.has(tool_name) &&
+        (event_type === 'ToolCallStart' || event_type === 'ToolCallEnd')) {
+      const count = this.getSubagentCount(aid, sid);
+      if (event_type === 'ToolCallStart') {
+        this.setSubagentCount(aid, sid, count + 1);
+        console.log(`[state] subagent spawned in ${aid}/${sid}, count: ${count + 1}`);
+      } else {
+        // ToolCallEnd: only decrement if we have a positive count,
+        // otherwise we'd go negative on a stray PostToolUse.
+        if (count > 0) this.setSubagentCount(aid, sid, count - 1);
+        console.log(`[state] subagent completed in ${aid}/${sid}, count: ${count - 1}`);
+      }
+      // Override state based on the (post-update) active count.
+      const activeCount = this.getSubagentCount(aid, sid);
       if (activeCount >= 2) {
         state = 'juggling';
       } else if (activeCount === 1) {
@@ -106,54 +146,45 @@ class StateMachine {
       }
     }
 
-    // Handle SubagentStart/SubagentStop events directly
-    if (event_type === 'SubagentStart') {
-      const count = this.activeSubagents.get(sid) || 0;
-      this.activeSubagents.set(sid, count + 1);
-      const activeCount = count + 1;
-      state = activeCount >= 2 ? 'juggling' : activeCount === 1 ? 'subagent-groove' : 'working';
-      console.log(`[state] subagent started in ${sid}, count: ${activeCount}`);
-    } else if (event_type === 'SubagentStop') {
-      const count = this.activeSubagents.get(sid) || 0;
-      if (count > 0) this.activeSubagents.set(sid, count - 1);
-      const activeCount = count - 1;
-      state = activeCount >= 2 ? 'juggling' : activeCount === 1 ? 'subagent-groove' : 'working';
-      console.log(`[state] subagent stopped in ${sid}, count: ${activeCount}`);
-    }
-
-    // Update session
-    this.sessions.set(sid, {
+    // Persist session entry under (agent, session).
+    this.putSession(aid, sid, {
       state,
       lastEvent: event_type,
       toolName: tool_name,
-      subagentCount: this.activeSubagents.get(sid) || 0,
+      subagentCount: this.getSubagentCount(aid, sid),
       timestamp: now,
+      success: event_type === 'ToolCallEnd' ? success : undefined,
     });
 
     const display = this.getDisplayState();
-    this.notify({ sessionId: sid, state, display, event });
+    this.notify({ agentId: aid, sessionId: sid, state, display, event });
     return display;
   }
 
   /**
-   * Resolve the highest-priority state across all sessions
+   * Resolve the highest-priority state across all active sessions
+   * (across all agents). The single pet animation shows the
+   * loudest state.
    */
   getDisplayState() {
     if (this.sessions.size === 0) return 'idle';
     let best = 'idle';
     let bestPriority = 0;
-    for (const { state } of this.sessions.values()) {
-      const p = STATE_PRIORITY[state] || 0;
-      if (p > bestPriority) {
-        best = state;
-        bestPriority = p;
+    for (const byAgent of this.sessions.values()) {
+      for (const { state } of byAgent.values()) {
+        const p = STATE_PRIORITY[state] || 0;
+        if (p > bestPriority) {
+          best = state;
+          bestPriority = p;
+        }
       }
     }
     return best;
   }
 
   /**
-   * Subscribe to state changes
+   * Subscribe to state changes. Listener receives
+   * `{ agentId, sessionId, state, display, event }` on every event.
    */
   onChange(listener) {
     this.listeners.add(listener);
@@ -171,30 +202,80 @@ class StateMachine {
   }
 
   /**
-   * Clean up stale sessions
+   * Remove sessions (and their subagent counters) older than
+   * `maxAgeMs`. Walks both nesting levels.
    */
   cleanup(maxAgeMs = 5 * 60 * 1000) {
     const now = Date.now();
     let removed = 0;
-    for (const [sid, session] of this.sessions.entries()) {
-      if (now - session.timestamp > maxAgeMs) {
-        this.sessions.delete(sid);
-        this.activeSubagents.delete(sid);
-        removed++;
+    for (const [aid, bySession] of this.sessions.entries()) {
+      for (const [sid, session] of bySession.entries()) {
+        if (now - session.timestamp > maxAgeMs) {
+          bySession.delete(sid);
+          const counters = this.activeSubagents.get(aid);
+          if (counters) counters.delete(sid);
+          removed++;
+        }
+      }
+      if (bySession.size === 0) {
+        this.sessions.delete(aid);
+        this.activeSubagents.delete(aid);
       }
     }
     if (removed > 0) {
       console.log(`[state] cleaned up ${removed} stale sessions`);
-      this.notify({ sessionId: null, state: this.getDisplayState(), display: this.getDisplayState(), event: 'cleanup' });
+      this.notify({
+        agentId: null,
+        sessionId: null,
+        state: this.getDisplayState(),
+        display: this.getDisplayState(),
+        event: 'cleanup',
+      });
     }
     return removed;
+  }
+
+  // ── Nested-Map helpers (B1 key strategy) ─────────────────────
+
+  getSubagentCount(aid, sid) {
+    return this.activeSubagents.get(aid)?.get(sid) || 0;
+  }
+
+  setSubagentCount(aid, sid, count) {
+    let bySession = this.activeSubagents.get(aid);
+    if (!bySession) {
+      bySession = new Map();
+      this.activeSubagents.set(aid, bySession);
+    }
+    bySession.set(sid, count);
+  }
+
+  putSession(aid, sid, entry) {
+    let bySession = this.sessions.get(aid);
+    if (!bySession) {
+      bySession = new Map();
+      this.sessions.set(aid, bySession);
+    }
+    bySession.set(sid, entry);
   }
 }
 
 // ES module exports
-export { StateMachine, EVENT_TO_STATE, STATE_PRIORITY, ALL_STATES, SUBAGENT_TOOLS };
+export {
+  StateMachine,
+  EVENT_TO_STATE,
+  STATE_PRIORITY,
+  ALL_STATES,
+  SUBAGENT_TOOLS,
+};
 
 // CommonJS compatibility
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { StateMachine, EVENT_TO_STATE, STATE_PRIORITY, ALL_STATES, SUBAGENT_TOOLS };
+  module.exports = {
+    StateMachine,
+    EVENT_TO_STATE,
+    STATE_PRIORITY,
+    ALL_STATES,
+    SUBAGENT_TOOLS,
+  };
 }
