@@ -1,0 +1,349 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Clawd Pet</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    /* Body and everything outside the sprite is pointer-events: none → passes through */
+    html, body {
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background-color: rgba(0, 0, 0, 0);
+      background: transparent;
+      user-select: none;
+      -webkit-user-select: none;
+      pointer-events: none;
+    }
+    #pet-container {
+      width: 100%;
+      height: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      pointer-events: none;
+    }
+    #hit-zone {
+      position: absolute;
+      left: 50%;
+      top: 50%;
+      transform: translate(-50%, -50%);
+      width: 144px;
+      height: 144px;
+      pointer-events: auto;
+      cursor: grab;
+      touch-action: none;
+    }
+    #hit-zone:active { cursor: grabbing; }
+    #pet-sprite {
+      display: block;
+      width: 144px;
+      height: 144px;
+      image-rendering: pixelated;
+      pointer-events: none;
+    }
+    #status {
+      position: absolute;
+      top: 4px;
+      left: 4px;
+      color: white;
+      font: 9px monospace;
+      background: rgba(0,0,0,0.5);
+      padding: 2px 4px;
+      border-radius: 2px;
+      pointer-events: none;
+    }
+  </style>
+</head>
+<body>
+  <div id="status">idle</div>
+  <div id="hit-zone"></div>
+  <div id="pet-container">
+    <img id="pet-sprite" src="" alt="pet" />
+  </div>
+  <script type="module">
+    import { getCurrentWindow, currentMonitor } from '@tauri-apps/api/window';
+    import { LogicalSize, LogicalPosition } from '@tauri-apps/api/dpi';
+    import { StateMachine } from './src/pet/state-machine.js';
+    import { ThemeManager } from './src/pet/theme-manager.js';
+
+    const sprite = document.getElementById('pet-sprite');
+    const hitZone = document.getElementById('hit-zone');
+    const statusEl = document.getElementById('status');
+    const currentWindow = getCurrentWindow();
+
+    // Theme manager
+    const themeManager = new ThemeManager();
+
+    themeManager.registerTheme('clawd', {
+      name: 'Clawd',
+      states: {
+        idle: { file: 'idle.svg', type: 'svg' },
+        thinking: { file: 'thinking.svg', type: 'svg' },
+        typing: { file: 'typing.svg', type: 'svg' },
+        building: { file: 'building.svg', type: 'svg' },
+        happy: { file: 'happy.svg', type: 'svg' },
+        error: { file: 'error.svg', type: 'svg' },
+        notification: { file: 'notification.svg', type: 'svg' },
+        sleeping: { file: 'sleeping.svg', type: 'svg' },
+        waking: { file: 'waking.svg', type: 'svg' },
+        sweeping: { file: 'sweeping.svg', type: 'svg' },
+        carrying: { file: 'carrying.svg', type: 'svg' },
+        'subagent-groove': { file: 'subagent-groove.svg', type: 'svg' },
+        'multi-subagent': { file: 'multi-subagent.svg', type: 'svg' },
+      },
+    });
+    themeManager.registerTheme('calico', {
+      name: 'Calico',
+      states: {
+        idle: { file: 'calico-idle.apng', type: 'apng' },
+        thinking: { file: 'calico-thinking.apng', type: 'apng' },
+        typing: { file: 'calico-working-typing.apng', type: 'apng' },
+        building: { file: 'calico-working-building.apng', type: 'apng' },
+        happy: { file: 'calico-happy.apng', type: 'apng' },
+        error: { file: 'calico-error.apng', type: 'apng' },
+        notification: { file: 'calico-notification.apng', type: 'apng' },
+        sleeping: { file: 'calico-sleeping.apng', type: 'apng' },
+        waking: { file: 'calico-waking.apng', type: 'apng' },
+        sweeping: { file: 'calico-working-sweeping.apng', type: 'apng' },
+        carrying: { file: 'calico-working-carrying.apng', type: 'apng' },
+        'subagent-groove': { file: 'calico-conducting.apng', type: 'apng' },
+        'multi-subagent': { file: 'calico-working-juggling.apng', type: 'apng' },
+      },
+    });
+
+    themeManager.setTheme('clawd');
+
+    // State machine
+    const stateMachine = new StateMachine();
+    let currentDisplayState = 'idle';
+
+    function refreshSprite() {
+      const url = themeManager.getAssetUrl(currentDisplayState);
+      if (url) sprite.src = url;
+    }
+
+    function setDisplayState(state) {
+      if (state === currentDisplayState) return;
+      const prevState = currentDisplayState;
+      currentDisplayState = state;
+      refreshSprite();
+      statusEl.textContent = state;
+      statusEl.style.color = state === 'error' ? '#ff6b6b' : 'white';
+
+      // Sound effects — 10s cooldown, only when entering happy
+      if (state === 'happy' && prevState !== 'happy') {
+        playSound('complete');
+      }
+    }
+
+    // Sound playback with cooldown
+    let lastSoundTime = 0;
+    const SOUND_COOLDOWN_MS = 10000;
+    const audioCache = new Map();
+
+    function playSound(name) {
+      if (!settings.sound_enabled) return;
+      const now = Date.now();
+      if (now - lastSoundTime < SOUND_COOLDOWN_MS) return;
+      lastSoundTime = now;
+
+      let audio = audioCache.get(name);
+      if (!audio) {
+        audio = new Audio(`/sounds/${name}.mp3`);
+        audio.volume = 0.5;
+        audioCache.set(name, audio);
+      }
+      audio.currentTime = 0;
+      audio.play().catch((err) => {
+        console.warn(`[pet] sound play failed: ${err}`);
+      });
+    }
+
+    // Settings (sound toggle) - listen for changes
+    const settings = { sound_enabled: true };
+    if (window.__TAURI__?.event?.listen) {
+      window.__TAURI__.event.listen('pet-dnd-change', (e) => {
+        const dnd = e.payload?.dnd;
+        if (dnd) {
+          // Pause any ongoing sounds when DND is on
+          audioCache.forEach((a) => a.pause());
+        }
+      });
+    }
+
+    stateMachine.onChange(({ display }) => setDisplayState(display));
+    themeManager.onChange(() => refreshSprite());
+
+    if (window.__TAURI__?.event?.listen) {
+      window.__TAURI__.event.listen('agent-hook-event', (e) => {
+        const payload = e.payload;
+        stateMachine.processEvent({
+          session_id: payload.session_id,
+          event_type: payload.event_type,
+          tool_name: payload.tool_name,
+          agent: payload.agent,
+        });
+      });
+      window.__TAURI__.event.listen('pet-theme-change', (e) => {
+        const themeId = e.payload?.theme;
+        if (themeId) themeManager.setTheme(themeId);
+      });
+    }
+
+    // Drag on hit-zone only (the centered 100x100 sprite area)
+    hitZone.addEventListener('pointerdown', (e) => {
+      if (e.button !== 0) return;
+      e.preventDefault();
+      hitZone.setPointerCapture(e.pointerId);
+      currentWindow.startDragging().catch((err) => {
+        console.error('[pet] startDragging failed:', err);
+      });
+    });
+
+    // ── Mini mode: edge-snap + peek-on-hover ──
+    const FULL_SIZE = { width: 200, height: 200 };
+    const MINI_SIZE = { width: 160, height: 160 }; // Must fit 144x144 pet sprite
+    const EDGE_THRESHOLD = 30; // logical px from screen edge to trigger mini mode
+    let isMiniMode = false;
+    let isPeeking = false;
+    let preMiniPosition = null; // logical pixels
+
+    // Get scale factor from monitor (physical → logical conversion)
+    async function getScaleFactor() {
+      try {
+        const monitor = await currentMonitor();
+        if (monitor && monitor.scaleFactor) return monitor.scaleFactor;
+      } catch (err) {
+        console.warn('[pet] getScaleFactor failed:', err);
+      }
+      return window.devicePixelRatio || 1;
+    }
+
+    // Returns screen size in LOGICAL pixels
+    async function getScreenSize() {
+      try {
+        const monitor = await currentMonitor();
+        if (monitor) {
+          const scale = monitor.scaleFactor || 1;
+          return {
+            width: Math.round(monitor.size.width / scale),
+            height: Math.round(monitor.size.height / scale),
+          };
+        }
+      } catch (err) {
+        console.warn('[pet] currentMonitor failed:', err);
+      }
+      return { width: window.screen.width, height: window.screen.height };
+    }
+
+    // Returns window position in LOGICAL pixels
+    async function getLogicalWindowPos() {
+      const pos = await currentWindow.outerPosition(); // physical pixels
+      const scale = await getScaleFactor();
+      return { x: Math.round(pos.x / scale), y: Math.round(pos.y / scale) };
+    }
+
+    async function enterMiniMode() {
+      if (isMiniMode) return;
+      isMiniMode = true;
+      console.log('[pet] entering mini mode');
+
+      try {
+        const pos = await getLogicalWindowPos();
+        // Only save preMiniPosition on the first entry
+        if (preMiniPosition === null) {
+          preMiniPosition = { x: pos.x, y: pos.y };
+          console.log('[pet] pre-mini pos (logical):', preMiniPosition);
+        }
+      } catch (err) {
+        console.warn('[pet] failed to get position:', err);
+      }
+
+      try {
+        const screenSize = await getScreenSize();
+        console.log('[pet] screen size (logical):', screenSize);
+        if (!screenSize) return;
+
+        const newX = screenSize.width - MINI_SIZE.width;
+        const newY = preMiniPosition?.y ?? 100;
+        console.log(`[pet] snap target: (${newX}, ${newY}) size ${MINI_SIZE.width}x${MINI_SIZE.height}`);
+
+        await currentWindow.setSize(new LogicalSize(MINI_SIZE.width, MINI_SIZE.height));
+        await currentWindow.setPosition(new LogicalPosition(newX, newY));
+
+        const verify = await getLogicalWindowPos();
+        console.log('[pet] actual position (logical):', verify);
+      } catch (err) {
+        console.warn('[pet] resize failed:', err);
+        isMiniMode = false;
+      }
+    }
+
+    async function exitMiniMode() {
+      if (!isMiniMode) return;
+      isMiniMode = false;
+      isPeeking = false;
+      console.log('[pet] exiting mini mode');
+
+      try {
+        await currentWindow.setSize(new LogicalSize(FULL_SIZE.width, FULL_SIZE.height));
+        if (preMiniPosition) {
+          await currentWindow.setPosition(new LogicalPosition(preMiniPosition.x, preMiniPosition.y));
+        }
+      } catch (err) {
+        console.warn('[pet] resize failed:', err);
+      }
+    }
+
+    async function checkEdgeSnap() {
+      try {
+        const pos = await getLogicalWindowPos();
+        const screenSize = await getScreenSize();
+        if (!screenSize) return;
+        const distToRight = screenSize.width - (pos.x + FULL_SIZE.width);
+        console.log(`[pet] edge check: distToRight=${distToRight} pos=(${pos.x},${pos.y}) screen=${screenSize.width}x${screenSize.height}`);
+        if (distToRight < EDGE_THRESHOLD && !isMiniMode) {
+          await enterMiniMode();
+        }
+      } catch (err) {
+        console.warn('[pet] edge check failed:', err);
+      }
+    }
+
+    // Listen for drag end → check edge snap
+    if (window.__TAURI__?.event?.listen) {
+      window.__TAURI__.event.listen('tauri://move', () => {
+        if (!isMiniMode) checkEdgeSnap();
+      });
+    }
+
+    // Peek-on-hover: track mouse position relative to right edge of screen
+    // Use screenX (screen-relative) not clientX (window-relative)
+    document.addEventListener('mousemove', async (e) => {
+      if (!isMiniMode) return;
+      const screenW = window.screen.width;
+      const distToRight = screenW - e.screenX;
+      const shouldPeek = distToRight < 20;
+      if (shouldPeek !== isPeeking) {
+        isPeeking = shouldPeek;
+        console.log(`[pet] peek=${shouldPeek} screenX=${e.screenX} distToRight=${distToRight}`);
+        const size = shouldPeek ? FULL_SIZE : MINI_SIZE;
+        const screenSize = await getScreenSize();
+        const newX = screenSize.width - size.width;
+        const newY = preMiniPosition?.y ?? 100;
+        try {
+          await currentWindow.setSize(new LogicalSize(size.width, size.height));
+          await currentWindow.setPosition(new LogicalPosition(newX, newY));
+        } catch (err) {
+          console.warn('[pet] peek resize failed:', err);
+        }
+      }
+    });
+
+    refreshSprite();
+  </script>
+</body>
+</html>

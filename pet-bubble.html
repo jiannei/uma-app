@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Clawd Permission</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body {
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: rgba(30, 30, 46, 0.96);
+      color: #cdd6f4;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      font-size: 13px;
+      user-select: none;
+    }
+    #bubble {
+      width: 100%;
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      padding: 12px;
+      box-sizing: border-box;
+      border-radius: 12px;
+    }
+    #header {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 8px;
+    }
+    #icon {
+      width: 20px;
+      height: 20px;
+      background: #f38ba8;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 12px;
+    }
+    #title {
+      font-weight: 600;
+      font-size: 13px;
+    }
+    #tool-name {
+      color: #fab387;
+      font-family: monospace;
+      background: #313244;
+      padding: 1px 6px;
+      border-radius: 4px;
+      font-size: 12px;
+    }
+    #details {
+      color: #a6adc8;
+      font-size: 11px;
+      margin-bottom: 12px;
+      max-height: 60px;
+      overflow: auto;
+      background: #1e1e2e;
+      border-radius: 6px;
+      padding: 6px 8px;
+      font-family: monospace;
+    }
+    #buttons {
+      display: flex;
+      gap: 6px;
+      margin-top: auto;
+    }
+    button {
+      flex: 1;
+      padding: 8px 12px;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 12px;
+      font-weight: 500;
+      font-family: inherit;
+    }
+    button#allow { background: #a6e3a1; color: #1e1e2e; }
+    button#always { background: #89b4fa; color: #1e1e2e; }
+    button#deny { background: #f38ba8; color: #1e1e2e; }
+    button:hover { filter: brightness(0.9); }
+    button:active { transform: scale(0.98); }
+    #waiting {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      height: 100%;
+      color: #6c7086;
+      font-size: 12px;
+    }
+  </style>
+</head>
+<body>
+  <div id="bubble">
+    <div id="waiting">Waiting for permission request...</div>
+  </div>
+  <script type="module">
+    import { invoke } from '@tauri-apps/api/core';
+
+    const bubble = document.getElementById('bubble');
+
+    function renderRequest(req) {
+      const toolInputJson = req.tool_input
+        ? JSON.stringify(req.tool_input, null, 2).slice(0, 200)
+        : '(no input)';
+      bubble.innerHTML = `
+        <div id="header">
+          <div id="icon">🔐</div>
+          <span id="title">Permission Request</span>
+          <span id="tool-name">${escapeHtml(req.tool_name)}</span>
+        </div>
+        <div id="details">${escapeHtml(toolInputJson)}</div>
+        <div id="buttons">
+          <button id="allow">Allow</button>
+          <button id="always">Always</button>
+          <button id="deny">Deny</button>
+        </div>
+      `;
+      document.getElementById('allow').addEventListener('click', () => respond(req.request_id, 'allow'));
+      document.getElementById('always').addEventListener('click', () => respond(req.request_id, 'always'));
+      document.getElementById('deny').addEventListener('click', () => respond(req.request_id, 'deny'));
+    }
+
+    function respond(request_id, decision) {
+      invoke('pet_permission_response', {
+        decision: { request_id, decision },
+      }).then(() => {
+        bubble.innerHTML = `<div id="waiting">✓ ${decision} — sent</div>`;
+        setTimeout(() => { bubble.innerHTML = `<div id="waiting">Waiting for next request...</div>`; }, 1500);
+      }).catch((err) => {
+        console.error('[bubble] failed to send response:', err);
+        bubble.innerHTML = `<div id="waiting">✗ Failed: ${err}</div>`;
+      });
+    }
+
+    function escapeHtml(s) {
+      const div = document.createElement('div');
+      div.textContent = String(s);
+      return div.innerHTML;
+    }
+
+    if (window.__TAURI__?.event?.listen) {
+      window.__TAURI__.event.listen('permission-request', (e) => {
+        console.log('[bubble] permission request:', e.payload);
+        renderRequest(e.payload);
+      });
+      console.log('[bubble] listening for permission-request');
+    } else {
+      console.warn('[bubble] Tauri event API not available');
+    }
+  </script>
+</body>
+</html>

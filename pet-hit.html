@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Clawd Hit</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html, body {
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: rgba(0, 0, 0, 0.004); /* barely visible, fully clickable */
+      user-select: none;
+      -webkit-user-select: none;
+    }
+    #hit {
+      width: 100%;
+      height: 100%;
+      cursor: grab;
+      touch-action: none;
+    }
+    #hit:active { cursor: grabbing; }
+    /* DEBUG outline (remove in production) */
+    #hit { outline: 1px dashed rgba(255, 0, 0, 0.3); }
+  </style>
+</head>
+<body>
+  <div id="hit"></div>
+  <script type="module">
+    import { getCurrentWindow } from '@tauri-apps/api/window';
+
+    const hit = document.getElementById('hit');
+    const currentWindow = getCurrentWindow();
+
+    console.log('[pet-hit] hit window loaded');
+
+    // Drag the entire hit window via Tauri's startDragging
+    hit.addEventListener('pointerdown', (e) => {
+      console.log('[pet-hit] pointerdown, button:', e.button);
+      if (e.button !== 0) return;
+      e.preventDefault();
+      hit.setPointerCapture(e.pointerId);
+      currentWindow.startDragging()
+        .then(() => console.log('[pet-hit] drag started'))
+        .catch((err) => console.error('[pet-hit] startDragging failed:', err));
+    });
+  </script>
+</body>
+</html>

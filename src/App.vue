@@ -1,160 +1,297 @@
 <script setup lang="ts">
-import { ref } from "vue";
+import { ref, onMounted } from "vue";
 import { invoke } from "@tauri-apps/api/core";
 
-const greetMsg = ref("");
-const name = ref("");
-
-async function greet() {
-  // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
-  greetMsg.value = await invoke("greet", { name: name.value });
+interface Settings {
+  theme: string;
+  dnd: boolean;
+  mini_mode: boolean;
+  sound_enabled: boolean;
+  auto_start: boolean;
 }
+
+const settings = ref<Settings>({
+  theme: 'clawd',
+  dnd: false,
+  mini_mode: false,
+  sound_enabled: true,
+  auto_start: false,
+});
+
+const themes = [
+  { id: 'clawd', name: 'Clawd', emoji: '🦀' },
+  { id: 'calico', name: 'Calico', emoji: '🐱' },
+];
+
+const isLoading = ref(true);
+const status = ref('');
+
+async function loadSettings() {
+  try {
+    settings.value = await invoke<Settings>('get_settings');
+    isLoading.value = false;
+  } catch (err) {
+    status.value = 'Failed to load settings: ' + err;
+    isLoading.value = false;
+  }
+}
+
+async function setTheme(theme: string) {
+  try {
+    await invoke('set_theme', { theme });
+    settings.value.theme = theme;
+    status.value = `Theme: ${theme}`;
+    setTimeout(() => { status.value = ''; }, 1500);
+  } catch (err) {
+    status.value = 'Failed: ' + err;
+  }
+}
+
+async function toggleDnd() {
+  const newValue = !settings.value.dnd;
+  try {
+    await invoke('set_dnd', { enabled: newValue });
+    settings.value.dnd = newValue;
+    status.value = `DND: ${newValue ? 'on' : 'off'}`;
+    setTimeout(() => { status.value = ''; }, 1500);
+  } catch (err) {
+    status.value = 'Failed: ' + err;
+  }
+}
+
+function toggleSound() {
+  settings.value.sound_enabled = !settings.value.sound_enabled;
+}
+
+function toggleAutoStart() {
+  settings.value.auto_start = !settings.value.auto_start;
+}
+
+onMounted(loadSettings);
 </script>
 
 <template>
-  <main class="container">
-    <h1>Welcome to Tauri + Vue</h1>
+  <div class="settings">
+    <header>
+      <h1>🦀 Clawd on Desk</h1>
+      <p class="subtitle">Desktop pet for AI coding agents</p>
+    </header>
 
-    <div class="row">
-      <a href="https://vite.dev" target="_blank">
-        <img src="/vite.svg" class="logo vite" alt="Vite logo" />
-      </a>
-      <a href="https://tauri.app" target="_blank">
-        <img src="/tauri.svg" class="logo tauri" alt="Tauri logo" />
-      </a>
-      <a href="https://vuejs.org/" target="_blank">
-        <img src="./assets/vue.svg" class="logo vue" alt="Vue logo" />
-      </a>
-    </div>
-    <p>Click on the Tauri, Vite, and Vue logos to learn more.</p>
+    <section>
+      <h2>Theme</h2>
+      <div class="theme-grid">
+        <button
+          v-for="t in themes"
+          :key="t.id"
+          :class="['theme-card', { active: settings.theme === t.id }]"
+          @click="setTheme(t.id)"
+        >
+          <span class="emoji">{{ t.emoji }}</span>
+          <span class="name">{{ t.name }}</span>
+        </button>
+      </div>
+    </section>
 
-    <form class="row" @submit.prevent="greet">
-      <input id="greet-input" v-model="name" placeholder="Enter a name..." />
-      <button type="submit">Greet</button>
-    </form>
-    <p>{{ greetMsg }}</p>
-  </main>
+    <section>
+      <h2>Behavior</h2>
+      <div class="toggle-row">
+        <span>Do Not Disturb</span>
+        <button :class="['toggle', { on: settings.dnd }]" @click="toggleDnd">
+          {{ settings.dnd ? 'ON' : 'OFF' }}
+        </button>
+      </div>
+      <div class="toggle-row">
+        <span>Sound Effects</span>
+        <button :class="['toggle', { on: settings.sound_enabled }]" @click="toggleSound">
+          {{ settings.sound_enabled ? 'ON' : 'OFF' }}
+        </button>
+      </div>
+      <div class="toggle-row">
+        <span>Auto-start at login</span>
+        <button :class="['toggle', { on: settings.auto_start }]" @click="toggleAutoStart">
+          {{ settings.auto_start ? 'ON' : 'OFF' }}
+        </button>
+      </div>
+    </section>
+
+    <section>
+      <h2>Status</h2>
+      <div class="status-grid">
+        <div class="status-item">
+          <span class="label">Pet window</span>
+          <span class="value">200×200 (hit-zone 144×144)</span>
+        </div>
+        <div class="status-item">
+          <span class="label">Hook server</span>
+          <span class="value">127.0.0.1:17373</span>
+        </div>
+        <div class="status-item">
+          <span class="label">Bubble window</span>
+          <span class="value">360×200 (on demand)</span>
+        </div>
+      </div>
+    </section>
+
+    <footer v-if="status">
+      <p class="status-msg">{{ status }}</p>
+    </footer>
+  </div>
 </template>
 
 <style scoped>
-.logo.vite:hover {
-  filter: drop-shadow(0 0 2em #747bff);
+.settings {
+  padding: 32px;
+  max-width: 640px;
+  margin: 0 auto;
 }
 
-.logo.vue:hover {
-  filter: drop-shadow(0 0 2em #249b73);
+header h1 {
+  margin: 0 0 4px;
+  font-size: 28px;
+  font-weight: 700;
 }
 
-</style>
-<style>
-:root {
-  font-family: Inter, Avenir, Helvetica, Arial, sans-serif;
-  font-size: 16px;
-  line-height: 24px;
-  font-weight: 400;
-
-  color: #0f0f0f;
-  background-color: #f6f6f6;
-
-  font-synthesis: none;
-  text-rendering: optimizeLegibility;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-  -webkit-text-size-adjust: 100%;
+.subtitle {
+  margin: 0 0 24px;
+  color: #888;
+  font-size: 13px;
 }
 
-.container {
-  margin: 0;
-  padding-top: 10vh;
+section {
+  margin-bottom: 28px;
+}
+
+h2 {
+  margin: 0 0 12px;
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: #888;
+  font-weight: 600;
+}
+
+.theme-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: 12px;
+}
+
+.theme-card {
+  background: #1e1e2e;
+  border: 2px solid transparent;
+  border-radius: 10px;
+  padding: 16px 12px;
+  cursor: pointer;
+  transition: all 0.15s;
   display: flex;
   flex-direction: column;
-  justify-content: center;
-  text-align: center;
-}
-
-.logo {
-  height: 6em;
-  padding: 1.5em;
-  will-change: filter;
-  transition: 0.75s;
-}
-
-.logo.tauri:hover {
-  filter: drop-shadow(0 0 2em #24c8db);
-}
-
-.row {
-  display: flex;
-  justify-content: center;
-}
-
-a {
-  font-weight: 500;
-  color: #646cff;
-  text-decoration: inherit;
-}
-
-a:hover {
-  color: #535bf2;
-}
-
-h1 {
-  text-align: center;
-}
-
-input,
-button {
-  border-radius: 8px;
-  border: 1px solid transparent;
-  padding: 0.6em 1.2em;
-  font-size: 1em;
-  font-weight: 500;
+  align-items: center;
+  gap: 6px;
   font-family: inherit;
-  color: #0f0f0f;
-  background-color: #ffffff;
-  transition: border-color 0.25s;
-  box-shadow: 0 2px 2px rgba(0, 0, 0, 0.2);
+  color: inherit;
 }
 
-button {
+.theme-card:hover {
+  background: #313244;
+  border-color: #45475a;
+}
+
+.theme-card.active {
+  border-color: #89b4fa;
+  background: #313244;
+}
+
+.theme-card .emoji {
+  font-size: 32px;
+}
+
+.theme-card .name {
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.toggle-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 0;
+  border-bottom: 1px solid #313244;
+  font-size: 14px;
+}
+
+.toggle-row:last-child {
+  border-bottom: none;
+}
+
+.toggle {
+  background: #45475a;
+  color: #cdd6f4;
+  border: none;
+  border-radius: 6px;
+  padding: 6px 14px;
   cursor: pointer;
+  font-weight: 600;
+  font-size: 11px;
+  letter-spacing: 0.5px;
+  font-family: inherit;
+  min-width: 60px;
 }
 
-button:hover {
-  border-color: #396cd8;
-}
-button:active {
-  border-color: #396cd8;
-  background-color: #e8e8e8;
+.toggle.on {
+  background: #a6e3a1;
+  color: #1e1e2e;
 }
 
-input,
-button {
-  outline: none;
+.status-grid {
+  background: #1e1e2e;
+  border-radius: 10px;
+  padding: 14px 16px;
+  font-size: 13px;
 }
 
-#greet-input {
-  margin-right: 5px;
+.status-item {
+  display: flex;
+  justify-content: space-between;
+  padding: 6px 0;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    color: #f6f6f6;
-    background-color: #2f2f2f;
-  }
-
-  a:hover {
-    color: #24c8db;
-  }
-
-  input,
-  button {
-    color: #ffffff;
-    background-color: #0f0f0f98;
-  }
-  button:active {
-    background-color: #0f0f0f69;
-  }
+.status-item .label {
+  color: #888;
 }
 
+.status-item .value {
+  font-family: monospace;
+  color: #cdd6f4;
+}
+
+footer {
+  position: fixed;
+  bottom: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: #89b4fa;
+  color: #1e1e2e;
+  padding: 8px 16px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 500;
+}
+</style>
+
+<style>
+:root {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-size: 14px;
+  line-height: 1.5;
+  color: #cdd6f4;
+  background-color: #11111b;
+  font-synthesis: none;
+  -webkit-font-smoothing: antialiased;
+}
+
+body {
+  margin: 0;
+  background: #11111b;
+  min-height: 100vh;
+}
 </style>
