@@ -80,19 +80,19 @@
     themeManager.registerTheme('clawd', {
       name: 'Clawd',
       states: {
-        idle: { file: 'idle.svg', type: 'svg' },
-        thinking: { file: 'thinking.svg', type: 'svg' },
-        typing: { file: 'typing.svg', type: 'svg' },
-        building: { file: 'building.svg', type: 'svg' },
-        happy: { file: 'happy.svg', type: 'svg' },
-        error: { file: 'error.svg', type: 'svg' },
-        notification: { file: 'notification.svg', type: 'svg' },
-        sleeping: { file: 'sleeping.svg', type: 'svg' },
-        waking: { file: 'waking.svg', type: 'svg' },
-        sweeping: { file: 'sweeping.svg', type: 'svg' },
-        carrying: { file: 'carrying.svg', type: 'svg' },
-        'subagent-groove': { file: 'subagent-groove.svg', type: 'svg' },
-        'multi-subagent': { file: 'multi-subagent.svg', type: 'svg' },
+        idle: { file: 'clawd-idle-follow.svg', type: 'svg' },
+        thinking: { file: 'clawd-working-thinking.svg', type: 'svg' },
+        working: { file: 'clawd-working-typing.svg', type: 'svg' },
+        building: { file: 'clawd-working-building.svg', type: 'svg' },
+        attention: { file: 'clawd-happy.svg', type: 'svg' },
+        error: { file: 'clawd-error.svg', type: 'svg' },
+        notification: { file: 'clawd-notification.svg', type: 'svg' },
+        sleeping: { file: 'clawd-sleeping.svg', type: 'svg' },
+        waking: { file: 'clawd-wake.svg', type: 'svg' },
+        sweeping: { file: 'clawd-working-sweeping.svg', type: 'svg' },
+        carrying: { file: 'clawd-working-carrying.svg', type: 'svg' },
+        'subagent-groove': { file: 'clawd-headphones-groove.svg', type: 'svg' },
+        juggling: { file: 'clawd-working-juggling.svg', type: 'svg' },
       },
     });
     themeManager.registerTheme('calico', {
@@ -100,9 +100,9 @@
       states: {
         idle: { file: 'calico-idle.apng', type: 'apng' },
         thinking: { file: 'calico-thinking.apng', type: 'apng' },
-        typing: { file: 'calico-working-typing.apng', type: 'apng' },
+        working: { file: 'calico-working-typing.apng', type: 'apng' },
         building: { file: 'calico-working-building.apng', type: 'apng' },
-        happy: { file: 'calico-happy.apng', type: 'apng' },
+        attention: { file: 'calico-happy.apng', type: 'apng' },
         error: { file: 'calico-error.apng', type: 'apng' },
         notification: { file: 'calico-notification.apng', type: 'apng' },
         sleeping: { file: 'calico-sleeping.apng', type: 'apng' },
@@ -110,7 +110,7 @@
         sweeping: { file: 'calico-working-sweeping.apng', type: 'apng' },
         carrying: { file: 'calico-working-carrying.apng', type: 'apng' },
         'subagent-groove': { file: 'calico-conducting.apng', type: 'apng' },
-        'multi-subagent': { file: 'calico-working-juggling.apng', type: 'apng' },
+        juggling: { file: 'calico-working-juggling.apng', type: 'apng' },
       },
     });
 
@@ -133,8 +133,8 @@
       statusEl.textContent = state;
       statusEl.style.color = state === 'error' ? '#ff6b6b' : 'white';
 
-      // Sound effects — 10s cooldown, only when entering happy
-      if (state === 'happy' && prevState !== 'happy') {
+      // Sound effects — 10s cooldown, only when entering attention (Stop/completion)
+      if (state === 'attention' && prevState !== 'attention') {
         playSound('complete');
       }
     }

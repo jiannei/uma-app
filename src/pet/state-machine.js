@@ -1,25 +1,28 @@
 // src/pet/state-machine.js — State machine + subagent tracking
 // Handles agent hook events and resolves to display state
 
-// Agent event → internal state mapping
+// Agent event → internal state mapping (aligned with uma-pet)
 const EVENT_TO_STATE = {
-  UserPromptSubmit: 'thinking',
-  PreToolUse: 'typing',
-  PostToolUse: 'typing',
-  Stop: 'happy',
   SessionStart: 'idle',
-  SessionEnd: 'idle',
+  SessionEnd: 'sleeping',
+  UserPromptSubmit: 'thinking',
+  PreToolUse: 'working',
+  PostToolUse: 'working',
+  PostToolUseFailure: 'error',
+  Stop: 'attention',
   Notification: 'notification',
-  PermissionRequest: 'idle', // bubble handles separately
+  PermissionRequest: 'notification',
+  SubagentStart: 'working',
+  SubagentStop: 'working',
 };
 
-// All 12 supported display states
+// All supported display states (aligned with uma-pet)
 const ALL_STATES = [
   'idle',
   'thinking',
-  'typing',
+  'working',
   'building',
-  'happy',
+  'attention',
   'error',
   'notification',
   'sleeping',
@@ -27,19 +30,19 @@ const ALL_STATES = [
   'sweeping',
   'carrying',
   'subagent-groove',
-  'multi-subagent',
+  'juggling',
 ];
 
 // Priority order — higher number wins when multiple sessions are active
 const STATE_PRIORITY = {
   error: 100,
   notification: 90,
-  happy: 70,
-  'multi-subagent': 60,
+  attention: 70,
+  juggling: 60,
   'subagent-groove': 55,
   building: 50,
   thinking: 40,
-  typing: 30,
+  working: 30,
   carrying: 25,
   sweeping: 20,
   waking: 15,
@@ -95,12 +98,27 @@ class StateMachine {
     if (SUBAGENT_TOOLS.has(tool_name) && (event_type === 'PreToolUse' || event_type === 'PostToolUse')) {
       const activeCount = this.activeSubagents.get(sid) || 0;
       if (activeCount >= 2) {
-        state = 'multi-subagent';
+        state = 'juggling';
       } else if (activeCount === 1) {
         state = 'subagent-groove';
       } else {
         state = 'building';
       }
+    }
+
+    // Handle SubagentStart/SubagentStop events directly
+    if (event_type === 'SubagentStart') {
+      const count = this.activeSubagents.get(sid) || 0;
+      this.activeSubagents.set(sid, count + 1);
+      const activeCount = count + 1;
+      state = activeCount >= 2 ? 'juggling' : activeCount === 1 ? 'subagent-groove' : 'working';
+      console.log(`[state] subagent started in ${sid}, count: ${activeCount}`);
+    } else if (event_type === 'SubagentStop') {
+      const count = this.activeSubagents.get(sid) || 0;
+      if (count > 0) this.activeSubagents.set(sid, count - 1);
+      const activeCount = count - 1;
+      state = activeCount >= 2 ? 'juggling' : activeCount === 1 ? 'subagent-groove' : 'working';
+      console.log(`[state] subagent stopped in ${sid}, count: ${activeCount}`);
     }
 
     // Update session

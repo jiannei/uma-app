@@ -11,6 +11,11 @@
     "core:window:allow-outer-position",
     "core:window:allow-inner-size",
     "core:window:allow-outer-size",
-    "opener:default"
+    "core:window:allow-show",
+    "core:window:allow-hide",
+    "core:window:allow-set-focus",
+    "core:window:allow-close",
+    "opener:default",
+    "store:default"
   ]
 }

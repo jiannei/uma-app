@@ -7,6 +7,10 @@
       "dependencies": {
         "@tauri-apps/api": "^2",
         "@tauri-apps/plugin-opener": "^2",
+<<<<<<< HEAD
+=======
+        "@tauri-apps/plugin-store": "^2",
+>>>>>>> feat/mvp-implementation
         "vue": "^3.5.13",
       },
       "devDependencies": {
@@ -159,6 +163,11 @@
 
     "@tauri-apps/plugin-opener": ["@tauri-apps/plugin-opener@2.5.4", "", { "dependencies": { "@tauri-apps/api": "^2.11.0" } }, "sha512-1HnPkb+AmgO29HBazm4uPLKB+r7zzcTBW1d0fyYp1uP+jwtpoiNDGKMMzz58SFp49nOIrxdE3aUJtT57lfO9CQ=="],
 
+<<<<<<< HEAD
+=======
+    "@tauri-apps/plugin-store": ["@tauri-apps/plugin-store@2.4.3", "", { "dependencies": { "@tauri-apps/api": "^2.11.0" } }, "sha512-9LWPj9yMphRi9czEtUv87XHbl1b6xgd9EXpPrUnq6nG7+nbtoF84d4Kwz9xhAv/Hf30sr58pq7EOlyI936y8qw=="],
+
+>>>>>>> feat/mvp-implementation
     "@types/estree": ["@types/estree@1.0.9", "", {}, "sha512-GhdPgy1el4/ImP05X05Uw4cw2/M93BCUmnEvWZNStlCzEKME4Fkk+YpoA5OiHNQmoS7Cafb8Xa3Pya8m1Qrzeg=="],
 
     "@vitejs/plugin-vue": ["@vitejs/plugin-vue@5.2.4", "", { "peerDependencies": { "vite": "^5.0.0 || ^6.0.0", "vue": "^3.2.25" } }, "sha512-7Yx/SXSOcQq5HiiV3orevHUFn+pmMB4cgbEkDYgnkUWb0WfeQ/wa2yFv6D5ICiCQOVpjA7vYDXrC7AGO8yjDHA=="],

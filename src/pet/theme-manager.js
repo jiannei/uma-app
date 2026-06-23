@@ -4,9 +4,9 @@
 const DEFAULT_STATES = {
   idle: { file: 'idle.svg', type: 'svg' },
   thinking: { file: 'idle.svg', type: 'svg' },
-  typing: { file: 'idle.svg', type: 'svg' },
+  working: { file: 'idle.svg', type: 'svg' },
   building: { file: 'idle.svg', type: 'svg' },
-  happy: { file: 'idle.svg', type: 'svg' },
+  attention: { file: 'idle.svg', type: 'svg' },
   error: { file: 'idle.svg', type: 'svg' },
   notification: { file: 'idle.svg', type: 'svg' },
   sleeping: { file: 'idle.svg', type: 'svg' },
@@ -14,7 +14,7 @@ const DEFAULT_STATES = {
   sweeping: { file: 'idle.svg', type: 'svg' },
   carrying: { file: 'idle.svg', type: 'svg' },
   'subagent-groove': { file: 'idle.svg', type: 'svg' },
-  'multi-subagent': { file: 'idle.svg', type: 'svg' },
+  juggling: { file: 'idle.svg', type: 'svg' },
 };
 
 class ThemeManager {

@@ -17,7 +17,8 @@
         "label": "main",
         "title": "uma-app",
         "width": 800,
-        "height": 600
+        "height": 600,
+        "visible": false
       },
       {
         "label": "pet",
@@ -42,14 +43,13 @@
         "url": "pet-bubble.html",
         "width": 360,
         "height": 200,
-        "x": 200,
-        "y": 100,
-        "decorations": true,
+        "decorations": false,
         "alwaysOnTop": true,
-        "skipTaskbar": false,
+        "skipTaskbar": true,
+        "shadow": false,
         "resizable": false,
-        "visible": true,
-        "transparent": false
+        "visible": false,
+        "transparent": true
       }
     ],
     "security": {
