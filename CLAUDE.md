@@ -13,6 +13,7 @@ A transparent, always-on-top animated pet that lives on the user's desktop and r
 - **Backend HTTP**: `axum` 0.7 over `tokio` (loopback only, port `17373`)
 - **Persistence**: `tauri-plugin-store` (`settings.json` in app data dir)
 - **Package manager**: bun (see `beforeDevCommand` / `beforeBuildCommand` in `src-tauri/tauri.conf.json`)
+- **Structural search**: `mcp__codegraph__*` (29 files indexed) — 回答"X 是怎么工作的"这类问题时，优先使用 `codegraph_context` / `codegraph_trace`，而不是 grep + read 循环。
 
 ## Build / dev / run commands
 
@@ -105,8 +106,14 @@ JS → Rust: bubble calls `invoke('pet_permission_response', { decision: { reque
 
 ### Legacy / unused files
 
-- `hooks/claude-hook.js` — a standalone Node script that posts to `http://127.0.0.1:17373/hook/event`. The current HTTP server exposes `/state` and `/permission` (no `/hook/event`), and `hook_installer.rs` installs direct HTTP-hook entries into `~/.claude/settings.json` rather than referencing this script. This file is a leftover from an earlier hook design and is not invoked anywhere in the current flow.
-- `pet-hit.html` — separate hit-zone window registered nowhere. Debug-only artifact.
+> ⚠️ **请勿接入 `hooks/claude-hook.js`。** 它请求的 `/hook/event` 端点在服务器上不存在（服务器只暴露 `/state` 和 `/permission`）。这是早期 hook 设计的遗留文件。**当前的安装路径是** `install_claude_hook` → `hook_installer.rs`，直接把 HTTP-hook 条目写入 `~/.claude/settings.json`。
+
+- `hooks/claude-hook.js` — 遗留的独立 Node 脚本（见上方警告）。
+- `pet-hit.html` — 独立的命中区域窗口，未在任何地方注册。仅用于调试。
+
+### "始终允许" 仅在会话内有效
+
+权限气泡里的"始终允许"会把工具名加进 `http_server.rs` 里的内存 `HashSet`。**不会**持久化到 `settings.json`，应用重启后会清空。这是 MVP 范围内有意为之 — 如果用户重启后又看到弹窗，这是预期行为，不是 bug。
 
 ### `~/.claude/settings.json` ownership
 
