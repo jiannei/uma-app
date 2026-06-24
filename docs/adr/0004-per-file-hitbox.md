@@ -74,3 +74,24 @@ hitRect = {
 - debug 红框(`[DEBUG-VIS-TEMP]` CSS)和 `[DIAG-TEMP]` 监听器在落地后整段删掉,worktree 跟着 `ExitWorktree` 清理
 - 如果未来 `uma-pet` 的 hitBox 数据更新(美术微调),需要同步复制到 `pet.html` 的主题注册段——这是一次性 boilerplate,不是动态引用,可能漂移
 - 未来如果真的需要"逐像素命中"(比如用户反馈某状态命中区还是太大),升级路径是 Option 2,数据可以保留(只是 viewBox 坐标换成 SVG 内像素坐标)
+
+## Rendering paths (PR-1, 2026-06-24)
+
+`sprite` 渲染从单一 `<img>` 改为**双元素**结构,匹配 `uma-pet` 的 `needsObjectChannel` 决策:
+
+- `<object type="image/svg+xml" data="...">` —— SVG 主题(uma),CSS box 直接吃 `objectScale.widthRatio/heightRatio`,`preserveAspectRatio` 默认 `xMidYMid meet` 自动 fit 内部 SVG
+- `<img src="...">` —— APNG 主题(calico,APNG 不支持 `<object>`),width 吃 `imgWidthBase × fileScale`,height `auto` 保持 PNG 比例
+
+两个元素共享 CSS 变量 (`--sprite-w/h/l/t/b`),挂在 `#pet-container` 上;`.is-active` class 切换显示哪个。`objectScale` 字段直传 CSS,**无任何推导公式**——umapet 的 `applyObjectScaleStyle` 两个分支(object / img)直接镜像成 CSS,不再需要 `min()` / `boxWider` / 之类的 img-拟-object 模拟。
+
+`ThemeManager.reloadTheme(themeId, newManifest)` 支持 pet 窗口响应 dev tool 的 save:Rust 的 `theme_save` 写盘后 emit `theme-updated`,pet.html 监听后 fetch 新 manifest → `reloadTheme` → `applyStyle()` 重新套 CSS 变量 → 精灵立刻反映新值,无重启。
+
+### Why this exists
+
+早期 (PR-1 之前) 用单一 `<img>` + 手写 `min(widthRatio, heightRatio) + boxWider` 公式模拟 `<object>` 的 fit 行为。问题:公式有边界差异(非正方形 viewBox / per-file scale 非 1.0 / box-taller 情况都要加新分支),calico 一上来就对不上(角色明显小一截)。改成双元素后,upstream 字段 → upstream 渲染,**0 推导**;新主题只要 `objectScale` 写对就自动正确。
+
+### 详见
+
+- `[[dual-element-rendering]]` memory —— 字段到 CSS 变量的完整映射表
+- `[[scaling-bug-missing-objectscale]]` —— 迁移时漏字段的历史
+- `[[scaling-img-vs-object-fit]]` (outdated) —— 旧 img 模拟 object fit 方案,已被本文取代

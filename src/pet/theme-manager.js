@@ -66,6 +66,27 @@ class ThemeManager {
   }
 
   /**
+   * Replace an already-registered theme with a new manifest (read
+   * fresh from theme.json by the host after a dev-tool save). Notifies
+   * subscribers so the pet window re-renders with the new values.
+   * Use case: dev panel writes theme.json → emits theme-updated →
+   * pet calls this with the freshly-read manifest → sprite re-renders.
+   */
+  reloadTheme(themeId, newManifest) {
+    if (!this.themes.has(themeId)) {
+      console.warn(`[theme] reload unknown theme: ${themeId}`);
+      return false;
+    }
+    this.registerTheme(themeId, newManifest);
+    if (this.currentThemeId === themeId) {
+      this.currentTheme = this.themes.get(themeId);
+      this.notify({ themeId, theme: this.currentTheme });
+    }
+    console.log(`[theme] reloaded: ${themeId}`);
+    return true;
+  }
+
+  /**
    * Resolve a state to an asset URL
    */
   getAssetUrl(state) {

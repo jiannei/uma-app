@@ -481,6 +481,20 @@
         const themeId = e.payload?.theme;
         if (themeId) themeManager.setTheme(themeId);
       });
+      // Dev-tool wrote themes/<id>/theme.json (PR-2's theme_save). The
+      // Rust side already wrote the file and persisted a .bak; we
+      // just need to re-read it and re-register so the pet sprite
+      // reflects the new values without a restart.
+      window.__TAURI__.event.listen('theme-updated', async (e) => {
+        const themeId = e.payload?.theme;
+        if (!themeId) return;
+        try {
+          const manifest = await window.__TAURI__.core.invoke('theme_load', { themeId });
+          themeManager.reloadTheme(themeId, manifest);
+        } catch (err) {
+          console.warn('[pet] theme reload failed:', err);
+        }
+      });
     }
 
     // Drag on hit-zone only (the asset-specific rectangle, updated by JS).

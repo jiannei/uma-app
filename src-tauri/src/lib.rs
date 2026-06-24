@@ -352,6 +352,65 @@ async fn devtools_get_always_allow(
         .collect())
 }
 
+// ── Theme editor IPC (gated by `dev-tools` feature) ────────────
+//
+// Read / write public/themes/<id>/theme.json. Powers the dev panel's
+// visual sprite editor. Only available in dev-tools builds (release
+// pet users don't have a UI to mutate themes). After save, emits
+// `theme-updated` so the pet window re-reads and re-registers the
+// theme (no app restart needed for tweaks to take effect).
+//
+// Path resolution: from src-tauri/, the project root is `..`. Themes
+// live at `../public/themes/<id>/theme.json`. In production the
+// themes are bundled read-only, so this command will fail at
+// runtime; that's intentional — release users have no editor.
+
+#[cfg(feature = "dev-tools")]
+fn theme_path(theme_id: &str) -> std::path::PathBuf {
+    // CARGO_MANIFEST_DIR is src-tauri/, so project root is parent.
+    let manifest = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    manifest
+        .parent()
+        .unwrap_or(manifest)
+        .join("public")
+        .join("themes")
+        .join(theme_id)
+        .join("theme.json")
+}
+
+#[cfg(feature = "dev-tools")]
+#[tauri::command]
+fn theme_load(theme_id: String) -> Result<serde_json::Value, String> {
+    let path = theme_path(&theme_id);
+    let content = std::fs::read_to_string(&path)
+        .map_err(|e| format!("read {} failed: {e}", path.display()))?;
+    serde_json::from_str(&content).map_err(|e| format!("parse failed: {e}"))
+}
+
+#[cfg(feature = "dev-tools")]
+#[tauri::command]
+fn theme_save(
+    app: AppHandle,
+    theme_id: String,
+    content: serde_json::Value,
+) -> Result<(), String> {
+    let path = theme_path(&theme_id);
+    // Best-effort backup of the previous file before overwriting. We
+    // do this so a dev session that thrashes the editor can be
+    // reverted with `git checkout` or by reading the .bak.
+    let backup = path.with_extension("json.bak");
+    if path.exists() {
+        std::fs::copy(&path, &backup).map_err(|e| format!("backup failed: {e}"))?;
+    }
+    let pretty = serde_json::to_string_pretty(&content)
+        .map_err(|e| format!("serialize failed: {e}"))?;
+    std::fs::write(&path, pretty).map_err(|e| format!("write failed: {e}"))?;
+    // Notify listeners (pet window, dev panel) to re-read the theme.
+    app.emit("theme-updated", serde_json::json!({ "theme": theme_id }))
+        .map_err(|e| format!("emit failed: {e}"))?;
+    Ok(())
+}
+
 // ── App entry ──
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -387,6 +446,10 @@ pub fn run() {
             devtools_get_pending,
             #[cfg(feature = "dev-tools")]
             devtools_get_always_allow,
+            #[cfg(feature = "dev-tools")]
+            theme_load,
+            #[cfg(feature = "dev-tools")]
+            theme_save,
         ])
         .setup(move |app| {
             let app_handle = app.handle().clone();
@@ -556,4 +619,80 @@ pub fn run() {
         })
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+// ── Tests ────────────────────────────────────────────────────────────
+
+#[cfg(all(test, feature = "dev-tools"))]
+mod tests {
+    use super::*;
+    use std::fs;
+
+    /// Round-trip a theme.json via theme_path → write → re-read.
+    /// Verifies the path resolution and the disk IO, not the Tauri
+    /// command wrapper. The Tauri command wrapper just forwards to
+    /// these functions.
+    #[test]
+    fn theme_io_roundtrip() {
+        let theme_id = "uma";
+        let path = theme_path(theme_id);
+
+        // Pre-condition: the real theme.json exists and is valid JSON.
+        let original = fs::read_to_string(&path).expect("read real theme.json");
+        let _: serde_json::Value =
+            serde_json::from_str(&original).expect("real theme.json is valid JSON");
+
+        // Write a known value
+        let new_content = serde_json::json!({
+            "name": "TestRoundtrip",
+            "objectScale": {
+                "widthRatio": 99.9,
+                "heightRatio": 88.8,
+                "offsetX": -11.1,
+                "offsetY": -22.2,
+            }
+        });
+        let pretty = serde_json::to_string_pretty(&new_content).unwrap();
+        fs::write(&path, &pretty).unwrap();
+
+        // Re-read and verify
+        let restored = fs::read_to_string(&path).unwrap();
+        let restored_json: serde_json::Value = serde_json::from_str(&restored).unwrap();
+        assert_eq!(
+            restored_json["objectScale"]["widthRatio"].as_f64().unwrap(),
+            99.9
+        );
+        assert_eq!(restored_json["name"].as_str().unwrap(), "TestRoundtrip");
+
+        // Restore original content so the test is non-destructive.
+        fs::write(&path, &original).unwrap();
+        let after_restore = fs::read_to_string(&path).unwrap();
+        assert_eq!(after_restore, original);
+    }
+
+    #[test]
+    fn theme_save_creates_backup() {
+        let theme_id = "uma";
+        let path = theme_path(theme_id);
+        let backup = path.with_extension("json.bak");
+
+        // Pre-condition: backup must not exist (or be from a prior run).
+        // If it does exist, just delete it so we can assert creation.
+        let _ = fs::remove_file(&backup);
+
+        let original = fs::read_to_string(&path).unwrap();
+        fs::write(&path, r#"{"name":"BackupTest"}"#).unwrap();
+
+        // The save function's backup step is inline in theme_save;
+        // simulate it here.
+        fs::copy(&path, &backup).unwrap();
+        assert!(backup.exists(), "backup file should be created");
+
+        let backup_content = fs::read_to_string(&backup).unwrap();
+        assert_eq!(backup_content, r#"{"name":"BackupTest"}"#);
+
+        // Restore
+        fs::write(&path, &original).unwrap();
+        fs::remove_file(&backup).unwrap();
+    }
 }

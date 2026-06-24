@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "name": "Uma",
   "version": "1.0.0",
-  "description": "The original pixel crab — Uma the Claude Code mascot",
+  "description": "The original pixel crab \u2014 Uma the Claude Code mascot",
   "viewBox": {
     "x": -15,
     "y": -25,
@@ -49,48 +49,62 @@
     "shadowOrigin": "7.5px 15px"
   },
   "states": {
-    "idle": [
-      "uma-idle-follow.svg"
-    ],
-    "yawning": [
-      "uma-idle-yawn.svg"
-    ],
-    "dozing": [
-      "uma-idle-doze.svg"
-    ],
-    "collapsing": [
-      "uma-collapse-sleep.svg"
-    ],
-    "thinking": [
-      "uma-working-thinking.svg"
-    ],
-    "working": [
-      "uma-working-typing.svg"
-    ],
-    "juggling": [
-      "uma-headphones-groove.svg"
-    ],
-    "sweeping": [
-      "uma-working-sweeping.svg"
-    ],
-    "error": [
-      "uma-error.svg"
-    ],
-    "attention": [
-      "uma-happy.svg"
-    ],
-    "notification": [
-      "uma-notification.svg"
-    ],
-    "carrying": [
-      "uma-working-carrying.svg"
-    ],
-    "sleeping": [
-      "uma-sleeping.svg"
-    ],
-    "waking": [
-      "uma-wake.svg"
-    ]
+    "idle": {
+      "file": "uma-idle-follow.svg",
+      "type": "svg"
+    },
+    "yawning": {
+      "file": "uma-idle-yawn.svg",
+      "type": "svg"
+    },
+    "dozing": {
+      "file": "uma-idle-doze.svg",
+      "type": "svg"
+    },
+    "collapsing": {
+      "file": "uma-collapse-sleep.svg",
+      "type": "svg"
+    },
+    "thinking": {
+      "file": "uma-working-thinking.svg",
+      "type": "svg"
+    },
+    "working": {
+      "file": "uma-working-typing.svg",
+      "type": "svg"
+    },
+    "juggling": {
+      "file": "uma-headphones-groove.svg",
+      "type": "svg"
+    },
+    "sweeping": {
+      "file": "uma-working-sweeping.svg",
+      "type": "svg"
+    },
+    "error": {
+      "file": "uma-error.svg",
+      "type": "svg"
+    },
+    "attention": {
+      "file": "uma-happy.svg",
+      "type": "svg"
+    },
+    "notification": {
+      "file": "uma-notification.svg",
+      "type": "svg"
+    },
+    "carrying": {
+      "file": "uma-working-carrying.svg",
+      "type": "svg"
+    },
+    "sleeping": {
+      "file": "uma-sleeping.svg",
+      "type": "svg"
+    },
+    "waking": {
+      "file": "uma-wake.svg",
+      "type": "svg"
+    }
   },
   "workingTiers": [
     {
@@ -231,33 +245,42 @@
     "supported": true,
     "offsetRatio": 0.486,
     "states": {
-      "mini-idle": [
-        "uma-mini-idle.svg"
-      ],
-      "mini-alert": [
-        "uma-mini-alert.svg"
-      ],
-      "mini-happy": [
-        "uma-mini-happy.svg"
-      ],
-      "mini-enter": [
-        "uma-mini-enter.svg"
-      ],
-      "mini-peek": [
-        "uma-mini-peek.svg"
-      ],
-      "mini-working": [
-        "uma-mini-typing.svg"
-      ],
-      "mini-crabwalk": [
-        "uma-mini-crabwalk.svg"
-      ],
-      "mini-enter-sleep": [
-        "uma-mini-enter-sleep.svg"
-      ],
-      "mini-sleep": [
-        "uma-mini-sleep.svg"
-      ]
+      "mini-idle": {
+        "file": "uma-mini-idle.svg",
+        "type": "svg"
+      },
+      "mini-alert": {
+        "file": "uma-mini-alert.svg",
+        "type": "svg"
+      },
+      "mini-happy": {
+        "file": "uma-mini-happy.svg",
+        "type": "svg"
+      },
+      "mini-enter": {
+        "file": "uma-mini-enter.svg",
+        "type": "svg"
+      },
+      "mini-peek": {
+        "file": "uma-mini-peek.svg",
+        "type": "svg"
+      },
+      "mini-working": {
+        "file": "uma-mini-typing.svg",
+        "type": "svg"
+      },
+      "mini-crabwalk": {
+        "file": "uma-mini-crabwalk.svg",
+        "type": "svg"
+      },
+      "mini-enter-sleep": {
+        "file": "uma-mini-enter-sleep.svg",
+        "type": "svg"
+      },
+      "mini-sleep": {
+        "file": "uma-mini-sleep.svg",
+        "type": "svg"
+      }
     },
     "timings": {
       "minDisplay": {

@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "name": "Calico",
   "version": "1.0.0",
-  "description": "A calico cat desk pet — AI-generated APNG animations",
+  "description": "A calico cat desk pet \u2014 AI-generated APNG animations",
   "viewBox": {
     "x": 0,
     "y": 0,
@@ -70,48 +70,62 @@
     }
   },
   "states": {
-    "idle": [
-      "calico-idle-follow.svg"
-    ],
-    "yawning": [
-      "calico-yawning.apng"
-    ],
-    "dozing": [
-      "calico-dozing.apng"
-    ],
-    "collapsing": [
-      "calico-collapsing.apng"
-    ],
-    "thinking": [
-      "calico-thinking.apng"
-    ],
-    "working": [
-      "calico-working-typing.apng"
-    ],
-    "juggling": [
-      "calico-working-juggling.apng"
-    ],
-    "sweeping": [
-      "calico-working-sweeping.apng"
-    ],
-    "error": [
-      "calico-error.apng"
-    ],
-    "attention": [
-      "calico-happy.apng"
-    ],
-    "notification": [
-      "calico-notification.apng"
-    ],
-    "carrying": [
-      "calico-working-carrying.apng"
-    ],
-    "sleeping": [
-      "calico-sleeping.apng"
-    ],
-    "waking": [
-      "calico-waking.apng"
-    ]
+    "idle": {
+      "file": "calico-idle-follow.svg",
+      "type": "svg"
+    },
+    "yawning": {
+      "file": "calico-yawning.apng",
+      "type": "apng"
+    },
+    "dozing": {
+      "file": "calico-dozing.apng",
+      "type": "apng"
+    },
+    "collapsing": {
+      "file": "calico-collapsing.apng",
+      "type": "apng"
+    },
+    "thinking": {
+      "file": "calico-thinking.apng",
+      "type": "apng"
+    },
+    "working": {
+      "file": "calico-working-typing.apng",
+      "type": "apng"
+    },
+    "juggling": {
+      "file": "calico-working-juggling.apng",
+      "type": "apng"
+    },
+    "sweeping": {
+      "file": "calico-working-sweeping.apng",
+      "type": "apng"
+    },
+    "error": {
+      "file": "calico-error.apng",
+      "type": "apng"
+    },
+    "attention": {
+      "file": "calico-happy.apng",
+      "type": "apng"
+    },
+    "notification": {
+      "file": "calico-notification.apng",
+      "type": "apng"
+    },
+    "carrying": {
+      "file": "calico-working-carrying.apng",
+      "type": "apng"
+    },
+    "sleeping": {
+      "file": "calico-sleeping.apng",
+      "type": "apng"
+    },
+    "waking": {
+      "file": "calico-waking.apng",
+      "type": "apng"
+    }
   },
   "workingTiers": [
     {
@@ -223,30 +237,38 @@
     "flipAssets": true,
     "offsetRatio": 0.4,
     "states": {
-      "mini-idle": [
-        "calico-mini-idle.apng"
-      ],
-      "mini-alert": [
-        "calico-mini-alert.apng"
-      ],
-      "mini-happy": [
-        "calico-mini-happy.apng"
-      ],
-      "mini-enter": [
-        "calico-mini-enter.apng"
-      ],
-      "mini-peek": [
-        "calico-mini-peek.apng"
-      ],
-      "mini-crabwalk": [
-        "calico-mini-crabwalk.apng"
-      ],
-      "mini-enter-sleep": [
-        "calico-mini-sleep.apng"
-      ],
-      "mini-sleep": [
-        "calico-mini-sleep.apng"
-      ]
+      "mini-idle": {
+        "file": "calico-mini-idle.apng",
+        "type": "apng"
+      },
+      "mini-alert": {
+        "file": "calico-mini-alert.apng",
+        "type": "apng"
+      },
+      "mini-happy": {
+        "file": "calico-mini-happy.apng",
+        "type": "apng"
+      },
+      "mini-enter": {
+        "file": "calico-mini-enter.apng",
+        "type": "apng"
+      },
+      "mini-peek": {
+        "file": "calico-mini-peek.apng",
+        "type": "apng"
+      },
+      "mini-crabwalk": {
+        "file": "calico-mini-crabwalk.apng",
+        "type": "apng"
+      },
+      "mini-enter-sleep": {
+        "file": "calico-mini-sleep.apng",
+        "type": "apng"
+      },
+      "mini-sleep": {
+        "file": "calico-mini-sleep.apng",
+        "type": "apng"
+      }
     },
     "timings": {
       "minDisplay": {
