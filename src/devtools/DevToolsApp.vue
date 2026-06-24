@@ -24,6 +24,7 @@ import StateMachinePanel from "./panels/StateMachinePanel.vue";
 import EventLogPanel from "./panels/EventLogPanel.vue";
 import StoresPanel from "./panels/StoresPanel.vue";
 import SyntheticFirePanel from "./panels/SyntheticFirePanel.vue";
+import VisualDebugPanel from "./panels/VisualDebugPanel.vue";
 import ThemeEditorPanel from "./panels/ThemeEditorPanel.vue";
 
 // ── Local state machine (ground truth for dev panel) ────────────
@@ -216,9 +217,10 @@ onUnmounted(() => {
     <main class="grid">
       <StateMachinePanel :snapshot="snapshot" />
       <EventLogPanel :entries="eventLog" />
-      <ThemeEditorPanel />
+      <VisualDebugPanel />
       <StoresPanel :pending="pending" :always-allow="alwaysAllow" />
       <SyntheticFirePanel :agents="agents" :fire-synthetic="fireSynthetic" />
+      <ThemeEditorPanel />
     </main>
   </div>
 </template>
