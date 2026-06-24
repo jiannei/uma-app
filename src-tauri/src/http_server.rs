@@ -88,7 +88,7 @@ struct AppState {
 async fn health() -> Json<serde_json::Value> {
     Json(serde_json::json!({
         "status": "ok",
-        "service": "uma-pet",
+        "service": "uma-app",
     }))
 }
 
@@ -109,7 +109,7 @@ async fn handle_state(
         agent_id, event.session_id, event.event_type, event.tool_name
     );
 
-    // The state machine + pet window expect a flat JSON shape with these
+    // The state machine + robot window expect a flat JSON shape with these
     // keys. Serialize the canonical HookEvent directly (its field names
     // already match the legacy shape, with `agent` now being a string
     // after AgentId's transparent serialization).
@@ -117,8 +117,8 @@ async fn handle_state(
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("serialize: {e}")))?;
     let app = state.app.clone();
     let _ = app.emit("agent-hook-event", json_payload.clone());
-    if let Some(pet_win) = app.get_webview_window("pet") {
-        let _ = pet_win.emit("agent-hook-event", json_payload);
+    if let Some(robot_win) = app.get_webview_window("robot") {
+        let _ = robot_win.emit("agent-hook-event", json_payload);
     }
 
     Ok(Json(HookResponse {
@@ -130,7 +130,7 @@ async fn handle_state(
 /// POST /agents/{id}/permission — blocking permission request.
 ///
 /// The handler blocks until either the user clicks a button in the
-/// bubble (response arrives via `pet_permission_response`) or the
+/// bubble (response arrives via `respond_permission`) or the
 /// 5-minute timeout elapses. On timeout, returns 204 so the agent
 /// can fall back to its native prompt.
 async fn handle_permission(
@@ -227,7 +227,7 @@ async fn handle_permission(
     let bubble_payload = serde_json::to_value(&canonical)
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     let app = state.app.clone();
-    if let Some(bubble_win) = app.get_webview_window("pet-bubble") {
+    if let Some(bubble_win) = app.get_webview_window("permission-bubble") {
         let _ = bubble_win.emit("permission-request", bubble_payload.clone());
     }
     let _ = app.emit("permission-request", bubble_payload);
@@ -305,7 +305,7 @@ async fn handle_permission(
 
 fn show_bubble_window(app: &AppHandle, position: &str) -> Result<(), String> {
     use tauri::PhysicalPosition;
-    if let Some(bubble) = app.get_webview_window("pet-bubble") {
+    if let Some(bubble) = app.get_webview_window("permission-bubble") {
         if let Ok(Some(monitor)) = app.primary_monitor() {
             let screen = monitor.size();
             let scale = monitor.scale_factor();
@@ -332,7 +332,7 @@ fn show_bubble_window(app: &AppHandle, position: &str) -> Result<(), String> {
 }
 
 fn hide_bubble_window(app: &AppHandle) {
-    if let Some(bubble) = app.get_webview_window("pet-bubble") {
+    if let Some(bubble) = app.get_webview_window("permission-bubble") {
         let _ = bubble.hide();
     }
 }

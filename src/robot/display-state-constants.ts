@@ -1,4 +1,4 @@
-// src/pet/pet-machine-constants.ts — Runtime constants for the DisplayStateResolver.
+// src/robot/display-state-constants.ts — Runtime constants for the DisplayStateResolver.
 //
 // Single source of truth for the constants consumed by the XState
 // machine + theme manager + SyntheticFirePanel. Replaces the old
@@ -6,7 +6,7 @@
 //
 // See docs/adr/0006-adopt-xstate-for-display-state-resolver.md.
 
-import type { CanonicalEventName, DisplayState } from './pet-machine-types';
+import type { CanonicalEventName, DisplayState } from './display-state-types';
 
 /** Every DisplayState the resolver can produce. Themes map these to sprites. */
 export const ALL_STATES: readonly DisplayState[] = [
@@ -52,7 +52,7 @@ export const UNKNOWN_AGENT = 'unknown';
 
 /**
  * Default theme timings used as the XState machine's initial input. The
- * pet window replaces this with the real theme on `pet-theme-change`;
+ * robot window replaces this with the real theme on `theme-change`;
  * the dev panel uses this until a theme-load resolves and a `THEME_CHANGED`
  * event catches it up.
  *

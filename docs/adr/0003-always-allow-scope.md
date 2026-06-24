@@ -1,6 +1,6 @@
 # "始终允许" 的 scope 是 per (agent, session, tool)，in-memory only
 
-权限气泡里"始终允许"按钮的语义是：**对于该 agent 的该 session 的该工具名，所有调用自动放行**；规则**仅存于 pet 进程内存**，`HashMap<(AgentId, SessionId), HashSet<ToolName>>`，应用退出即清空。MVP 范围内有意不持久化到 `settings.json`。
+权限气泡里"始终允许"按钮的语义是：**对于该 agent 的该 session 的该工具名，所有调用自动放行**；规则**仅存于机器人进程内存**，`HashMap<(AgentId, SessionId), HashSet<ToolName>>`，应用退出即清空。MVP 范围内有意不持久化到 `settings.json`。
 
 ## Status
 
@@ -15,7 +15,7 @@ accepted — 2026-06-24（grilling session）
 Scope = (agent, session, tool)，in-memory only。
 
 - **数据结构**：`HashMap<(AgentId, SessionId), HashSet<ToolName>>`，按 session 关闭时清空该 session 的子集
-- **生命周期**：进程内有效；pet 重启后清空（与 MVP 范围一致）
+- **生命周期**：进程内有效；机器人重启后清空（与 MVP 范围一致）
 - **不持久化**：故意不写入 `settings.json`，避免跟 Claude Code / Codex 自己的 permission 系统产生认知冲突
 
 ## Considered Options

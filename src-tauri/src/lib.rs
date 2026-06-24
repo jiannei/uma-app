@@ -41,7 +41,7 @@ impl Default for Settings {
 // ── State wrappers ──
 
 /// One outstanding permission request. The oneshot sender is the
-/// user-decision transport (resolved by `pet_permission_response` or
+/// user-decision transport (resolved by `respond_permission` or
 /// by the 5-min timeout in `http_server`). The `request` field
 /// carries the canonical `PermissionRequest` so the dev-tools panel
 /// can render it without re-fetching.
@@ -80,7 +80,7 @@ pub struct BubblePositionStore(pub Arc<std::sync::Mutex<String>>);
 /// session. The HTTP server writes to this when the user clicks
 /// "Always", and reads it on every incoming permission request.
 ///
-/// The pet frontend invokes `clear_always_allow_session` on
+/// The robot frontend invokes `clear_always_allow_session` on
 /// `SessionEnd` so a closed session's allow rules don't bleed into
 /// the next session opened by the same agent.
 ///
@@ -129,10 +129,10 @@ fn set_theme(
         pstore.set("theme", serde_json::json!(theme.clone()));
         let _ = pstore.save();
     }
-    app.emit("pet-theme-change", serde_json::json!({ "theme": &theme }))
+    app.emit("theme-change", serde_json::json!({ "theme": &theme }))
         .map_err(|e| e.to_string())?;
-    if let Some(pet) = app.get_webview_window("pet") {
-        pet.emit("pet-theme-change", serde_json::json!({ "theme": &theme }))
+    if let Some(robot) = app.get_webview_window("robot") {
+        robot.emit("theme-change", serde_json::json!({ "theme": &theme }))
             .map_err(|e| e.to_string())?;
     }
     Ok(())
@@ -154,7 +154,7 @@ fn set_dnd(
         pstore.set("dnd", serde_json::json!(enabled));
         let _ = pstore.save();
     }
-    app.emit("pet-dnd-change", serde_json::json!({ "dnd": enabled }))
+    app.emit("dnd-change", serde_json::json!({ "dnd": enabled }))
         .map_err(|e| e.to_string())?;
     Ok(())
 }
@@ -182,7 +182,7 @@ fn set_bubble_position(
 
 #[cfg_attr(not(feature = "dev-tools"), allow(unused_variables))]
 #[tauri::command]
-async fn pet_permission_response(
+async fn respond_permission(
     app: AppHandle,
     store: State<'_, PendingStore>,
     decision: PermissionDecision,
@@ -219,7 +219,7 @@ async fn pet_permission_response(
     }
 
     // Hide bubble window after user responds
-    if let Some(bubble) = app.get_webview_window("pet-bubble") {
+    if let Some(bubble) = app.get_webview_window("permission-bubble") {
         let _ = bubble.hide();
     }
 
@@ -237,7 +237,7 @@ struct AgentInfo {
     is_installed: bool,
 }
 
-/// Read the pet port the HTTP server binds to. Falls back to 17373.
+/// Read the robot port the HTTP server binds to. Falls back to 17373.
 /// The frontend does NOT pass this in — the Rust side is the single
 /// source of truth for what port the server binds.
 fn pet_port() -> u16 {
@@ -281,7 +281,7 @@ fn uninstall_agent_hook(agent_id: String) -> Result<(), String> {
 }
 
 /// Drop the always-allow set for a (agent_id, session_id) pair.
-/// Invoked from the pet frontend on `SessionEnd` so a closed
+/// Invoked from the robot frontend on `SessionEnd` so a closed
 /// session's allow rules don't leak to the next session opened by
 /// the same agent. No-op if the key isn't present.
 #[cfg_attr(not(feature = "dev-tools"), allow(unused_variables))]
@@ -356,8 +356,9 @@ async fn devtools_get_always_allow(
 //
 // Read / write public/themes/<id>/theme.json. Powers the dev panel's
 // visual sprite editor. Only available in dev-tools builds (release
-// pet users don't have a UI to mutate themes). After save, emits
-// `theme-updated` so the pet window re-reads and re-registers the
+// release users don't have a UI to mutate themes — keep that gate as
+// one less moving part. After save, emits
+// `theme-updated` so the robot window re-reads and re-registers the
 // theme (no app restart needed for tweaks to take effect).
 //
 // Path resolution: from src-tauri/, the project root is `..`. Themes
@@ -405,7 +406,7 @@ fn theme_save(
     let pretty = serde_json::to_string_pretty(&content)
         .map_err(|e| format!("serialize failed: {e}"))?;
     std::fs::write(&path, pretty).map_err(|e| format!("write failed: {e}"))?;
-    // Notify listeners (pet window, dev panel) to re-read the theme.
+    // Notify listeners (robot window, dev panel) to re-read the theme.
     app.emit("theme-updated", serde_json::json!({ "theme": theme_id }))
         .map_err(|e| format!("emit failed: {e}"))?;
     Ok(())
@@ -436,7 +437,7 @@ pub fn run() {
             set_theme,
             set_dnd,
             set_bubble_position,
-            pet_permission_response,
+            respond_permission,
             list_agents,
             check_agent_installed,
             install_agent_hook,
@@ -472,7 +473,7 @@ pub fn run() {
             // Create the three runtime windows. Geometry + flags were
             // previously declared in tauri.conf.json; they live in Rust
             // now so the source of truth for window size (e.g. the
-            // 144×144 pet sprite) is a single place.
+            // 144×144 robot sprite) is a single place.
             use tauri::{WebviewUrl, WebviewWindowBuilder};
 
             let main_window = WebviewWindowBuilder::new(
@@ -485,12 +486,12 @@ pub fn run() {
             .visible(false)
             .build()?;
 
-            let _pet_window = WebviewWindowBuilder::new(
+            let _robot_window = WebviewWindowBuilder::new(
                 app,
-                "pet",
-                WebviewUrl::App("pet.html".into()),
+                "robot",
+                WebviewUrl::App("robot.html".into()),
             )
-            .title("Uma Pet")
+            .title("Uma Robot")
             .inner_size(144.0, 144.0)
             .position(100.0, 100.0)
             .decorations(false)
@@ -505,8 +506,8 @@ pub fn run() {
 
             let _bubble_window = WebviewWindowBuilder::new(
                 app,
-                "pet-bubble",
-                WebviewUrl::App("pet-bubble.html".into()),
+                "permission-bubble",
+                WebviewUrl::App("permission-bubble.html".into()),
             )
             .title("Uma Permission")
             .inner_size(360.0, 200.0)
@@ -614,7 +615,7 @@ pub fn run() {
             }
 
             eprintln!("[uma] hook server listening on http://127.0.0.1:{hook_port}");
-            eprintln!("[uma] pet window: 144x144 transparent, hit-zone 144x144 centered");
+            eprintln!("[uma] robot window: 144x144 transparent, hit-zone 144x144 centered");
             Ok(())
         })
         .run(tauri::generate_context!())

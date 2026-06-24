@@ -1,4 +1,4 @@
-// src/pet/pet-machine.ts — DisplayStateResolver as an XState v5 machine.
+// src/robot/display-state-resolver.ts — DisplayStateResolver as an XState v5 machine.
 //
 // Implements ADR-0006 (adopt-xstate-for-display-state-resolver):
 //   - delays read from context.theme.timings (evaluated at state-entry;
@@ -18,7 +18,7 @@ import { setup, assign } from 'xstate';
 import {
   SUBAGENT_TOOLS,
   UNKNOWN_AGENT,
-} from './pet-machine-constants';
+} from './display-state-constants';
 import type {
   CanonicalEventName,
   DisplayState,
@@ -26,17 +26,17 @@ import type {
   SessionEntry,
   SessionKey,
   ThemeManifest,
-} from './pet-machine-types';
+} from './display-state-types';
 
 // ── Input (initial context) ─────────────────────────────────────
 
-export interface PetMachineInput {
+export interface DisplayStateResolverInput {
   theme: ThemeManifest;
 }
 
 // ── Context shape ───────────────────────────────────────────────
 
-interface PetContext {
+interface ResolverContext {
   sessions: Record<SessionKey, SessionEntry>;
   activeSubagents: Record<SessionKey, number>;
   theme: ThemeManifest;
@@ -47,7 +47,7 @@ interface PetContext {
 
 // ── Event alphabet ──────────────────────────────────────────────
 
-type PetEvent =
+type ResolverEvent =
   | { type: 'AGENT_HOOK'; event: HookEvent }
   | { type: 'RESET' }
   | { type: 'THEME_CHANGED'; theme: ThemeManifest };
@@ -86,11 +86,11 @@ function recomputeDisplayState(
 
 // ── Machine ─────────────────────────────────────────────────────
 
-export const petMachine = setup({
+export const displayStateResolver = setup({
   types: {
-    context: {} as PetContext,
-    events: {} as PetEvent,
-    input: {} as PetMachineInput,
+    context: {} as ResolverContext,
+    events: {} as ResolverEvent,
+    input: {} as DisplayStateResolverInput,
   },
   guards: {
     sessionEnded: ({ event }) =>
@@ -237,7 +237,7 @@ export const petMachine = setup({
       context.theme.timings.autoReturn.notification ?? 5000,
   },
 }).createMachine({
-  id: 'pet',
+  id: 'robot',
   context: ({ input }) => ({
     sessions: {},
     activeSubagents: {},
@@ -412,36 +412,36 @@ export const petMachine = setup({
         attention: {
           after: {
             attentionAutoReturn: {
-              target: '#pet.idle',
+              target: '#robot.idle',
               actions: ['clearOneShot'],
             },
           },
           on: {
-            RESET: { target: '#pet.idle', actions: 'clearAll' },
+            RESET: { target: '#robot.idle', actions: 'clearAll' },
             THEME_CHANGED: { actions: 'swapTheme' },
           },
         },
         error: {
           after: {
             errorAutoReturn: {
-              target: '#pet.idle',
+              target: '#robot.idle',
               actions: ['clearOneShot'],
             },
           },
           on: {
-            RESET: { target: '#pet.idle', actions: 'clearAll' },
+            RESET: { target: '#robot.idle', actions: 'clearAll' },
             THEME_CHANGED: { actions: 'swapTheme' },
           },
         },
         notification: {
           after: {
             notificationAutoReturn: {
-              target: '#pet.idle',
+              target: '#robot.idle',
               actions: ['clearOneShot'],
             },
           },
           on: {
-            RESET: { target: '#pet.idle', actions: 'clearAll' },
+            RESET: { target: '#robot.idle', actions: 'clearAll' },
             THEME_CHANGED: { actions: 'swapTheme' },
           },
         },

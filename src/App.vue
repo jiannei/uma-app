@@ -215,7 +215,7 @@ onMounted(async () => {
   <div class="settings">
     <header>
       <h1>🦀 Uma on Desk</h1>
-      <p class="subtitle">Desktop pet for AI coding agents</p>
+      <p class="subtitle">Desktop robot for AI coding agents</p>
     </header>
 
     <section>

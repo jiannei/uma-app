@@ -82,7 +82,7 @@ pub struct HookEvent {
 }
 
 /// Canonical permission request, already routed to the right agent and
-/// ready to be shown in the bubble UI. The `request_id` is pet-generated
+/// ready to be shown in the bubble UI. The `request_id` is robot-generated
 /// (a per-process counter) and is what the bubble uses to refer back to
 /// the pending entry when the user decides.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -103,7 +103,7 @@ pub struct PermissionRequest {
 
 // ── Trait ────────────────────────────────────────────────────────
 
-/// Implementor of one AI coding assistant. The pet treats agents as
+/// Implementor of one AI coding assistant. The robot treats agents as
 /// opaque, first-class objects: it asks the agent for its name, asks
 /// it whether it is installed, and asks it to translate payloads.
 ///
@@ -128,15 +128,15 @@ pub trait Agent: Send + Sync {
     fn config_path(&self) -> PathBuf;
 
     /// Returns `Ok(true)` if this agent's config file already contains
-    /// a pet-installed hook entry. Does *not* verify the hook actually
+    /// a robot-installed hook entry. Does *not* verify the hook actually
     /// works (e.g. the agent CLI being installed is a separate concern).
     fn is_installed(&self) -> Result<bool>;
 
-    /// Write pet hook entries into this agent's config file. `port` is
-    /// the pet's loopback HTTP port (read from `UMA_PET_PORT` env).
+    /// Write robot hook entries into this agent's config file. `port` is
+    /// the robot's loopback HTTP port (read from `UMA_PET_PORT` env).
     fn install(&self, port: u16) -> Result<()>;
 
-    /// Remove pet hook entries from this agent's config file. Other
+    /// Remove robot hook entries from this agent's config file. Other
     /// hooks (e.g. user-installed third-party hooks) are preserved.
     fn uninstall(&self) -> Result<()>;
 
@@ -151,13 +151,13 @@ pub trait Agent: Send + Sync {
     fn permission_event_names(&self) -> &'static [&'static str];
 
     /// Translate this agent's raw state-event JSON payload into a
-    /// canonical `HookEvent`. The pet passes the entire body as a
+    /// canonical `HookEvent`. The robot passes the entire body as a
     /// `serde_json::Value` so the adapter can pick out whatever fields
     /// its protocol needs.
     fn parse_state_payload(&self, raw: serde_json::Value) -> Result<HookEvent>;
 
     /// Translate this agent's raw permission payload into a canonical
-    /// `PermissionRequest`. The `request_id` is the pet's internal
+    /// `PermissionRequest`. The `request_id` is the robot's internal
     /// id (allocated by the HTTP server before calling this method).
     fn parse_permission_payload(
         &self,
@@ -180,12 +180,12 @@ pub trait Agent: Send + Sync {
 
 /// Look up a registered agent by id. Returns `None` for unknown ids —
 /// the HTTP server uses this to reject state events from agents the
-/// pet has no adapter for.
+/// robot has no adapter for.
 pub fn lookup_agent(id: &str) -> Option<&'static dyn Agent> {
     KNOWN_AGENTS.iter().copied().find(|a| a.id() == id)
 }
 
-/// Compile-time registry of every agent the pet knows how to handle.
+/// Compile-time registry of every agent the robot knows how to handle.
 /// Order is significant only for UI display; iteration should be
 /// stable.
 pub static KNOWN_AGENTS: &[&'static dyn Agent] = &[

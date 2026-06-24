@@ -2,7 +2,7 @@
 // src/devtools/panels/ThemeEditorPanel.vue — Visual editor for theme
 // objectScale. Lets a developer nudge a sprite's size/position
 // without hand-editing theme.json. Reads the current theme via
-// theme_load, writes back via theme_save. After save, the pet window
+// theme_load, writes back via theme_save. After save, the robot window
 // re-reads theme.json (theme-updated event from Rust) and re-renders
 // the sprite with the new values — no restart needed.
 //

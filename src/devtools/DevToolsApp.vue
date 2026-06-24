@@ -1,18 +1,18 @@
 <script setup lang="ts">
 // src/devtools/DevToolsApp.vue — DevTools parent SFC.
 //
-// INDEPENDENT of the pet window. The dev panel has its own XState
+// INDEPENDENT of the robot window. The dev panel has its own XState
 // DisplayStateResolver instance (via `useMachine`) and processes raw
-// events directly (no round-trip through pet). The pet window is
+// events directly (no round-trip through robot). The robot window is
 // reduced to "animation source" — it still runs its own resolver to
 // drive the sprite, but the dev panel no longer reads its state.
 //
 // This makes the dev panel the GROUND TRUTH reference. If you want
-// to verify that the pet's resolver is working correctly, you can
+// to verify that the robot's resolver is working correctly, you can
 // compare its sprite (animation) against the dev panel's computed
-// state visually. If they diverge, the bug is in the pet.
+// state visually. If they diverge, the bug is in the robot.
 //
-// Per ADR-0006 §Decision, both instances use `useMachine(petMachine,
+// Per ADR-0006 §Decision, both instances use `useMachine(displayStateResolver,
 // { input: { theme } })` — same machine definition, same Vue
 // composable → behavior equivalence guarantee.
 //
@@ -23,13 +23,13 @@ import { ref, watch, onMounted, onUnmounted } from "vue";
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn, emit as tauriEmit } from "@tauri-apps/api/event";
 import { useMachine } from "@xstate/vue";
-import { petMachine } from "../pet/pet-machine";
-import { DEFAULT_THEME } from "../pet/pet-machine-constants";
+import { displayStateResolver } from "../robot/display-state-resolver";
+import { DEFAULT_THEME } from "../robot/display-state-constants";
 import type {
   HookEvent,
   PermissionRequest,
   ThemeManifest,
-} from "../pet/pet-machine-types";
+} from "../robot/display-state-types";
 
 import StateMachinePanel from "./panels/StateMachinePanel.vue";
 import EventLogPanel from "./panels/EventLogPanel.vue";
@@ -41,9 +41,9 @@ import ThemeEditorPanel from "./panels/ThemeEditorPanel.vue";
 // ── Local DisplayStateResolver (ground truth for dev panel) ───────
 //
 // Initializes with DEFAULT_THEME; on mount we fetch the real theme
-// and send THEME_CHANGED so timings match the pet window.
+// and send THEME_CHANGED so timings match the robot window.
 
-const { snapshot: smSnapshot, send } = useMachine(petMachine, {
+const { snapshot: smSnapshot, send } = useMachine(displayStateResolver, {
   input: { theme: DEFAULT_THEME as unknown as ThemeManifest },
 });
 
@@ -120,7 +120,7 @@ const agents = ref<AgentInfo[]>([]);
 // ── Synthetic event fire ────────────────────────────────────────
 //
 // Feed the local resolver directly (so Panel 1 updates without a
-// round trip), and ALSO emit `devtools-synthetic-event` so the pet
+// round trip), and ALSO emit `devtools-synthetic-event` so the robot
 // window's sprite reacts.
 async function fireSynthetic(event: HookEvent) {
   send({ type: "AGENT_HOOK", event });
@@ -131,7 +131,7 @@ async function fireSynthetic(event: HookEvent) {
   });
 }
 
-// ── Reset (local resolver + broadcast to pet) ───────────────────
+// ── Reset (local resolver + broadcast to robot) ───────────────────
 
 async function resetAll() {
   send({ type: "RESET" });
@@ -155,7 +155,7 @@ onMounted(async () => {
   await refreshPending();
   await refreshAlwaysAllow();
 
-  // Fetch the active theme manifest so timings match the pet window.
+  // Fetch the active theme manifest so timings match the robot window.
   // `get_settings` returns the current theme id; `theme_load` reads
   // the manifest from disk on the Rust side.
   try {
@@ -170,11 +170,11 @@ onMounted(async () => {
     console.warn("[devtools] initial theme load failed:", err);
   }
 
-  // Theme-change broadcasts from the pet window / settings → swap
+  // Theme-change broadcasts from the robot window / settings → swap
   // local theme so timing-sensitive operations (sleep sequence,
   // auto-return) match.
   unsubscribers.push(
-    await listen("pet-theme-change", async (e) => {
+    await listen("theme-change", async (e) => {
       const themeId = (e.payload as { theme_id?: string })?.theme_id;
       if (!themeId) return;
       try {
@@ -183,7 +183,7 @@ onMounted(async () => {
         });
         send({ type: "THEME_CHANGED", theme });
       } catch (err) {
-        console.warn("[devtools] theme_load on pet-theme-change failed:", err);
+        console.warn("[devtools] theme_load on theme-change failed:", err);
       }
     }),
   );
@@ -219,8 +219,8 @@ onMounted(async () => {
     })
   );
 
-  // Synthetic events from dev panel form (received by both pet and
-  // dev panel — pet drives sprite, dev panel logs it; the local
+  // Synthetic events from dev panel form (received by both robot and
+  // dev panel — robot drives sprite, dev panel logs it; the local
   // resolver was already fed by fireSynthetic before this emit, so
   // we only log here).
   unsubscribers.push(

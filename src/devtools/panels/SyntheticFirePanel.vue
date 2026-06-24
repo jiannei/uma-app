@@ -2,13 +2,13 @@
 // src/devtools/panels/SyntheticFirePanel.vue — Panel 5.
 //
 // Form for firing synthetic canonical `HookEvent`s at the local
-// StateMachine instance (and the pet's, via the
+// StateMachine instance (and the robot's, via the
 // `devtools-synthetic-event` Tauri channel). See docs/adr/0005-dev-tools.md
 // D6 — emits an envelope `{ event, synthetic: true, source: "devtools" }`.
 
 import { ref } from "vue";
-import type { HookEvent } from "../../pet/pet-machine-types";
-import { CANONICAL_EVENTS } from "../../pet/pet-machine-constants";
+import type { HookEvent } from "../../robot/display-state-types";
+import { CANONICAL_EVENTS } from "../../robot/display-state-constants";
 
 interface AgentInfo {
   id: string;

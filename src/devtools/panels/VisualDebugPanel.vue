@@ -1,9 +1,9 @@
 <script setup lang="ts">
 // src/devtools/panels/VisualDebugPanel.vue — Panel 3.
 //
-// Visual debug controls for the pet window. The dev panel emits the
+// Visual debug controls for the robot window. The dev panel emits the
 // current `windowBg` / `spriteBg` / `hitzoneBg` colors via the
-// `devtools-pet-debug-style` Tauri event; pet.html applies them as
+// `devtools-robot-debug-style` Tauri event; robot.html applies them as
 // CSS variables (see docs/adr/0005-dev-tools.md D9). State is
 // in-memory only — restart the app to reset to defaults.
 
@@ -24,7 +24,7 @@ const style = reactive<DebugStyle>({
 
 async function broadcast() {
   // Send a shallow clone so the reactive object isn't shared by ref.
-  await tauriEmit("devtools-pet-debug-style", { ...style });
+  await tauriEmit("devtools-robot-debug-style", { ...style });
 }
 
 function clearAll() {
@@ -61,7 +61,7 @@ const DEFAULT_HITZONE = "#00ff0033"; // translucent green — see drag area
       </div>
       <button class="clear" @click="clearAll">Clear All</button>
       <p class="hint">
-        Colors apply to the pet window. Pick freely; this is in-memory
+        Colors apply to the robot window. Pick freely; this is in-memory
         only — restart the app to reset.
       </p>
     </div>

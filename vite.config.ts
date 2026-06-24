@@ -12,8 +12,8 @@ export default defineConfig(async () => ({
     rollupOptions: {
       input: {
         main: "index.html",
-        pet: "pet.html",
-        "pet-bubble": "pet-bubble.html",
+        robot: "robot.html",
+        "permission-bubble": "permission-bubble.html",
         // Dev-tools webview (see docs/adr/0005-dev-tools.md). The
         // Vite entry is always emitted; the runtime window is only
         // created when the Rust `dev-tools` feature is enabled.

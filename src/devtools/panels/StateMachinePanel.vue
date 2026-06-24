@@ -11,7 +11,7 @@ import type {
   MachineSnapshot as Snapshot,
   SessionEntry,
   SessionKey,
-} from "../../pet/pet-machine-types";
+} from "../../robot/display-state-types";
 
 const props = defineProps<{ snapshot: Snapshot }>();
 

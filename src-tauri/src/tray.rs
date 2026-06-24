@@ -99,10 +99,10 @@ fn handle_menu_event<R: Runtime>(
         "theme_uma" => {
             let mut s = settings.lock().unwrap();
             s.theme = "uma".into();
-            let _ = app.emit("pet-theme-change", serde_json::json!({ "theme": "uma" }));
-            if let Some(pet) = app.get_webview_window("pet") {
-                let _ = pet.emit(
-                    "pet-theme-change",
+            let _ = app.emit("theme-change", serde_json::json!({ "theme": "uma" }));
+            if let Some(robot) = app.get_webview_window("robot") {
+                let _ = robot.emit(
+                    "theme-change",
                     serde_json::json!({ "theme": "uma" }),
                 );
             }
@@ -110,10 +110,10 @@ fn handle_menu_event<R: Runtime>(
         "theme_calico" => {
             let mut s = settings.lock().unwrap();
             s.theme = "calico".into();
-            let _ = app.emit("pet-theme-change", serde_json::json!({ "theme": "calico" }));
-            if let Some(pet) = app.get_webview_window("pet") {
-                let _ = pet.emit(
-                    "pet-theme-change",
+            let _ = app.emit("theme-change", serde_json::json!({ "theme": "calico" }));
+            if let Some(robot) = app.get_webview_window("robot") {
+                let _ = robot.emit(
+                    "theme-change",
                     serde_json::json!({ "theme": "calico" }),
                 );
             }
@@ -134,7 +134,7 @@ fn handle_menu_event<R: Runtime>(
                 pstore.set("dnd", serde_json::json!(new_val));
                 let _ = pstore.save();
             }
-            let _ = app.emit("pet-dnd-change", serde_json::json!({ "dnd": new_val }));
+            let _ = app.emit("dnd-change", serde_json::json!({ "dnd": new_val }));
         }
         "sound" => {
             let new_val = {
@@ -154,8 +154,8 @@ fn handle_menu_event<R: Runtime>(
             }
         }
         "mini" => {
-            // Emit a "pet-toggle-mini" event that the pet window handles
-            let _ = app.emit("pet-toggle-mini", ());
+            // Emit a "toggle-mini" event that the robot window handles
+            let _ = app.emit("toggle-mini", ());
         }
         "settings" => {
             if let Some(main) = app.get_webview_window("main") {

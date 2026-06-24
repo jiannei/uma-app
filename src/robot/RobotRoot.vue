@@ -1,7 +1,7 @@
 <script setup lang="ts">
-// src/pet/PetRoot.vue — Pet window Vue app (was inline <script> in pet.html).
+// src/robot/RobotRoot.vue — Robot window Vue app (was inline <script> in robot.html).
 //
-// Hosts the entire pet runtime: theme manager, sprite rendering, sound,
+// Hosts the entire robot runtime: theme manager, sprite rendering, sound,
 // drag, mini mode, Tauri event listeners, and the XState-based
 // DisplayStateResolver (via `useMachine`). Per ADR-0006 §Decision, the
 // resolver consumes `theme.timings` for sleep-sequence + auto-return
@@ -17,12 +17,12 @@ import { getCurrentWindow, currentMonitor } from "@tauri-apps/api/window";
 import { LogicalSize, LogicalPosition } from "@tauri-apps/api/dpi";
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import { petMachine } from "./pet-machine";
-import { DEFAULT_THEME } from "./pet-machine-constants";
+import { displayStateResolver } from "./display-state-resolver";
+import { DEFAULT_THEME } from "./display-state-constants";
 import { ThemeManager } from "./theme-manager.js";
-import type { DisplayState, HookEvent, ThemeManifest } from "./pet-machine-types";
+import type { DisplayState, HookEvent, ThemeManifest } from "./display-state-types";
 
-// ── Theme registration (copied verbatim from pet.html L114-254) ──
+// ── Theme registration (copied verbatim from robot.html L114-254) ──
 //
 // viewBox / hitBox / fileHitBox / wide + sleeping file lists /
 // objectScale are byte-equivalent to upstream uma-pet. Asset files
@@ -169,15 +169,15 @@ themeManager.registerTheme("calico", {
 // ── DOM refs (must be after <template>) ─────────────────────────
 
 const sprite = ref<HTMLImageElement | null>(null);
-const petObject = ref<HTMLObjectElement | null>(null);
-const petContainer = ref<HTMLDivElement | null>(null);
+const robotObject = ref<HTMLObjectElement | null>(null);
+const robotContainer = ref<HTMLDivElement | null>(null);
 const hitZone = ref<HTMLDivElement | null>(null);
 
 // ── DisplayStateResolver (XState v5 via @xstate/vue) ────────────
 
 // useMachine must be called with sync input. We start with DEFAULT_THEME
-// and swap to the real theme after mount + on every pet-theme-change.
-const { snapshot: smSnapshot, send } = useMachine(petMachine, {
+// and swap to the real theme after mount + on every theme-change.
+const { snapshot: smSnapshot, send } = useMachine(displayStateResolver, {
   input: { theme: DEFAULT_THEME as unknown as ThemeManifest },
 });
 
@@ -194,7 +194,7 @@ watch(
   { immediate: true },
 );
 
-// When theme changes via pet-theme-change / theme-updated, forward to
+// When theme changes via theme-change / theme-updated, forward to
 // the XState machine so timing-driven transitions (auto-return,
 // sleep sequence) use new values.
 function applyTheme(theme: ThemeManifest) {
@@ -204,25 +204,25 @@ function applyTheme(theme: ThemeManifest) {
 // ── Dual-element rendering (ADR-0004 §Rendering paths) ───────────
 
 function setActiveElement(type: string) {
-  if (!sprite.value || !petObject.value) return;
+  if (!sprite.value || !robotObject.value) return;
   // Until a theme loads, both elements stay hidden — avoids flashing
   // an empty <img src=""> at (0,0) which would show as a 0×0 box.
   if (!themeManager.getCurrentTheme()) {
     sprite.value.classList.remove("is-active");
-    petObject.value.classList.remove("is-active");
+    robotObject.value.classList.remove("is-active");
     return;
   }
   if (type === "svg") {
-    petObject.value.classList.add("is-active");
+    robotObject.value.classList.add("is-active");
     sprite.value.classList.remove("is-active");
   } else {
     sprite.value.classList.add("is-active");
-    petObject.value.classList.remove("is-active");
+    robotObject.value.classList.remove("is-active");
   }
 }
 
 function getActiveSpriteElement(): HTMLImageElement | HTMLObjectElement | null {
-  if (petObject.value?.classList.contains("is-active")) return petObject.value;
+  if (robotObject.value?.classList.contains("is-active")) return robotObject.value;
   if (sprite.value?.classList.contains("is-active")) return sprite.value;
   return null;
 }
@@ -234,8 +234,8 @@ function refreshSprite() {
   const type = stateDef?.type || "apng";
   setActiveElement(type);
   if (url) {
-    if (type === "svg" && petObject.value) {
-      petObject.value.data = url;
+    if (type === "svg" && robotObject.value) {
+      robotObject.value.data = url;
     } else if (sprite.value) {
       sprite.value.src = url;
     }
@@ -252,9 +252,16 @@ themeManager.onChange(() => {
 });
 
 // Apply theme.objectScale to the active sprite element. CSS custom
-// properties on #pet-container cascade to whichever element is .is-active.
+// properties on #robot-container cascade to whichever element is .is-active.
+//
+// Positioning is **bottom-anchored** (matching uma-pet's renderer.js):
+//   bottom = objBottom (or derived from offsetY + heightRatio) + fileOffset.y + viewportOffsetY
+// This keeps the sprite standing on the container bottom regardless of
+// how tall the sprite's CSS box is. The uma theme's default:
+//   objBottom = 1 - (-0.25) - 1.3 = -0.05 → sprite extends 5% below the
+//   container bottom (compensated by viewportOffsetY for titlebar).
 function applyStyle() {
-  if (!petContainer.value) return;
+  if (!robotContainer.value) return;
   const os = themeManager.getObjectScale();
   if (!os) return;
   const stateDef = themeManager.getCurrentTheme()?.states?.[
@@ -275,29 +282,40 @@ function applyStyle() {
   const heightRatio = isSvg ? (os.heightRatio || 1) : null;
 
   const leftPct = (os.offsetX || 0) * 100;
-  const topPct = isSvg ? (os.offsetY || 0) * 100 : null;
-  const bottomPct = isSvg
-    ? null
-    : (os.imgBottom != null ? os.imgBottom : 0.05) * 100;
 
-  petContainer.value.style.setProperty("--sprite-w", `${widthRatio * 100}%`);
-  petContainer.value.style.setProperty(
+  // Bottom-anchored positioning. Theme can override objBottom/imgBottom
+  // directly; otherwise derive from offsetY + heightRatio (same formula
+  // as uma-pet's renderer.js L58).
+  const objBottom =
+    os.objBottom != null
+      ? os.objBottom
+      : 1 - (os.offsetY || 0) - (os.heightRatio || 1);
+  const imgBottom = os.imgBottom != null ? os.imgBottom : 0.05;
+  const bottomRatio = isSvg ? objBottom : imgBottom;
+
+  robotContainer.value.style.setProperty("--sprite-w", `${widthRatio * 100}%`);
+  robotContainer.value.style.setProperty(
     "--sprite-h",
     heightRatio != null ? `${heightRatio * 100}%` : "auto",
   );
-  petContainer.value.style.setProperty(
+  robotContainer.value.style.setProperty(
     "--sprite-l",
     `calc(${leftPct}% + ${fo.x}px)`,
   );
-  petContainer.value.style.setProperty(
-    "--sprite-t",
-    topPct != null ? `calc(${topPct}% + ${fo.y}px)` : "auto",
-  );
-  petContainer.value.style.setProperty(
+  robotContainer.value.style.setProperty(
     "--sprite-b",
-    bottomPct != null ? `calc(${bottomPct}% + ${fo.y}px)` : "auto",
+    `calc(${bottomRatio * 100}% + ${fo.y}px + ${viewportOffsetY.value}px)`,
   );
+  robotContainer.value.style.setProperty("--sprite-t", "auto");
 }
+
+/**
+ * Titlebar / window-offset compensation (px). Added to the bottom anchor
+ * so the sprite doesn't hide under the window's titlebar area. Default 0
+ * (uma-app hides decorations); wire up to Tauri's window titlebar height
+ * when needed.
+ */
+const viewportOffsetY = ref(0);
 
 // Map current state's viewBox hit-box through the sprite's actual
 // rendered rect and write the result onto #hit-zone. See ADR-0004.
@@ -356,11 +374,11 @@ function playSound(name: string) {
   }
   audio.currentTime = 0;
   audio.play().catch((err) => {
-    console.warn(`[pet] sound play failed: ${err}`);
+    console.warn(`[robot] sound play failed: ${err}`);
   });
 }
 
-// ── Drag + mini mode (was inline in pet.html L500-649) ──────────
+// ── Drag + mini mode (was inline in robot.html L500-649) ──────────
 
 const FULL_SIZE = { width: 144, height: 144 };
 const MINI_SIZE = { width: 96, height: 96 };
@@ -375,7 +393,7 @@ async function getScaleFactor(): Promise<number> {
     const monitor = await currentMonitor();
     if (monitor && monitor.scaleFactor) return monitor.scaleFactor;
   } catch (err) {
-    console.warn("[pet] getScaleFactor failed:", err);
+    console.warn("[robot] getScaleFactor failed:", err);
   }
   return window.devicePixelRatio || 1;
 }
@@ -391,7 +409,7 @@ async function getScreenSize(): Promise<{ width: number; height: number }> {
       };
     }
   } catch (err) {
-    console.warn("[pet] currentMonitor failed:", err);
+    console.warn("[robot] currentMonitor failed:", err);
   }
   return { width: window.screen.width, height: window.screen.height };
 }
@@ -405,16 +423,16 @@ async function getLogicalWindowPos(): Promise<{ x: number; y: number }> {
 async function enterMiniMode() {
   if (isMiniMode) return;
   isMiniMode = true;
-  console.log("[pet] entering mini mode");
+  console.log("[robot] entering mini mode");
 
   try {
     const pos = await getLogicalWindowPos();
     if (preMiniPosition === null) {
       preMiniPosition = { x: pos.x, y: pos.y };
-      console.log("[pet] pre-mini pos (logical):", preMiniPosition);
+      console.log("[robot] pre-mini pos (logical):", preMiniPosition);
     }
   } catch (err) {
-    console.warn("[pet] failed to get position:", err);
+    console.warn("[robot] failed to get position:", err);
   }
 
   try {
@@ -426,7 +444,7 @@ async function enterMiniMode() {
     await currentWindow.setSize(new LogicalSize(MINI_SIZE.width, MINI_SIZE.height));
     await currentWindow.setPosition(new LogicalPosition(newX, newY));
   } catch (err) {
-    console.warn("[pet] resize failed:", err);
+    console.warn("[robot] resize failed:", err);
     isMiniMode = false;
   }
 }
@@ -441,7 +459,7 @@ async function checkEdgeSnap() {
       await enterMiniMode();
     }
   } catch (err) {
-    console.warn("[pet] edge check failed:", err);
+    console.warn("[robot] edge check failed:", err);
   }
 }
 
@@ -450,7 +468,7 @@ function onHitZonePointerDown(e: PointerEvent) {
   e.preventDefault();
   if (hitZone.value) hitZone.value.setPointerCapture(e.pointerId);
   currentWindow.startDragging().catch((err) => {
-    console.error("[pet] startDragging failed:", err);
+    console.error("[robot] startDragging failed:", err);
   });
 }
 
@@ -470,7 +488,7 @@ function onMouseMove(e: MouseEvent) {
         await currentWindow.setSize(new LogicalSize(size.width, size.height));
         await currentWindow.setPosition(new LogicalPosition(newX, newY));
       } catch (err) {
-        console.warn("[pet] peek resize failed:", err);
+        console.warn("[robot] peek resize failed:", err);
       }
     })();
   }
@@ -481,7 +499,7 @@ function onMouseMove(e: MouseEvent) {
 const unsubscribers: UnlistenFn[] = [];
 
 onMounted(async () => {
-  // Initial paint (was the trailing refreshSprite() in pet.html L651).
+  // Initial paint (was the trailing refreshSprite() in robot.html L651).
   refreshSprite();
   updateHitZone();
 
@@ -500,7 +518,7 @@ onMounted(async () => {
     refreshSprite();
     updateHitZone();
   } catch (err) {
-    console.warn("[pet] initial theme load failed:", err);
+    console.warn("[robot] initial theme load failed:", err);
     themeManager.setTheme("uma");
     refreshSprite();
     updateHitZone();
@@ -508,7 +526,7 @@ onMounted(async () => {
 
   // Theme change broadcasts → swap theme in ThemeManager AND XState.
   unsubscribers.push(
-    await listen("pet-theme-change", async (e) => {
+    await listen("theme-change", async (e) => {
       const themeId = (e.payload as { theme?: string })?.theme;
       if (themeId) themeManager.setTheme(themeId);
     }),
@@ -524,7 +542,7 @@ onMounted(async () => {
         themeManager.reloadTheme(themeId, manifest);
         applyTheme(manifest);
       } catch (err) {
-        console.warn("[pet] theme reload failed:", err);
+        console.warn("[robot] theme reload failed:", err);
       }
     }),
   );
@@ -532,7 +550,7 @@ onMounted(async () => {
   // DND change → pause any in-flight sounds. ADR-0006 §Context point 5:
   // DND does NOT suppress state transitions (that work is future).
   unsubscribers.push(
-    await listen("pet-dnd-change", (e) => {
+    await listen("dnd-change", (e) => {
       const dnd = (e.payload as { dnd?: boolean })?.dnd;
       if (dnd) {
         audioCache.forEach((a) => a.pause());
@@ -551,7 +569,7 @@ onMounted(async () => {
           agentId: payload.agent || "unknown",
           sessionId: payload.session_id,
         }).catch((err) =>
-          console.warn("[pet] clear_always_allow_session failed:", err),
+          console.warn("[robot] clear_always_allow_session failed:", err),
         );
       }
     }),
@@ -569,7 +587,7 @@ onMounted(async () => {
           sessionId: ev.session_id,
         }).catch((err) =>
           console.warn(
-            "[pet] clear_always_allow_session (synthetic) failed:",
+            "[robot] clear_always_allow_session (synthetic) failed:",
             err,
           ),
         );
@@ -586,7 +604,7 @@ onMounted(async () => {
 
   // Visual debug (ADR-0005 D9).
   unsubscribers.push(
-    await listen("devtools-pet-debug-style", (e) => {
+    await listen("devtools-robot-debug-style", (e) => {
       const p = (e.payload as {
         windowBg?: string;
         spriteBg?: string;
@@ -628,9 +646,9 @@ onUnmounted(() => {
 
 <template>
   <div ref="hitZone" id="hit-zone"></div>
-  <div ref="petContainer" id="pet-container">
-    <img ref="sprite" id="pet-sprite" src="" alt="pet" />
-    <object ref="petObject" id="pet-object" type="image/svg+xml" data=""></object>
+  <div ref="robotContainer" id="robot-container">
+    <img ref="sprite" id="robot-sprite" src="" alt="robot" />
+    <object ref="robotObject" id="robot-object" type="image/svg+xml" data=""></object>
   </div>
 </template>
 
@@ -641,7 +659,7 @@ onUnmounted(() => {
   box-sizing: border-box;
 }
 /* Vue mount point must fill the viewport so percentage heights work.
-   Old pet.html had #pet-container as direct child of <body> (height: 100%).
+   Old robot.html had #robot-container as direct child of <body> (height: 100%).
    Now it's inside <div id="app"> which needs explicit height. */
 #app {
   width: 100%;
@@ -658,7 +676,7 @@ body {
   -webkit-user-select: none;
   pointer-events: none;
 }
-#pet-container {
+#robot-container {
   width: 100%;
   height: 100%;
   display: flex;
@@ -682,8 +700,8 @@ body {
 #hit-zone:active {
   cursor: grabbing;
 }
-#pet-sprite,
-#pet-object {
+#robot-sprite,
+#robot-object {
   position: absolute;
   width: var(--sprite-w, 144px);
   height: var(--sprite-h, 144px);
@@ -695,8 +713,8 @@ body {
   background: var(--debug-sprite-bg, transparent);
   display: none;
 }
-#pet-sprite.is-active,
-#pet-object.is-active {
+#robot-sprite.is-active,
+#robot-object.is-active {
   display: block;
 }
 </style>

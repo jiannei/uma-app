@@ -1,6 +1,6 @@
 # Adopt XState v5 for the DisplayStateResolver
 
-引入 XState v5 + `@xstate/vue` 作为 DisplayStateResolver 的实现。machine 定义在 `src/pet/pet-machine.ts`，timings 从 `context.theme` 注入；消解 `EVENT_TO_STATE` / `STATE_PRIORITY` 两个数据导出，保留 `ALL_STATES` / `SUBAGENT_TOOLS` 给 theme-manager 和 devtools 用，session 跟踪走 `assign` 风格留在 machine context。
+引入 XState v5 + `@xstate/vue` 作为 DisplayStateResolver 的实现。machine 定义在 `src/robot/display-state-resolver.ts`，timings 从 `context.theme` 注入；消解 `EVENT_TO_STATE` / `STATE_PRIORITY` 两个数据导出，保留 `ALL_STATES` / `SUBAGENT_TOOLS` 给 theme-manager 和 devtools 用，session 跟踪走 `assign` 风格留在 machine context。
 
 ## Status
 
@@ -20,7 +20,7 @@ accepted — 2026-06-24（grilling session）
 
 引入 **XState v5** + **`@xstate/vue`** 作为 DisplayStateResolver 实现。具体设计：
 
-- **machine 定义在 `src/pet/pet-machine.ts`**。不是 JSON、不是独立 schema 文件。guard/action 必须是真正的 TS 函数（要引用 adapters、theme-manager、devtools helpers）；type-safe 才能让 ADR-0001 的 8 canonical event 在 machine.events 里被 TS 编译期校验。
+- **machine 定义在 `src/robot/display-state-resolver.ts`**。不是 JSON、不是独立 schema 文件。guard/action 必须是真正的 TS 函数（要引用 adapters、theme-manager、devtools helpers）；type-safe 才能让 ADR-0001 的 8 canonical event 在 machine.events 里被 TS 编译期校验。
 - **timings 通过 `setup({ delays })` 从 `context.theme` 注入**：
   ```ts
   setup({
@@ -56,9 +56,9 @@ accepted — 2026-06-24（grilling session）
 - **in-flight theme 切换 timer 冻结旧值**。XState v5 的 delay 在状态进入时求值；用户在 `idle` 跑了 30s 准备 yawning，中途切换主题把 `mouseIdleTimeout` 从 60s 改到 10s，已经跑的 30s timer 不会重置。这是可接受的 fallback —— 撞上的概率低，下一次 sleep cycle 自然用新值。如果用户真的急，ta 直接关 DND 更快。
 - **bundle 增加 ~25KB gzip**（xstate core）。`@xstate/vue` 额外 ~2KB。Tauri app 已经 ship Vue 3 + Tauri runtime，25KB 量级可忽略。
 - **`EVENT_TO_STATE` / `STATE_PRIORITY` 消失**。devtools panel 的"priority 数字"视图要改写成 transition 链展示。`ALL_STATES` / `SUBAGENT_TOOLS` 不动。
-- **state-machine.js 改名为 `pet-machine.ts` + `pet-machine-types.ts`**（machine 定义 + 派生类型分开）。旧的 `STATE_PRIORITY` / `EVENT_TO_STATE` 常量彻底删除；ALL_STATES / SUBAGENT_TOOLS 留下。
+- **state-machine.js 改名为 `display-state-resolver.ts` + `display-state-types.ts`**（machine 定义 + 派生类型分开）。旧的 `STATE_PRIORITY` / `EVENT_TO_STATE` 常量彻底删除；ALL_STATES / SUBAGENT_TOOLS 留下。
 - **未来扩展有现成路径**：
   - mini mode = 在 `idle` / `working` / `sleeping` 等节点下挂 `mini-idle` / `mini-working` / `mini-sleep` 子状态，用 hierarchy
   - parallel session 子状态机 = 走 `invoke` + actor（如果未来 session 数量爆炸、actor 模型真的值得）
   - Stately 可视化编辑器 = 接 `@xstate/inspect`，dev panel 拿到真实状态图（替换现在的文字状态表）
-- **公开 `@xstate/vue` 集成面**：`<script setup>` 用 `useMachine(() => createPetMachine({ theme }))` 拿 `snapshot` / `send`，subscribe 自动管理生命周期。pet.html 里替换手写 listener 注册。
+- **公开 `@xstate/vue` 集成面**：`<script setup>` 用 `useMachine(displayStateResolver, { input: { theme } })` 拿 `snapshot` / `send`，subscribe 自动管理生命周期。robot.html 里替换手写 listener 注册。

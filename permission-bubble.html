@@ -130,7 +130,7 @@
     }
 
     function respond(request_id, decision) {
-      invoke('pet_permission_response', {
+      invoke('respond_permission', {
         decision: { request_id, decision },
       }).then(() => {
         bubble.innerHTML = `<div id="waiting">✓ ${decision} — sent</div>`;

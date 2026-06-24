@@ -1,7 +1,7 @@
-// src/pet/pet-machine-types.ts — Type definitions for the DisplayStateResolver.
+// src/robot/display-state-types.ts — Type definitions for the DisplayStateResolver.
 //
 // Single source of truth for types consumed by the XState machine,
-// the pet Vue app, the dev panel, and any third-party consumer.
+// the robot Vue app, the dev panel, and any third-party consumer.
 //
 // See docs/adr/0006-adopt-xstate-for-display-state-resolver.md for
 // the design rationale; see CONTEXT.md (DisplayStateResolver) for
@@ -123,9 +123,9 @@ export interface PermissionRequest {
 }
 
 // ── State-change event payload (renderer listener) ──────────────
-// Matches the previous StateChangeEvent shape so `pet.html`'s
+// Matches the previous StateChangeEvent shape so `robot.html`'s
 // `({ display }) => setDisplayState(display)` listener continues to
-// work during the PetRoot.vue migration.
+// work during the RobotRoot.vue migration.
 
 export interface StateChangeEvent {
   agentId: string | null;

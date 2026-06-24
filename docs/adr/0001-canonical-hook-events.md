@@ -1,6 +1,6 @@
 # Canonical hook event vocabulary (8 events)
 
-宠物内部用 8 个 canonical 事件名（`SessionStart` / `SessionEnd` / `UserPromptSubmit` / `ToolCallStart` / `ToolCallEnd` / `AgentTurnEnd` / `Notification` / `PermissionRequest`）表达 agent 端发来的状态变化事实，所有 `Agent` adapter 必须把自己的原始事件翻成这 8 个之一，状态机只看 canonical 形式。
+机器人内部用 8 个 canonical 事件名（`SessionStart` / `SessionEnd` / `UserPromptSubmit` / `ToolCallStart` / `ToolCallEnd` / `AgentTurnEnd` / `Notification` / `PermissionRequest`）表达 agent 端发来的状态变化事实，所有 `Agent` adapter 必须把自己的原始事件翻成这 8 个之一，状态机只看 canonical 形式。
 
 ## Status
 

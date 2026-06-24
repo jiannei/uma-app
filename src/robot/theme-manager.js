@@ -1,7 +1,7 @@
-// src/pet/theme-manager.js — Minimal theme manager for PoC
+// src/robot/theme-manager.js — Minimal theme manager for PoC
 // Loads theme.json + assets, provides state → asset URL mapping
 
-import { ALL_STATES } from './pet-machine-constants.ts';
+import { ALL_STATES } from './display-state-constants.ts';
 
 /** Fallback state→file map when a theme doesn't ship explicit `states`. */
 const DEFAULT_STATES = Object.fromEntries(
@@ -59,9 +59,9 @@ class ThemeManager {
   /**
    * Replace an already-registered theme with a new manifest (read
    * fresh from theme.json by the host after a dev-tool save). Notifies
-   * subscribers so the pet window re-renders with the new values.
+   * subscribers so the robot window re-renders with the new values.
    * Use case: dev panel writes theme.json → emits theme-updated →
-   * pet calls this with the freshly-read manifest → sprite re-renders.
+   * robot calls this with the freshly-read manifest → sprite re-renders.
    */
   reloadTheme(themeId, newManifest) {
     if (!this.themes.has(themeId)) {
@@ -97,7 +97,7 @@ class ThemeManager {
   /**
    * Resolve hit-box data for a state — returns the viewBox + hitBox (both in
    * viewBox coords) for the asset currently bound to that state. Used by the
-   * pet window to compute the actual screen-space drag rectangle.
+   * robot window to compute the actual screen-space drag rectangle.
    *
    * Override order (matches ADR-0004 / uma-pet):
    *   fileHitBoxes[file] > hitBoxes.sleeping (if file ∈ sleepingHitboxFiles)
@@ -144,7 +144,7 @@ class ThemeManager {
    * viewBox hit-box through the asset's actual rendered DOM rect.
    *
    * `renderedRect` is the sprite element's bounding rect (e.g.
-   * `#pet-sprite.getBoundingClientRect()`); the caller is responsible for
+   * `#robot-sprite.getBoundingClientRect()`); the caller is responsible for
    * reading it because this class is DOM-agnostic.
    *
    * Returns null when hit-box data is incomplete or renderedRect is missing.

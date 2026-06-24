@@ -119,7 +119,7 @@ impl ClaudeCodePermissionPayload {
 // ── Agent trait impl ─────────────────────────────────────────────
 
 /// Singleton adapter for Claude Code. Constructed as a unit struct
-/// because all state lives in the pet's process-wide stores.
+/// because all state lives in the robot's process-wide stores.
 pub struct ClaudeCodeAdapter;
 
 impl Agent for ClaudeCodeAdapter {
@@ -211,7 +211,7 @@ impl Agent for ClaudeCodeAdapter {
         decision: &str,
     ) -> Result<serde_json::Value> {
         // Claude Code's hook protocol only accepts "allow" / "deny" —
-        // the pet's "always" decision collapses to "allow" on the wire
+        // the robot's "always" decision collapses to "allow" on the wire
         // (the in-memory always-allow set is updated separately by the
         // HTTP server before this method is called).
         let behavior = if decision == "always" { "allow" } else { decision };
@@ -237,7 +237,7 @@ impl Agent for ClaudeCodeAdapter {
 ///   `SubagentStop`) are passed through unchanged. The state machine
 ///   logs them as "unknown event" and ignores them. This way Claude
 ///   Code can add new event types in the future without breaking the
-///   pet — they just don't drive a display state.
+///   robot — they just don't drive a display state.
 fn translate_event(
     hook_event_name: &str,
 ) -> (String, Option<bool>, Option<String>) {
