@@ -44,20 +44,32 @@
       height: 0;
     }
     #hit-zone:active { cursor: grabbing; }
-    #pet-sprite {
-      display: block;
-      /* Width/height/positioning are applied by JS from
-         theme.objectScale (see applyObjectScaleStyle). Defaults
-         match the old "144px box centered in the window" behavior
-         so themes without objectScale still render something. */
+    /* Dual-element rendering (ADR-0004 §Rendering paths):
+       - <object> for SVG themes (uma): reads --sprite-w/h from
+         objectScale.widthRatio/heightRatio, --sprite-l/t from
+         offsetX/offsetY. preserveAspectRatio default (xMidYMid meet)
+         fits the SVG into the box, matching upstream <object>.
+       - <img> for APNG themes (calico): reads --sprite-w from
+         imgWidthRatio × fileScale, --sprite-b from imgBottom.
+         height: auto keeps aspect ratio.
+       Only the active element is shown; #pet-container holds the
+       shared CSS variables. */
+    #pet-sprite,
+    #pet-object {
       position: absolute;
-      width: 144px;
-      height: 144px;
-      left: 0;
-      top: 0;
+      width: var(--sprite-w, 144px);
+      height: var(--sprite-h, 144px);
+      left: var(--sprite-l, 0);
+      top: var(--sprite-t, auto);
+      bottom: var(--sprite-b, auto);
       image-rendering: pixelated;
       pointer-events: none;
       background: var(--debug-sprite-bg, transparent);
+      display: none;
+    }
+    #pet-sprite.is-active,
+    #pet-object.is-active {
+      display: block;
     }
   </style>
 </head>
@@ -65,6 +77,7 @@
   <div id="hit-zone"></div>
   <div id="pet-container">
     <img id="pet-sprite" src="" alt="pet" />
+    <object id="pet-object" type="image/svg+xml" data=""></object>
   </div>
   <script type="module">
     import { getCurrentWindow, currentMonitor } from '@tauri-apps/api/window';
@@ -73,8 +86,27 @@
     import { ThemeManager } from './src/pet/theme-manager.js';
 
     const sprite = document.getElementById('pet-sprite');
+    const petObject = document.getElementById('pet-object');
+    const petContainer = document.getElementById('pet-container');
     const hitZone = document.getElementById('hit-zone');
     const currentWindow = getCurrentWindow();
+
+    // Dual-element rendering: show whichever element matches the current
+    // stateDef.type. <object> for SVG (uma), <img> for APNG (calico).
+    // Mirrors upstream's needsObjectChannel(state, file) decision, but
+    // ours is theme-uniform (uma is all-svg, calico is all-apng).
+    function setActiveElement(type) {
+      if (type === 'svg') {
+        petObject.classList.add('is-active');
+        sprite.classList.remove('is-active');
+      } else {
+        sprite.classList.add('is-active');
+        petObject.classList.remove('is-active');
+      }
+    }
+    function getActiveSpriteElement() {
+      return petObject.classList.contains('is-active') ? petObject : sprite;
+    }
 
     // Theme manager
     const themeManager = new ThemeManager();
@@ -229,30 +261,32 @@
 
     function refreshSprite() {
       const url = themeManager.getAssetUrl(currentDisplayState);
-      if (url) sprite.src = url;
-      applyObjectScaleStyle();
+      const stateDef = themeManager.getCurrentTheme()?.states?.[currentDisplayState];
+      const type = stateDef?.type || 'apng';
+      setActiveElement(type);
+      if (url) {
+        const active = getActiveSpriteElement();
+        if (type === 'svg') {
+          petObject.data = url;
+        } else {
+          sprite.src = url;
+        }
+      }
+      applyStyle();
     }
 
-    // Apply theme.objectScale to #pet-sprite — mirrors
-    // uma-pet/src/renderer.js applyObjectScaleStyle, but adapted for the
-    // <img> element we use here. Original code targets <object>, whose
-    // CSS box is widthRatio × heightRatio and the SVG content is fitted
-    // inside (aspect preserved) → content size = min(widthRatio,
-    // heightRatio) × canvas. We collapse that to a single <img> by
-    // setting width = baseSize × scale and height = auto, so for the
-    // square uma viewBox (1:1) the content is min(1.9, 1.3) = 1.3× of
-    // the canvas.
-    //
-    // For position, the img must land at the same screen rect as the
-    // SVG content inside upstream's box — not at the box itself, which
-    // is wider/taller than the content for non-square objectScale. The
-    // box is centered via offsetX = (1 - widthRatio) / 2 (so offsetX for
-    // uma = -0.45 because widthRatio = 1.9); the content is then
-    // centered inside the box, adding (widthRatio - heightRatio) / 2 on
-    // the wider axis. Combining: img_left = offsetX + (widthRatio -
-    // heightRatio) / 2 when the box is wider than tall, else just
-    // offsetX. Vertical mirror for the box-taller case.
-    function applyObjectScaleStyle() {
+    // Apply theme.objectScale to the active sprite element. CSS custom
+    // properties on #pet-container cascade to whichever element is
+    // .is-active. Two channels (no derived math):
+    //   - <object> (SVG): width/height/left/top read directly from
+    //     objectScale. preserveAspectRatio default does the fit, so
+    //     square viewBox in 190%×130% box renders at 130%×130% — same
+    //     as upstream's <object>.
+    //   - <img> (APNG): width = imgWidthBase × fileScale, height auto,
+    //     left = offsetX, bottom = imgBottom. height: auto keeps the
+    //     PNG aspect — upstream's IMG case verbatim.
+    //   Per-file fileOffsets shift the element after base positioning.
+    function applyStyle() {
       const os = themeManager.getObjectScale();
       if (!os) return;
       const stateDef = themeManager.getCurrentTheme()?.states?.[currentDisplayState];
@@ -261,21 +295,28 @@
       const fileOffsets = os.fileOffsets || {};
       const scale = (file && fileScales[file]) || 1.0;
       const fo = (file && fileOffsets[file]) || { x: 0, y: 0 };
-      const widthRatio = os.imgWidthRatio != null ? os.imgWidthRatio : (os.widthRatio || 1);
-      const heightRatio = os.heightRatio != null ? os.heightRatio : (os.widthRatio || 1);
-      const baseSize = Math.min(widthRatio, heightRatio) * scale;
-      const boxWider = widthRatio >= heightRatio;
-      const leftPct = boxWider
-        ? (os.offsetX || 0) + (widthRatio - baseSize) / 2
-        : (os.offsetX || 0);
-      const topPct = boxWider
-        ? (os.offsetY || 0)
-        : (os.offsetY || 0) + (heightRatio - baseSize) / 2;
-      sprite.style.width = `${baseSize * 100}%`;
-      sprite.style.height = 'auto';
-      sprite.style.left = `calc(${leftPct * 100}% + ${fo.x}px)`;
-      sprite.style.top = `calc(${topPct * 100}% + ${fo.y}px)`;
-      sprite.style.bottom = 'auto';
+      const isSvg = stateDef?.type === 'svg';
+
+      // Width/height. <object> uses objectScale width/heightRatio (the
+      // box); <img> uses imgWidthRatio (or widthRatio fallback) × scale.
+      const widthRatio = isSvg
+        ? (os.widthRatio || 1)
+        : (os.imgWidthRatio != null ? os.imgWidthRatio : (os.widthRatio || 1)) * scale;
+      const heightRatio = isSvg ? (os.heightRatio || 1) : null; // null → auto
+
+      // Position. <object> uses top from offsetY; <img> uses bottom
+      // from imgBottom. offsetX is the same in both cases.
+      const leftPct = (os.offsetX || 0) * 100;
+      const topPct = isSvg ? (os.offsetY || 0) * 100 : null;
+      const bottomPct = isSvg
+        ? null
+        : (os.imgBottom != null ? os.imgBottom : 0.05) * 100;
+
+      petContainer.style.setProperty('--sprite-w', `${widthRatio * 100}%`);
+      petContainer.style.setProperty('--sprite-h', heightRatio != null ? `${heightRatio * 100}%` : 'auto');
+      petContainer.style.setProperty('--sprite-l', `calc(${leftPct}% + ${fo.x}px)`);
+      petContainer.style.setProperty('--sprite-t', topPct != null ? `calc(${topPct}% + ${fo.y}px)` : 'auto');
+      petContainer.style.setProperty('--sprite-b', bottomPct != null ? `calc(${bottomPct}% + ${fo.y}px)` : 'auto');
     }
 
     // Map current state's viewBox hit-box through the sprite's actual rendered
@@ -283,7 +324,7 @@
     // change, and tauri://move (so mini-mode / peek resize the hit area).
     // See ADR-0004.
     function updateHitZone() {
-      const renderedRect = sprite.getBoundingClientRect();
+      const renderedRect = getActiveSpriteElement().getBoundingClientRect();
       const hitRect = themeManager.computeScreenHitRect(currentDisplayState, renderedRect);
       if (!hitRect) {
         hitZone.style.display = 'none';
