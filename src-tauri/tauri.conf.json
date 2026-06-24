@@ -12,46 +12,6 @@
   "app": {
     "withGlobalTauri": true,
     "macOSPrivateApi": true,
-    "windows": [
-      {
-        "label": "main",
-        "title": "uma-app",
-        "width": 800,
-        "height": 600,
-        "visible": false
-      },
-      {
-        "label": "pet",
-        "title": "Clawd Pet",
-        "url": "pet.html",
-        "width": 200,
-        "height": 200,
-        "x": 100,
-        "y": 100,
-        "decorations": false,
-        "alwaysOnTop": true,
-        "skipTaskbar": true,
-        "shadow": false,
-        "resizable": false,
-        "focus": false,
-        "visible": true,
-        "transparent": true
-      },
-      {
-        "label": "pet-bubble",
-        "title": "Clawd Permission",
-        "url": "pet-bubble.html",
-        "width": 360,
-        "height": 200,
-        "decorations": false,
-        "alwaysOnTop": true,
-        "skipTaskbar": true,
-        "shadow": false,
-        "resizable": false,
-        "visible": false,
-        "transparent": true
-      }
-    ],
     "security": {
       "csp": null
     }

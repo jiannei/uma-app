@@ -2,7 +2,7 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## Project: "Clawd on Desk" — a Tauri desktop pet for AI coding agents
+## Project: "Uma on Desk" — a Tauri desktop pet for AI coding agents
 
 A transparent, always-on-top animated pet that lives on the user's desktop and reacts to events from Claude Code (or other agents) via HTTP webhooks. Includes a system tray, a settings window, and a permission-request "bubble" that pauses the agent until the user approves/denies.
 
@@ -101,7 +101,7 @@ Lives under `themes/<id>/`:
 
 Two themes ship in-tree:
 
-- **`clawd`** — pixel crab mascot, SVGs.
+- **`uma`** — pixel crab mascot, SVGs.
 - **`calico`** — AI-generated APNG cat.
 
 To add a new theme, create the directory + `assets/`, then register the state→file map in the `themeManager.registerTheme(...)` block inside `pet.html`, and add a `{ id, name, emoji }` entry in the `themes` array of `src/App.vue`.

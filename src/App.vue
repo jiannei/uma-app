@@ -25,7 +25,7 @@ interface AgentInfo {
 // ── Reactive state ──────────────────────────────────────────────
 
 const settings = ref<Settings>({
-  theme: 'clawd',
+  theme: 'uma',
   dnd: false,
   mini_mode: false,
   sound_enabled: true,
@@ -34,7 +34,7 @@ const settings = ref<Settings>({
 });
 
 const themes = [
-  { id: 'clawd', name: 'Clawd', emoji: '🦀' },
+  { id: 'uma', name: 'Uma', emoji: '🦀' },
   { id: 'calico', name: 'Calico', emoji: '🐱' },
 ];
 
@@ -51,7 +51,7 @@ const agentBusy = reactive<Record<string, boolean>>({});
 async function loadSettings() {
   try {
     const store = await load('settings.json', { autoSave: false, defaults: {} });
-    const theme = (await store.get<string>('theme')) || 'clawd';
+    const theme = (await store.get<string>('theme')) || 'uma';
     const dnd = (await store.get<boolean>('dnd')) ?? false;
     const mini_mode = (await store.get<boolean>('mini_mode')) ?? false;
     const sound_enabled = (await store.get<boolean>('sound_enabled')) ?? true;
@@ -214,7 +214,7 @@ onMounted(async () => {
 <template>
   <div class="settings">
     <header>
-      <h1>🦀 Clawd on Desk</h1>
+      <h1>🦀 Uma on Desk</h1>
       <p class="subtitle">Desktop pet for AI coding agents</p>
     </header>
 

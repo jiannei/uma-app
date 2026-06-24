@@ -210,7 +210,7 @@ onUnmounted(() => {
 <template>
   <div class="devtools">
     <header>
-      <span class="title">Clawd DevTools</span>
+      <span class="title">Uma DevTools</span>
       <button class="reset" @click="resetAll">Reset</button>
     </header>
     <main class="grid">

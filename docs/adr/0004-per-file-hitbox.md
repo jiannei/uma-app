@@ -69,8 +69,8 @@ hitRect = {
 ## Consequences
 
 - `theme-manager.js` 新增 `getHitBoxDataForState(state)` + `computeScreenHitRect(state, renderedRect)` 两个方法,公开 API 多了两个调用点
-- `pet.html` 的主题注册数据要补 viewBox / hitBoxes / fileHitBoxes / wideHitboxFiles / sleepingHitboxFiles 五类字段(每个主题约 30~50 行配置)。`fileViewBoxes` 字段保留为兼容位但 clawd/calico 当前都用不上
-- **hitBox 数据从 `uma-pet/themes/{clawd,calico}/theme.json` 原样抄过来**(asset md5 校验 byte-identical,2026-06-24):viewBox、`hitBoxes.{default,sleeping,wide}`、各 `fileHitBoxes`、`wideHitboxFiles`、`sleepingHitboxFiles`。唯一翻译:uma-pet 用 `w`/`h` 简写,本项目用 `width`/`height` 完整字
+- `pet.html` 的主题注册数据要补 viewBox / hitBoxes / fileHitBoxes / wideHitboxFiles / sleepingHitboxFiles 五类字段(每个主题约 30~50 行配置)。`fileViewBoxes` 字段保留为兼容位但 uma/calico 当前都用不上
+- **hitBox 数据从 `uma-pet/themes/{uma,calico}/theme.json` 原样抄过来**(asset md5 校验 byte-identical,2026-06-24):viewBox、`hitBoxes.{default,sleeping,wide}`、各 `fileHitBoxes`、`wideHitboxFiles`、`sleepingHitboxFiles`。唯一翻译:uma-pet 用 `w`/`h` 简写,本项目用 `width`/`height` 完整字
 - debug 红框(`[DEBUG-VIS-TEMP]` CSS)和 `[DIAG-TEMP]` 监听器在落地后整段删掉,worktree 跟着 `ExitWorktree` 清理
 - 如果未来 `uma-pet` 的 hitBox 数据更新(美术微调),需要同步复制到 `pet.html` 的主题注册段——这是一次性 boilerplate,不是动态引用,可能漂移
 - 未来如果真的需要"逐像素命中"(比如用户反馈某状态命中区还是太大),升级路径是 Option 2,数据可以保留(只是 viewBox 坐标换成 SVG 内像素坐标)

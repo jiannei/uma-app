@@ -21,10 +21,10 @@ pub fn install_tray<R: Runtime>(
         .ok_or_else(|| tauri::Error::AssetNotFound("default icon".into()))?;
 
     // Theme submenu
-    let theme_clawd = MenuItem::with_id(app, "theme_clawd", "Clawd", true, None::<&str>)?;
+    let theme_uma = MenuItem::with_id(app, "theme_uma", "Uma", true, None::<&str>)?;
     let theme_calico = MenuItem::with_id(app, "theme_calico", "Calico", true, None::<&str>)?;
     let theme_submenu = SubmenuBuilder::new(app, "Theme")
-        .items(&[&theme_clawd, &theme_calico])
+        .items(&[&theme_uma, &theme_calico])
         .build()?;
 
     // Toggles
@@ -63,7 +63,7 @@ pub fn install_tray<R: Runtime>(
         .icon(icon)
         .menu(&menu)
         .show_menu_on_left_click(true)
-        .tooltip("Clawd on Desk")
+        .tooltip("Uma on Desk")
         .on_menu_event({
             let settings = settings.clone();
             move |app, event| {
@@ -96,14 +96,14 @@ fn handle_menu_event<R: Runtime>(
     use tauri::Emitter;
 
     match id {
-        "theme_clawd" => {
+        "theme_uma" => {
             let mut s = settings.lock().unwrap();
-            s.theme = "clawd".into();
-            let _ = app.emit("pet-theme-change", serde_json::json!({ "theme": "clawd" }));
+            s.theme = "uma".into();
+            let _ = app.emit("pet-theme-change", serde_json::json!({ "theme": "uma" }));
             if let Some(pet) = app.get_webview_window("pet") {
                 let _ = pet.emit(
                     "pet-theme-change",
-                    serde_json::json!({ "theme": "clawd" }),
+                    serde_json::json!({ "theme": "uma" }),
                 );
             }
         }

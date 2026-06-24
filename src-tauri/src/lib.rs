@@ -29,7 +29,7 @@ pub struct Settings {
 impl Default for Settings {
     fn default() -> Self {
         Self {
-            theme: "clawd".into(),
+            theme: "uma".into(),
             dnd: false,
             mini_mode: false,
             sound_enabled: true,
@@ -119,7 +119,7 @@ fn set_theme(
     store: State<'_, SettingsStore>,
     theme: String,
 ) -> Result<(), String> {
-    eprintln!("[clawd] set theme: {theme}");
+    eprintln!("[uma] set theme: {theme}");
     {
         let mut s = store.0.lock().unwrap();
         s.theme = theme.clone();
@@ -144,7 +144,7 @@ fn set_dnd(
     store: State<'_, SettingsStore>,
     enabled: bool,
 ) -> Result<(), String> {
-    eprintln!("[clawd] set dnd: {enabled}");
+    eprintln!("[uma] set dnd: {enabled}");
     {
         let mut s = store.0.lock().unwrap();
         s.dnd = enabled;
@@ -170,7 +170,7 @@ fn set_bubble_position(
     if !valid.contains(&position.as_str()) {
         return Err(format!("invalid position: {position}"));
     }
-    eprintln!("[clawd] set bubble position: {position}");
+    eprintln!("[uma] set bubble position: {position}");
     *pos_store.0.lock().unwrap() = position.clone();
     // Persist to plugin-store
     if let Ok(pstore) = app.store("settings.json") {
@@ -188,7 +188,7 @@ async fn pet_permission_response(
     decision: PermissionDecision,
 ) -> Result<(), String> {
     eprintln!(
-        "[clawd] permission response: id={} decision={}",
+        "[uma] permission response: id={} decision={}",
         decision.request_id, decision.decision
     );
     let mut pending = store.0.lock().await;
@@ -198,7 +198,7 @@ async fn pet_permission_response(
             decision: decision.decision.clone(),
             reason: decision.reason,
         });
-        eprintln!("[clawd] permission resolved");
+        eprintln!("[uma] permission resolved");
 
         // Dev-tools panel watches PendingStore mutations.
         #[cfg(feature = "dev-tools")]
@@ -213,7 +213,7 @@ async fn pet_permission_response(
         }
     } else {
         eprintln!(
-            "[clawd] no pending request found for id={}",
+            "[uma] no pending request found for id={}",
             decision.request_id
         );
     }
@@ -294,7 +294,7 @@ async fn clear_always_allow_session(
 ) -> Result<(), String> {
     let mut allow = store.0.lock().await;
     if allow.remove(&(agent_id.clone(), session_id.clone())).is_some() {
-        eprintln!("[clawd] cleared always-allow for {agent_id}/{session_id}");
+        eprintln!("[uma] cleared always-allow for {agent_id}/{session_id}");
 
         // Dev-tools panel watches AlwaysAllowStore mutations.
         #[cfg(feature = "dev-tools")]
@@ -406,6 +406,67 @@ pub fn run() {
             let bubble_pos_store = Arc::new(std::sync::Mutex::new(bubble_pos));
             app.manage(BubblePositionStore(bubble_pos_store.clone()));
 
+            // Create the three runtime windows. Geometry + flags were
+            // previously declared in tauri.conf.json; they live in Rust
+            // now so the source of truth for window size (e.g. the
+            // 144×144 pet sprite) is a single place.
+            use tauri::{WebviewUrl, WebviewWindowBuilder};
+
+            let main_window = WebviewWindowBuilder::new(
+                app,
+                "main",
+                WebviewUrl::App("index.html".into()),
+            )
+            .title("uma-app")
+            .inner_size(800.0, 600.0)
+            .visible(false)
+            .build()?;
+
+            let _pet_window = WebviewWindowBuilder::new(
+                app,
+                "pet",
+                WebviewUrl::App("pet.html".into()),
+            )
+            .title("Uma Pet")
+            .inner_size(144.0, 144.0)
+            .position(100.0, 100.0)
+            .decorations(false)
+            .always_on_top(true)
+            .skip_taskbar(true)
+            .shadow(false)
+            .resizable(false)
+            .focused(false)
+            .visible(true)
+            .transparent(true)
+            .build()?;
+
+            let _bubble_window = WebviewWindowBuilder::new(
+                app,
+                "pet-bubble",
+                WebviewUrl::App("pet-bubble.html".into()),
+            )
+            .title("Uma Permission")
+            .inner_size(360.0, 200.0)
+            .decorations(false)
+            .always_on_top(true)
+            .skip_taskbar(true)
+            .shadow(false)
+            .resizable(false)
+            .visible(false)
+            .transparent(true)
+            .build()?;
+
+            // Intercept main window close → hide instead of exit
+            {
+                let window = main_window.clone();
+                main_window.on_window_event(move |event| {
+                    if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                        api.prevent_close();
+                        let _ = window.hide();
+                    }
+                });
+            }
+
             tauri::async_runtime::spawn(async move {
                 http_server::run(
                     app_handle,
@@ -417,17 +478,6 @@ pub fn run() {
                 .await;
             });
 
-            // Intercept main window close → hide instead of exit
-            if let Some(main_window) = app.get_webview_window("main") {
-                let window = main_window.clone();
-                main_window.on_window_event(move |event| {
-                    if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-                        api.prevent_close();
-                        let _ = window.hide();
-                    }
-                });
-            }
-
             // Dev-tools panel: a 4th webview created at startup
             // (gated — does not exist in release). Auto-shown on
             // launch in dev builds; close mirrors the main window's
@@ -435,14 +485,12 @@ pub fn run() {
             // the app, or use the system menu / window list.
             #[cfg(feature = "dev-tools")]
             {
-                use tauri::{WebviewUrl, WebviewWindowBuilder};
-
                 let devtools = WebviewWindowBuilder::new(
                     app,
                     "devtools",
                     WebviewUrl::App("devtools.html".into()),
                 )
-                .title("Clawd DevTools")
+                .title("Uma DevTools")
                 .inner_size(800.0, 600.0)
                 .resizable(true)
                 .decorations(true)
@@ -470,7 +518,7 @@ pub fn run() {
                     theme: pstore
                         .get("theme")
                         .and_then(|v| v.as_str().map(String::from))
-                        .unwrap_or_else(|| "clawd".into()),
+                        .unwrap_or_else(|| "uma".into()),
                     dnd: pstore.get("dnd").and_then(|v| v.as_bool()).unwrap_or(false),
                     mini_mode: pstore
                         .get("mini_mode")
@@ -499,11 +547,11 @@ pub fn run() {
             // Install system tray
             let settings_for_tray = Arc::new(std::sync::Mutex::new(initial_settings));
             if let Err(err) = tray::install_tray(app.handle(), settings_for_tray.clone()) {
-                eprintln!("[clawd] failed to install tray: {err}");
+                eprintln!("[uma] failed to install tray: {err}");
             }
 
-            eprintln!("[clawd] hook server listening on http://127.0.0.1:{hook_port}");
-            eprintln!("[clawd] pet window: 200x200 transparent, hit-zone 144x144 centered");
+            eprintln!("[uma] hook server listening on http://127.0.0.1:{hook_port}");
+            eprintln!("[uma] pet window: 144x144 transparent, hit-zone 144x144 centered");
             Ok(())
         })
         .run(tauri::generate_context!())

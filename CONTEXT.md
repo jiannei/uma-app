@@ -1,4 +1,4 @@
-# Clawd on Desk
+# Uma on Desk
 
 桌面宠物产品 —— 一个常驻桌面的小角色，通过 HTTP webhook 观察一个或多个 AI 编码代理的活动，并用动画、状态切换、权限气泡反映它们的工作。
 

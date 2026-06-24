@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Clawd Pet</title>
+  <title>Uma Pet</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     /* Body and everything outside the sprite is pointer-events: none → passes through */
@@ -51,21 +51,9 @@
       pointer-events: none;
       background: var(--debug-sprite-bg, transparent);
     }
-    #status {
-      position: absolute;
-      top: 4px;
-      left: 4px;
-      color: white;
-      font: 9px monospace;
-      background: rgba(0,0,0,0.5);
-      padding: 2px 4px;
-      border-radius: 2px;
-      pointer-events: none;
-    }
   </style>
 </head>
 <body>
-  <div id="status">idle</div>
   <div id="hit-zone"></div>
   <div id="pet-container">
     <img id="pet-sprite" src="" alt="pet" />
@@ -78,16 +66,15 @@
 
     const sprite = document.getElementById('pet-sprite');
     const hitZone = document.getElementById('hit-zone');
-    const statusEl = document.getElementById('status');
     const currentWindow = getCurrentWindow();
 
     // Theme manager
     const themeManager = new ThemeManager();
 
-    themeManager.registerTheme('clawd', {
-      name: 'Clawd',
+    themeManager.registerTheme('uma', {
+      name: 'Uma',
       // viewBox / hitBox / fileHitBox / wide + sleeping file lists copied
-      // verbatim from uma-pet's themes/clawd/theme.json (assets are
+      // verbatim from uma-pet's themes/uma/theme.json (assets are
       // byte-identical, md5 verified). Keys translated w→width, h→height.
       // See ADR-0004.
       viewBox: { x: -15, y: -25, width: 45, height: 45 },
@@ -98,24 +85,24 @@
         wide: { x: -3, y: 3, width: 21, height: 14 },
       },
       fileHitBoxes: {
-        'clawd-working-typing.svg': { x: -2, y: -7, width: 20, height: 24 },
+        'uma-working-typing.svg': { x: -2, y: -7, width: 20, height: 24 },
       },
-      wideHitboxFiles: ['clawd-error.svg', 'clawd-notification.svg'],
-      sleepingHitboxFiles: ['clawd-sleeping.svg', 'clawd-collapse-sleep.svg'],
+      wideHitboxFiles: ['uma-error.svg', 'uma-notification.svg'],
+      sleepingHitboxFiles: ['uma-sleeping.svg', 'uma-collapse-sleep.svg'],
       states: {
-        idle: { file: 'clawd-idle-follow.svg', type: 'svg' },
-        thinking: { file: 'clawd-working-thinking.svg', type: 'svg' },
-        working: { file: 'clawd-working-typing.svg', type: 'svg' },
-        building: { file: 'clawd-working-building.svg', type: 'svg' },
-        attention: { file: 'clawd-happy.svg', type: 'svg' },
-        error: { file: 'clawd-error.svg', type: 'svg' },
-        notification: { file: 'clawd-notification.svg', type: 'svg' },
-        sleeping: { file: 'clawd-sleeping.svg', type: 'svg' },
-        waking: { file: 'clawd-wake.svg', type: 'svg' },
-        sweeping: { file: 'clawd-working-sweeping.svg', type: 'svg' },
-        carrying: { file: 'clawd-working-carrying.svg', type: 'svg' },
-        'subagent-groove': { file: 'clawd-headphones-groove.svg', type: 'svg' },
-        juggling: { file: 'clawd-working-juggling.svg', type: 'svg' },
+        idle: { file: 'uma-idle-follow.svg', type: 'svg' },
+        thinking: { file: 'uma-working-thinking.svg', type: 'svg' },
+        working: { file: 'uma-working-typing.svg', type: 'svg' },
+        building: { file: 'uma-working-building.svg', type: 'svg' },
+        attention: { file: 'uma-happy.svg', type: 'svg' },
+        error: { file: 'uma-error.svg', type: 'svg' },
+        notification: { file: 'uma-notification.svg', type: 'svg' },
+        sleeping: { file: 'uma-sleeping.svg', type: 'svg' },
+        waking: { file: 'uma-wake.svg', type: 'svg' },
+        sweeping: { file: 'uma-working-sweeping.svg', type: 'svg' },
+        carrying: { file: 'uma-working-carrying.svg', type: 'svg' },
+        'subagent-groove': { file: 'uma-headphones-groove.svg', type: 'svg' },
+        juggling: { file: 'uma-working-juggling.svg', type: 'svg' },
       },
     });
     themeManager.registerTheme('calico', {
@@ -154,7 +141,7 @@
       },
     });
 
-    themeManager.setTheme('clawd');
+    themeManager.setTheme('uma');
 
     // State machine
     const stateMachine = new StateMachine();
@@ -189,8 +176,6 @@
       currentDisplayState = state;
       refreshSprite();
       updateHitZone();
-      statusEl.textContent = state;
-      statusEl.style.color = state === 'error' ? '#ff6b6b' : 'white';
 
       // Sound effects — 10s cooldown, only when entering attention (Stop/completion)
       if (state === 'attention' && prevState !== 'attention') {
@@ -342,8 +327,8 @@
     });
 
     // ── Mini mode: edge-snap + peek-on-hover ──
-    const FULL_SIZE = { width: 200, height: 200 };
-    const MINI_SIZE = { width: 160, height: 160 }; // Must fit 144x144 pet sprite
+    const FULL_SIZE = { width: 144, height: 144 };
+    const MINI_SIZE = { width: 96, height: 96 }; // Smaller than the 144x144 sprite — peeks back to FULL
     const EDGE_THRESHOLD = 30; // logical px from screen edge to trigger mini mode
     let isMiniMode = false;
     let isPeeking = false;
