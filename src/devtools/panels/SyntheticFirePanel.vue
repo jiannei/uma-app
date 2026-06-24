@@ -7,7 +7,8 @@
 // D6 — emits an envelope `{ event, synthetic: true, source: "devtools" }`.
 
 import { ref } from "vue";
-import type { HookEvent } from "../../pet/state-machine.js";
+import type { HookEvent } from "../../pet/pet-machine-types";
+import { CANONICAL_EVENTS } from "../../pet/pet-machine-constants";
 
 interface AgentInfo {
   id: string;
@@ -19,20 +20,9 @@ const props = defineProps<{
   fireSynthetic: (event: HookEvent) => Promise<void> | void;
 }>();
 
-const CANONICAL_EVENTS = [
-  "SessionStart",
-  "SessionEnd",
-  "UserPromptSubmit",
-  "ToolCallStart",
-  "ToolCallEnd",
-  "AgentTurnEnd",
-  "Notification",
-  "PermissionRequest",
-];
-
 const agent = ref(props.agents[0]?.id ?? "claude-code");
 const sessionId = ref("test-session-1");
-const eventType = ref("SessionStart");
+const eventType = ref<string>(CANONICAL_EVENTS[0]);
 const toolName = ref("");
 const success = ref<"" | "true" | "false">("");
 

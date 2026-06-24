@@ -1,24 +1,35 @@
 <script setup lang="ts">
 // src/devtools/DevToolsApp.vue — DevTools parent SFC.
 //
-// INDEPENDENT of the pet window. The dev panel has its own
-// StateMachine instance and processes raw events directly (no
-// round-trip through pet). The pet window is reduced to "animation
-// source" — it still runs its own SM to drive the sprite, but the
-// dev panel no longer reads its state.
+// INDEPENDENT of the pet window. The dev panel has its own XState
+// DisplayStateResolver instance (via `useMachine`) and processes raw
+// events directly (no round-trip through pet). The pet window is
+// reduced to "animation source" — it still runs its own resolver to
+// drive the sprite, but the dev panel no longer reads its state.
 //
 // This makes the dev panel the GROUND TRUTH reference. If you want
-// to verify that the pet's SM is working correctly, you can compare
-// its sprite (animation) against the dev panel's computed state
-// visually. If they diverge, the bug is in the pet.
+// to verify that the pet's resolver is working correctly, you can
+// compare its sprite (animation) against the dev panel's computed
+// state visually. If they diverge, the bug is in the pet.
 //
-// See docs/adr/0005-dev-tools.md D11 for the full architecture.
+// Per ADR-0006 §Decision, both instances use `useMachine(petMachine,
+// { input: { theme } })` — same machine definition, same Vue
+// composable → behavior equivalence guarantee.
+//
+// See docs/adr/0005-dev-tools.md D11 for the broader dev-tools
+// architecture.
 
-import { ref, onMounted, onUnmounted } from "vue";
+import { ref, watch, onMounted, onUnmounted } from "vue";
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn, emit as tauriEmit } from "@tauri-apps/api/event";
-import { StateMachine } from "../pet/state-machine.js";
-import type { HookEvent, StateMachineSnapshot as Snapshot, PermissionRequest } from "../pet/state-machine.js";
+import { useMachine } from "@xstate/vue";
+import { petMachine } from "../pet/pet-machine";
+import { DEFAULT_THEME } from "../pet/pet-machine-constants";
+import type {
+  HookEvent,
+  PermissionRequest,
+  ThemeManifest,
+} from "../pet/pet-machine-types";
 
 import StateMachinePanel from "./panels/StateMachinePanel.vue";
 import EventLogPanel from "./panels/EventLogPanel.vue";
@@ -27,19 +38,25 @@ import SyntheticFirePanel from "./panels/SyntheticFirePanel.vue";
 import VisualDebugPanel from "./panels/VisualDebugPanel.vue";
 import ThemeEditorPanel from "./panels/ThemeEditorPanel.vue";
 
-// ── Local state machine (ground truth for dev panel) ────────────
+// ── Local DisplayStateResolver (ground truth for dev panel) ───────
 //
-// Receives the same event stream as the pet (agent-hook-event +
-// devtools-synthetic-event). Computes state independently. Panel 1
-// shows this SM's snapshot.
-const stateMachine = new StateMachine();
-const EMPTY_SNAPSHOT: Snapshot = {
-  sessions: new Map(),
-  activeSubagents: new Map(),
-  activeOneShot: null,
-  displayState: "idle",
-};
-const snapshot = ref<Snapshot>(EMPTY_SNAPSHOT);
+// Initializes with DEFAULT_THEME; on mount we fetch the real theme
+// and send THEME_CHANGED so timings match the pet window.
+
+const { snapshot: smSnapshot, send } = useMachine(petMachine, {
+  input: { theme: DEFAULT_THEME as unknown as ThemeManifest },
+});
+
+// `smSnapshot.value.context` is the live MachineSnapshot. Panel 1
+// renders from this ref via a thin wrapper ref for type clarity.
+const snapshot = ref(smSnapshot.value.context);
+watch(
+  smSnapshot,
+  (s) => {
+    snapshot.value = s.context;
+  },
+  { deep: false },
+);
 
 // ── Event log ring buffer (1000 entries) ────────────────────────
 
@@ -102,11 +119,11 @@ const agents = ref<AgentInfo[]>([]);
 
 // ── Synthetic event fire ────────────────────────────────────────
 //
-// Feed the local SM directly (so Panel 1 updates without a round
-// trip), and ALSO emit `devtools-synthetic-event` so the pet
+// Feed the local resolver directly (so Panel 1 updates without a
+// round trip), and ALSO emit `devtools-synthetic-event` so the pet
 // window's sprite reacts.
 async function fireSynthetic(event: HookEvent) {
-  stateMachine.processEvent(event);
+  send({ type: "AGENT_HOOK", event });
   await tauriEmit("devtools-synthetic-event", {
     event,
     synthetic: true,
@@ -114,10 +131,10 @@ async function fireSynthetic(event: HookEvent) {
   });
 }
 
-// ── Reset (local SM + broadcast to pet) ─────────────────────────
+// ── Reset (local resolver + broadcast to pet) ───────────────────
 
 async function resetAll() {
-  stateMachine.reset();
+  send({ type: "RESET" });
   eventLog.value = [];
   await tauriEmit("devtools-reset", {});
 }
@@ -138,16 +155,58 @@ onMounted(async () => {
   await refreshPending();
   await refreshAlwaysAllow();
 
-  // Local SM changes → update Panel 1.
-  stateMachine.onChange(() => {
-    snapshot.value = stateMachine.getSnapshot();
-  });
+  // Fetch the active theme manifest so timings match the pet window.
+  // `get_settings` returns the current theme id; `theme_load` reads
+  // the manifest from disk on the Rust side.
+  try {
+    const settings = await invoke<{ theme_id?: string }>("get_settings");
+    if (settings?.theme_id) {
+      const theme = await invoke<ThemeManifest>("theme_load", {
+        themeId: settings.theme_id,
+      });
+      send({ type: "THEME_CHANGED", theme });
+    }
+  } catch (err) {
+    console.warn("[devtools] initial theme load failed:", err);
+  }
 
-  // Real events from HTTP server → feed local SM + log.
+  // Theme-change broadcasts from the pet window / settings → swap
+  // local theme so timing-sensitive operations (sleep sequence,
+  // auto-return) match.
+  unsubscribers.push(
+    await listen("pet-theme-change", async (e) => {
+      const themeId = (e.payload as { theme_id?: string })?.theme_id;
+      if (!themeId) return;
+      try {
+        const theme = await invoke<ThemeManifest>("theme_load", {
+          themeId,
+        });
+        send({ type: "THEME_CHANGED", theme });
+      } catch (err) {
+        console.warn("[devtools] theme_load on pet-theme-change failed:", err);
+      }
+    }),
+  );
+  unsubscribers.push(
+    await listen("theme-updated", async (e) => {
+      const themeId = (e.payload as { theme?: string })?.theme;
+      if (!themeId) return;
+      try {
+        const theme = await invoke<ThemeManifest>("theme_load", {
+          themeId,
+        });
+        send({ type: "THEME_CHANGED", theme });
+      } catch (err) {
+        console.warn("[devtools] theme_load on theme-updated failed:", err);
+      }
+    }),
+  );
+
+  // Real events from HTTP server → feed local resolver + log.
   unsubscribers.push(
     await listen("agent-hook-event", (e) => {
       const p = e.payload as HookEvent;
-      stateMachine.processEvent(p);
+      send({ type: "AGENT_HOOK", event: p });
       pushEvent({
         timestamp: Date.now(),
         source: "http",
@@ -161,9 +220,9 @@ onMounted(async () => {
   );
 
   // Synthetic events from dev panel form (received by both pet and
-  // dev panel — pet drives sprite, dev panel logs it; the local SM
-  // was already fed by fireSynthetic before this emit, so we only
-  // log here).
+  // dev panel — pet drives sprite, dev panel logs it; the local
+  // resolver was already fed by fireSynthetic before this emit, so
+  // we only log here).
   unsubscribers.push(
     await listen("devtools-synthetic-event", (e) => {
       const env = e.payload as { event: HookEvent };
@@ -193,10 +252,10 @@ onMounted(async () => {
   );
 
   // Reset broadcast (from any source — this panel, another dev
-  // panel session, or a future trigger). Reset local SM and log.
+  // panel session, or a future trigger). Reset local resolver and log.
   unsubscribers.push(
     await listen("devtools-reset", () => {
-      stateMachine.reset();
+      send({ type: "RESET" });
       eventLog.value = [];
     })
   );
@@ -259,12 +318,16 @@ header .reset {
 }
 header .reset:hover { filter: brightness(0.9); }
 .grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr 1fr;
-  grid-template-rows: 1fr 1fr;
-  gap: 1px;
-  background: #313244;
   flex: 1;
   min-height: 0;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: 1fr 1fr 1fr;
+  gap: 1px;
+  background: #313244;
+}
+.grid > section {
+  background: #181825;
+  overflow: auto;
 }
 </style>

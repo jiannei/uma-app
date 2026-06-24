@@ -7,7 +7,7 @@
 // `devtools-always-allow-changed` events. See docs/adr/0005-dev-tools.md
 // D8.
 
-import type { PermissionRequest } from "../../pet/state-machine.js";
+import type { PermissionRequest } from "../../pet/pet-machine-types";
 
 interface PendingEntryView {
   request_id: string;

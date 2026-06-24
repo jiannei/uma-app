@@ -8,7 +8,9 @@
         "@tauri-apps/api": "^2",
         "@tauri-apps/plugin-opener": "^2",
         "@tauri-apps/plugin-store": "^2",
+        "@xstate/vue": "^4",
         "vue": "^3.5.13",
+        "xstate": "^5",
       },
       "devDependencies": {
         "@tauri-apps/cli": "^2",
@@ -194,6 +196,8 @@
 
     "@vue/shared": ["@vue/shared@3.5.38", "", {}, "sha512-FTW0AFZNaK5/mOqvGBwVfUlNLU38TiQn4+DQgIFUnrBBJQ1crMJ82yeGQLV5jyKFsO8yRukpbuP7x+nRbH6aug=="],
 
+    "@xstate/vue": ["@xstate/vue@4.0.4", "", { "peerDependencies": { "vue": "^3.0.0", "xstate": "^5.19.4" }, "optionalPeers": ["xstate"] }, "sha512-nX7eGsXb652ryZYjw7MwcJV2tudvq4pGWlqglU49K30+I/MG1Syvss5eiTD42i8qsEW5GFBYXPh4Tn/yBkA9Vw=="],
+
     "alien-signals": ["alien-signals@1.0.13", "", {}, "sha512-OGj9yyTnJEttvzhTUWuscOvtqxq5vrhF7vL9oS0xJ2mK0ItPYP1/y+vCFebfxoEyAz0++1AIwJ5CMr+Fk3nDmg=="],
 
     "balanced-match": ["balanced-match@1.0.2", "", {}, "sha512-3oSeUO0TMV67hN1AmbXsK4yaqU7tjiHlbxRDZOpH0KW9+CeX4bRAaX0Anxt0tx2MrpRpWwQaPwIlISEJhYU5Pw=="],
@@ -247,5 +251,7 @@
     "vue": ["vue@3.5.38", "", { "dependencies": { "@vue/compiler-dom": "3.5.38", "@vue/compiler-sfc": "3.5.38", "@vue/runtime-dom": "3.5.38", "@vue/server-renderer": "3.5.38", "@vue/shared": "3.5.38" }, "peerDependencies": { "typescript": "*" }, "optionalPeers": ["typescript"] }, "sha512-vAMKHfImQlYSy0C+PBue4s3ERZ2xGKfgZg5GXAsLInq1dyh2H78ILVP5sK0KPFPVW4kv+OGCIvBEondcjpZp7A=="],
 
     "vue-tsc": ["vue-tsc@2.2.12", "", { "dependencies": { "@volar/typescript": "2.4.15", "@vue/language-core": "2.2.12" }, "peerDependencies": { "typescript": ">=5.0.0" }, "bin": { "vue-tsc": "./bin/vue-tsc.js" } }, "sha512-P7OP77b2h/Pmk+lZdJ0YWs+5tJ6J2+uOQPo7tlBnY44QqQSPYvS0qVT4wqDJgwrZaLe47etJLLQRFia71GYITw=="],
+
+    "xstate": ["xstate@5.32.2", "", {}, "sha512-uDrojEQYYb4cEeB/SpKDBQlnL2969N5ltmVak4jUMUC6VVRuhi7PCnTBxe4YlQ8YLzdaOEOuVR48CRQPE2o0Uw=="],
   }
 }

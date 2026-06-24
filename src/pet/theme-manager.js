@@ -1,21 +1,12 @@
 // src/pet/theme-manager.js — Minimal theme manager for PoC
 // Loads theme.json + assets, provides state → asset URL mapping
 
-const DEFAULT_STATES = {
-  idle: { file: 'idle.svg', type: 'svg' },
-  thinking: { file: 'idle.svg', type: 'svg' },
-  working: { file: 'idle.svg', type: 'svg' },
-  building: { file: 'idle.svg', type: 'svg' },
-  attention: { file: 'idle.svg', type: 'svg' },
-  error: { file: 'idle.svg', type: 'svg' },
-  notification: { file: 'idle.svg', type: 'svg' },
-  sleeping: { file: 'idle.svg', type: 'svg' },
-  waking: { file: 'idle.svg', type: 'svg' },
-  sweeping: { file: 'idle.svg', type: 'svg' },
-  carrying: { file: 'idle.svg', type: 'svg' },
-  'subagent-groove': { file: 'idle.svg', type: 'svg' },
-  juggling: { file: 'idle.svg', type: 'svg' },
-};
+import { ALL_STATES } from './pet-machine-constants.ts';
+
+/** Fallback state→file map when a theme doesn't ship explicit `states`. */
+const DEFAULT_STATES = Object.fromEntries(
+  ALL_STATES.map((s) => [s, { file: 'idle.svg', type: 'svg' }]),
+);
 
 class ThemeManager {
   constructor() {
@@ -91,7 +82,8 @@ class ThemeManager {
    */
   getAssetUrl(state) {
     if (!this.currentTheme) return null;
-    const stateDef = this.currentTheme.states[state] || this.currentTheme.states.idle;
+    const stateDef = this.currentTheme.states?.[state] || this.currentTheme.states?.idle;
+    if (!stateDef) return null;
     return `${this.currentTheme.basePath}/${stateDef.file}`;
   }
 
@@ -201,4 +193,4 @@ class ThemeManager {
   }
 }
 
-export { ThemeManager, DEFAULT_STATES };
+export { ThemeManager };

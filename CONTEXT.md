@@ -15,8 +15,22 @@ _Avoid_: conversation（对话回合）、work unit（任务单元）、thread
 _Avoid_: child session、nested session、task（与 Claude Code 的 Task 工具同名时尤其要避免）
 
 **DisplayState**:
-宠物当前展示的姿态/动画，描述"**用户应该看到什么**"，而不是"agent 在干什么"。由所有活跃 session 的内部事件经过优先级聚合后解析得到。常见值：`idle` / `thinking` / `working` / `building` / `attention` / `error` / `notification` / `sleeping` / `juggling` / `subagent-groove`。
+宠物当前展示的姿态/动画，描述"**用户应该看到什么**"，而不是"agent 在干什么"。由所有活跃 session 的内部事件经过优先级聚合后解析得到。常见值：`idle` / `thinking` / `working` / `building` / `attention` / `error` / `notification` / `sleeping` / `waking` / `juggling` / `subagent-groove` / `sweeping` / `carrying` / `yawning` / `dozing` / `collapsing`。
+DisplayState 的解析由 **DisplayStateResolver** 承担；它的执行参考 `theme.timings`（`autoReturn`、`yawnDuration`、`wakeDuration` 等）以决定 one-shot 自动回退时长和 sleep sequence 推进节奏。
 _Avoid_: agent state（agent state 是触发源；display state 是视觉呈现，两者不应混用）、status
+
+**SleepSequence**:
+宠物进入睡眠的有序中间态序列：`idle → yawning → dozing → collapsing → sleeping`。每站时长从 `theme.timings` 读取（`yawnDuration` / `deepSleepTimeout` / `collapseDuration`），到达 `sleeping` 后等待外部唤醒触发。唤醒走反向短路径：`sleeping → waking → idle`（`waking` 一步直达 idle，不重新 yawning）。
+_Avoid_: sleep animation（动画是实现）、sleep pipeline（pipeline 是实现）、DND sequence（DND 是触发源之一，不是序列本身）
+
+**OneShotState**:
+进入后会在 `theme.timings.autoReturn[state]` 时长后**自动回到基础聚合状态**的 DisplayState。典型成员：`attention`（AgentTurnEnd 后的庆祝）、`notification`（PermissionRequest / Notification 事件）、`error`（ToolCallEnd 失败）、`sweeping`（/clear）。
+和 SleepSequence 的差别：one-shot 是**单跳 + 自动回退**，sleep sequence 是**多跳 + 等待唤醒**。
+_Avoid_: transient state（太泛）、alert state（与 notification 重叠）、highlight state（实现角度）
+
+**DisplayStateResolver**:
+把 `(active sessions, recent events, theme.timings)` 解析成单个 DisplayState 的组件。它持有 session 跟踪、sleep sequence 推进、one-shot 自动回退；消费者（renderer、devtools panel、bubble）订阅它的输出，但从不直接读它内部的 transition / priority 表。
+_Avoid_: state machine（实现概念，不要混进 domain）、FSM（同上）、aggregator（聚合只是其中一个职责，sleep sequence 和 one-shot 不属于"聚合"语义）
 
 **HookEvent**:
 宠物与 agent 之间一次状态变化的事实。**8 个 canonical 事件名**（与具体 agent 解耦，是所有 adapter 翻译的目标）：

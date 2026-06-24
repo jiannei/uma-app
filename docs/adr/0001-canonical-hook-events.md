@@ -14,7 +14,7 @@ accepted — 2026-06-24（grilling session）
 
 定义 8 个 canonical 事件（见 [CONTEXT.md](../../CONTEXT.md) 的 `HookEvent` 词条）。关键设计选择：
 
-- **`PostToolUse` + `PostToolUseFailure` 合并为 `ToolCallEnd(success: bool, error?)`** —— 一个事件两种结果。理由：Gemini 只有一个 `AfterTool` 配 success 字段，合并后跨 agent 一致。
+- **`PostToolUse` + `PostToolUseFailure` 合并为 `ToolCallEnd(success: bool, error?)`** —— 一个事件两种结果。理由：Gemini 只有一个 `AfterTool` 配 success 字段，合并后跨 agent 一致。状态机的旧 `EVENT_TO_STATE` 常量（见 [ADR-0006](./0006-adopt-xstate-for-display-state-resolver.md)）已消解 —— 事件→state 映射现在由 XState machine 的 transition 表承担。
 - **subagent 不进 canonical** —— Claude Code 的 subagent 是通过 Task 工具识别（不是 native 事件），把它做成 canonical 等于把 Claude Code 的实现细节提升为协议。状态机继续把 `Task` 工具的 `ToolCallStart` / `ToolCallEnd` 视为 subagent 计数信号。
 - **`UserPromptSubmit` 不分两个事件** —— 一些 agent 把"用户提交"和"agent 开始思考"拆成两个事件，adapter 折叠成一个。
 - **`Stop` 改名为 `AgentTurnEnd`** —— `Stop` 是 Claude Code 内部词汇（stop hook 触发），其他 agent 不一定用这个名字。`AgentTurnEnd` 直指用户心理模型。
@@ -27,7 +27,7 @@ accepted — 2026-06-24（grilling session）
 
 ## Consequences
 
-- 状态机 `EVENT_TO_STATE` 需要重写（从 11 个 Claude Code 事件 → 8 个 canonical 事件名）。
+- 状态机 `EVENT_TO_STATE` 需要重写（从 11 个 Claude Code 事件 → 8 个 canonical 事件名）。**已迁移**：ADR-0006 把 `EVENT_TO_STATE` 完全消解，转为由 XState machine 的 transition 表承担。
 - Claude Code adapter 几乎变成 passthrough（事件名已经是 camelCase，但 `Stop` → `AgentTurnEnd` 需要翻译；`PostToolUse` / `PostToolUseFailure` 合并需要翻译）。
 - 每个新 agent 的 adapter 都得加翻译层 —— 但这是一次性成本，新加 agent 时反而简单（对照 canonical 词汇翻译即可）。
 - canonical 词汇本身变成"产品 API 表面"，未来调整（比如 `AgentTurnEnd` 改 `AgentTurnPause`）会波及所有 adapter，更名要慎重。

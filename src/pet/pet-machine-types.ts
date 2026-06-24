@@ -1,0 +1,136 @@
+// src/pet/pet-machine-types.ts — Type definitions for the DisplayStateResolver.
+//
+// Single source of truth for types consumed by the XState machine,
+// the pet Vue app, the dev panel, and any third-party consumer.
+//
+// See docs/adr/0006-adopt-xstate-for-display-state-resolver.md for
+// the design rationale; see CONTEXT.md (DisplayStateResolver) for
+// the domain vocabulary.
+
+// ── Canonical 8-event vocabulary (ADR-0001) ─────────────────────
+
+export type CanonicalEventName =
+  | 'SessionStart'
+  | 'SessionEnd'
+  | 'UserPromptSubmit'
+  | 'ToolCallStart'
+  | 'ToolCallEnd'
+  | 'AgentTurnEnd'
+  | 'Notification'
+  | 'PermissionRequest';
+
+// ── Hook event payload ──────────────────────────────────────────
+
+export interface HookEvent {
+  session_id: string;
+  event_type: string; // narrows to CanonicalEventName at the adapter layer
+  tool_name?: string;
+  agent?: string;
+  success?: boolean;
+  error?: string;
+  prompt?: string;
+  message?: string;
+  model?: string;
+  cwd?: string;
+  transcript_path?: string;
+  tool_use_id?: string;
+  tool_input?: unknown;
+  reason?: string;
+}
+
+// ── Display state universe ──────────────────────────────────────
+
+export type DisplayState =
+  | 'idle'
+  | 'thinking'
+  | 'working'
+  | 'building'
+  | 'attention'
+  | 'error'
+  | 'notification'
+  | 'sleeping'
+  | 'waking'
+  | 'sweeping'
+  | 'carrying'
+  | 'subagent-groove'
+  | 'juggling'
+  | 'yawning'
+  | 'dozing'
+  | 'collapsing';
+
+// ── Session tracking ────────────────────────────────────────────
+
+/** Composite key replaces nested Map<AgentId, Map<SessionId, ...>>. */
+export type SessionKey = `${string}:${string}`;
+
+export interface SessionEntry {
+  state: DisplayState;
+  lastEvent: CanonicalEventName;
+  toolName?: string;
+  subagentCount: number;
+  timestamp: number;
+  success?: boolean;
+}
+
+// ── Theme timings (consumed by the XState machine's `delays`) ──
+
+export interface ThemeTimings {
+  /** Minimum display time per state, used by reference to suppress flicker. */
+  minDisplay: Partial<Record<DisplayState, number>>;
+  /** Per-state auto-return duration for one-shot states. */
+  autoReturn: Partial<Record<DisplayState, number>>;
+  /** Sleep sequence step durations (CONTEXT.md → SleepSequence). */
+  yawnDuration: number;
+  wakeDuration: number;
+  deepSleepTimeout: number;
+  /** Reserved for the future "mouse-driven idle" feature; declared but not
+   *  currently referenced by any transition (plan risk R6). */
+  mouseIdleTimeout: number;
+  mouseSleepTimeout: number;
+  /** Optional collapse duration; defaults applied at delay-fn level. */
+  collapseDuration?: number;
+}
+
+export interface ThemeManifest {
+  name: string;
+  timings: ThemeTimings;
+  // Loose shape — the machine only reads `timings`; other fields
+  // (states, hitBoxes, objectScale, etc.) are owned by ThemeManager.
+  [k: string]: unknown;
+}
+
+// ── Public snapshot shape (dev panel Panel 1 reads this) ────────
+
+export interface MachineSnapshot {
+  sessions: Record<SessionKey, SessionEntry>;
+  activeSubagents: Record<SessionKey, number>;
+  activeOneShot: { state: DisplayState; expiresAt: number } | null;
+  displayState: DisplayState;
+}
+
+// ── Permission wire shape (Rust mirror; consumed by StoresPanel) ─
+
+export interface PermissionRequest {
+  request_id: string;
+  session_id: string;
+  tool_name: string;
+  tool_input: unknown;
+  /** Rust side serializes `Option<String>` as `string | null`
+   *  (present in payload, value is null when absent). */
+  cwd: string | null;
+  agent: string;
+  agent_display_name: string;
+}
+
+// ── State-change event payload (renderer listener) ──────────────
+// Matches the previous StateChangeEvent shape so `pet.html`'s
+// `({ display }) => setDisplayState(display)` listener continues to
+// work during the PetRoot.vue migration.
+
+export interface StateChangeEvent {
+  agentId: string | null;
+  sessionId: string | null;
+  state: DisplayState;
+  display: DisplayState;
+  event: HookEvent | 'one-shot-expired' | 'cleanup' | 'reset' | 'theme-changed';
+}
