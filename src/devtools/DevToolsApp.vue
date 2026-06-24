@@ -1,18 +1,24 @@
 <script setup lang="ts">
 // src/devtools/DevToolsApp.vue — DevTools parent SFC.
 //
-// Observes the pet window's state machine via the `pet-state-changed`
-// Tauri event. Does NOT instantiate its own StateMachine — pet is
-// the single source of truth, dev panel is a passive observer (see
-// docs/adr/0005-dev-tools.md D9/D10). Also maintains a 1000-entry
-// event-log ring buffer and Rust store snapshots, and passes data
-// down to the 5 child panel SFCs.
+// INDEPENDENT of the pet window. The dev panel has its own
+// StateMachine instance and processes raw events directly (no
+// round-trip through pet). The pet window is reduced to "animation
+// source" — it still runs its own SM to drive the sprite, but the
+// dev panel no longer reads its state.
+//
+// This makes the dev panel the GROUND TRUTH reference. If you want
+// to verify that the pet's SM is working correctly, you can compare
+// its sprite (animation) against the dev panel's computed state
+// visually. If they diverge, the bug is in the pet.
+//
+// See docs/adr/0005-dev-tools.md D11 for the full architecture.
 
 import { ref, onMounted, onUnmounted } from "vue";
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn, emit as tauriEmit } from "@tauri-apps/api/event";
-import type { StateMachineSnapshot as Snapshot } from "../pet/state-machine.js";
-import type { PermissionRequest } from "../pet/state-machine.js";
+import { StateMachine } from "../pet/state-machine.js";
+import type { HookEvent, StateMachineSnapshot as Snapshot, PermissionRequest } from "../pet/state-machine.js";
 
 import StateMachinePanel from "./panels/StateMachinePanel.vue";
 import EventLogPanel from "./panels/EventLogPanel.vue";
@@ -20,46 +26,19 @@ import StoresPanel from "./panels/StoresPanel.vue";
 import SyntheticFirePanel from "./panels/SyntheticFirePanel.vue";
 import VisualDebugPanel from "./panels/VisualDebugPanel.vue";
 
-// ── Pet's state (observed, not owned) ───────────────────────────
+// ── Local state machine (ground truth for dev panel) ────────────
 //
-// `petSnapshot` is the pet window's current StateMachineSnapshot,
-// pushed by the pet on every change. Empty until the first event
-// arrives (we don't have any local "synthesizing" copies anymore).
+// Receives the same event stream as the pet (agent-hook-event +
+// devtools-synthetic-event). Computes state independently. Panel 1
+// shows this SM's snapshot.
+const stateMachine = new StateMachine();
 const EMPTY_SNAPSHOT: Snapshot = {
   sessions: new Map(),
   activeSubagents: new Map(),
   activeOneShot: null,
   displayState: "idle",
 };
-const petSnapshot = ref<Snapshot>(EMPTY_SNAPSHOT);
-
-// Pet serializes snapshots as plain objects before emitting (Maps
-// can lose structure across webviews). Rebuild Maps here so Panel 1
-// can iterate them with the same code as the local SM API.
-function deserializeSnapshot(data: any): Snapshot {
-  const sessions = new Map<string, Map<string, any>>();
-  for (const aid of Object.keys(data.sessions ?? {})) {
-    const bySession = new Map<string, any>();
-    for (const sid of Object.keys(data.sessions[aid])) {
-      bySession.set(sid, data.sessions[aid][sid]);
-    }
-    sessions.set(aid, bySession);
-  }
-  const activeSubagents = new Map<string, Map<string, number>>();
-  for (const aid of Object.keys(data.activeSubagents ?? {})) {
-    const bySession = new Map<string, number>();
-    for (const sid of Object.keys(data.activeSubagents[aid])) {
-      bySession.set(sid, data.activeSubagents[aid][sid]);
-    }
-    activeSubagents.set(aid, bySession);
-  }
-  return {
-    sessions,
-    activeSubagents,
-    activeOneShot: data.activeOneShot ?? null,
-    displayState: data.displayState ?? "idle",
-  };
-}
+const snapshot = ref<Snapshot>(EMPTY_SNAPSHOT);
 
 // ── Event log ring buffer (1000 entries) ────────────────────────
 
@@ -120,16 +99,13 @@ interface AgentInfo {
 }
 const agents = ref<AgentInfo[]>([]);
 
-// ── dev_mode flag (no longer needed — dev panel always on) ─────
-
-// Removed: dev_mode toggle, devMode ref, dev-mode-change listener.
-// The dev panel always renders when this webview is mounted (which
-// only happens in dev builds with the `dev-tools` feature, since
-// the Rust side only creates the window under that gate).
-
 // ── Synthetic event fire ────────────────────────────────────────
-
-async function fireSynthetic(event: Record<string, unknown>) {
+//
+// Feed the local SM directly (so Panel 1 updates without a round
+// trip), and ALSO emit `devtools-synthetic-event` so the pet
+// window's sprite reacts.
+async function fireSynthetic(event: HookEvent) {
+  stateMachine.processEvent(event);
   await tauriEmit("devtools-synthetic-event", {
     event,
     synthetic: true,
@@ -137,9 +113,10 @@ async function fireSynthetic(event: Record<string, unknown>) {
   });
 }
 
-// ── Reset (broadcast only — pet's state machine is the source) ──
+// ── Reset (local SM + broadcast to pet) ─────────────────────────
 
 async function resetAll() {
+  stateMachine.reset();
   eventLog.value = [];
   await tauriEmit("devtools-reset", {});
 }
@@ -160,56 +137,43 @@ onMounted(async () => {
   await refreshPending();
   await refreshAlwaysAllow();
 
-  // Pet's state — pushed by pet on every change. We don't have a
-  // local StateMachine; the pet is the single source of truth.
-  // Pet serializes Maps to plain objects for the IPC; rebuild here.
-  unsubscribers.push(
-    await listen("pet-state-changed", (e) => {
-      try {
-        console.log("[devtools] pet-state-changed raw payload:", e.payload);
-        const snap = deserializeSnapshot(e.payload);
-        console.log("[devtools] deserialized:", { display: snap.displayState, sessions: snap.sessions.size, sub: snap.activeSubagents.size });
-        petSnapshot.value = snap;
-      } catch (err) {
-        console.warn("[devtools] pet-state-changed handler error:", err);
-      }
-    })
-  );
-  // Ask pet for its current state once (push-based updates keep us
-  // in sync going forward, but we need a starting point).
-  await tauriEmit("devtools-pet-state-request", {});
+  // Local SM changes → update Panel 1.
+  stateMachine.onChange(() => {
+    snapshot.value = stateMachine.getSnapshot();
+  });
 
-  // Real events from HTTP server → log only. Pet processes them
-  // and will emit `pet-state-changed`; we just record the event
-  // for the event-log panel.
+  // Real events from HTTP server → feed local SM + log.
   unsubscribers.push(
     await listen("agent-hook-event", (e) => {
-      const p = e.payload as Record<string, unknown>;
+      const p = e.payload as HookEvent;
+      stateMachine.processEvent(p);
       pushEvent({
         timestamp: Date.now(),
         source: "http",
         synthetic: false,
-        agent: (p.agent as string) ?? "",
-        session_id: (p.session_id as string) ?? "",
-        event_type: (p.event_type as string) ?? "",
+        agent: p.agent ?? "",
+        session_id: p.session_id ?? "",
+        event_type: p.event_type ?? "",
         payload: p,
       });
     })
   );
 
-  // Synthetic events from dev panel form → log with marker.
-  // Pet processes them and re-emits pet-state-changed.
+  // Synthetic events from dev panel form (received by both pet and
+  // dev panel — pet drives sprite, dev panel logs it; the local SM
+  // was already fed by fireSynthetic before this emit, so we only
+  // log here).
   unsubscribers.push(
     await listen("devtools-synthetic-event", (e) => {
-      const env = e.payload as { event: Record<string, unknown> };
+      const env = e.payload as { event: HookEvent };
       const ev = env.event;
       pushEvent({
         timestamp: Date.now(),
         source: "devtools",
         synthetic: true,
-        agent: (ev.agent as string) ?? "",
-        session_id: (ev.session_id as string) ?? "",
-        event_type: (ev.event_type as string) ?? "",
+        agent: ev.agent ?? "",
+        session_id: ev.session_id ?? "",
+        event_type: ev.event_type ?? "",
         payload: ev,
       });
     })
@@ -227,10 +191,11 @@ onMounted(async () => {
     })
   );
 
-  // Reset broadcast (from this panel or another dev panel session).
-  // Pet resets and re-emits pet-state-changed; we just clear our log.
+  // Reset broadcast (from any source — this panel, another dev
+  // panel session, or a future trigger). Reset local SM and log.
   unsubscribers.push(
     await listen("devtools-reset", () => {
+      stateMachine.reset();
       eventLog.value = [];
     })
   );
@@ -249,7 +214,7 @@ onUnmounted(() => {
       <button class="reset" @click="resetAll">Reset</button>
     </header>
     <main class="grid">
-      <StateMachinePanel :snapshot="petSnapshot" />
+      <StateMachinePanel :snapshot="snapshot" />
       <EventLogPanel :entries="eventLog" />
       <VisualDebugPanel />
       <StoresPanel :pending="pending" :always-allow="alwaysAllow" />

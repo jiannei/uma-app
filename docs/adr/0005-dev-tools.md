@@ -1,12 +1,17 @@
 # Developer tools (dev mode) panel
 
-为改 uma-app 本身的开发者提供运行时调试面板：4 个 panel（StateMachine 检视器 / 事件流日志 / PendingStore + AlwaysAllowStore / 手动合成事件发射器）外加一个 Reset 按钮；编译期 `dev-tools` Cargo feature + Vite `import.meta.env.DEV` 双门控，发布构建里代码、UI、Tauri 命令、事件**全部不存在**；dev 构建启动时 devtools 窗口自动 `.show()`，**运行时无任何 UI gate / toggle / 按钮**——开发模式就是"启动就有，关掉只能重启 app"。
+为改 uma-app 本身的开发者提供运行时调试面板：5 个 panel（StateMachine 检视器 / 事件流日志 / Visual Debug / PendingStore + AlwaysAllowStore / 手动合成事件发射器）外加一个 Reset 按钮；编译期 `dev-tools` Cargo feature + Vite `import.meta.env.DEV` 双门控，发布构建里代码、UI、Tauri 命令、事件**全部不存在**；dev 构建启动时 devtools 窗口自动 `.show()`，**运行时无任何 UI gate / toggle / 按钮**——开发模式就是"启动就有，关掉只能重启 app"。
+
+**核心架构**（见 D10）：dev panel **独立**于 pet 窗口——它有自己的 StateMachine 实例，自己处理 raw events，自己算 state。Pet 窗口的角色被降级为"**动画源**"（只跑自己的 SM 来驱动 sprite，不再是 dev panel 的数据源）。
 
 ## Status
 
 accepted — 2026-06-24（grilling session）
 
-**Supersedes**: 2026-06-24 — D1 / D2 / D5 三个决策在实现完成后被推翻。原设计要求"运行时用户 toggle 控制面板 + 按钮驱动打开窗口"，实际首轮 UI 验证时被用户否决（"不需要设置，开发模式默认打开就行"）。D3 / D4 / D6 / D7 / D8 不变。各被推翻的决策下方有 `> **Override**` 块记录变更原因。
+**Supersedes / supersedes-by 链**：
+- **2026-06-24 第一次** — D1 / D2 / D5 三个决策被推翻（"不需要设置，开发模式默认打开就行"）。Override 块在各决策下方。
+- **2026-06-24 第二次** — D10（dev panel 独立、pet = 动画源）替代了之前的"dev panel 观察 pet"设计。之前的 `pet-state-changed` 推送 / `devtools-pet-state-request` 拉取 / Map 序列化跨 webview 约束 全部废弃。
+- **D9（Visual Debug）** — 在 D10 之后补入。
 
 ## Context
 
@@ -37,16 +42,24 @@ accepted — 2026-06-24（grilling session）
 
 > **Override（原决策已废）**：原 D2 要求"混合（编译期决定面板是否存在，运行时 toggle 决定面板内容）"。理由不再成立——既然没有运行时 toggle，dev 面板内容在 dev 构建里永远填充，发布构建里整个不存在。
 
-### D3. 包含的 panel：1 + 2 + 4 + 5
+### D3. 包含的 panel：1 + 2 + 3 + 4 + 5
 
-- **Panel 1 — StateMachine 检视器**：实时显示 dev 窗口本地 StateMachine 实例的 `Map<AgentId, Map<SessionId, SessionEntry>>` 全量、当前解析出的 `DisplayState`、事件优先级。
+- **Panel 1 — StateMachine 检视器**：实时显示 dev panel **自己的** StateMachine 实例的 `Map<AgentId, Map<SessionId, SessionEntry>>` 全量、当前解析出的 `DisplayState`、事件优先级。Dev panel 自己算 state，不读 pet 的状态（见 D10）。
 - **Panel 2 — 事件流日志**：每个进入的 `agent-hook-event` / `devtools-synthetic-event` 落盘一份（环形 buffer 1000 条），含时间戳、agent、session_id、事件名、payload 摘要、synthetic 标记。
+- **Panel 3 — Visual Debug**：3 个 color picker（Window BG / Sprite BG / Hit-zone BG）+ Clear All。详细见 D9。
 - **Panel 4 — PendingStore + AlwaysAllowStore**：当前 pending 权限请求列表、(agent, session) → 工具名集合。
-- **Panel 5 — 手动合成事件发射器**：表单选 agent / session_id / 事件名 / payload → 通过 `devtools-synthetic-event` Tauri 事件广播。
+- **Panel 5 — 手动合成事件发射器**：表单选 agent / session_id / 事件名 / payload → 直接喂 dev panel 自己的 SM + 通过 `devtools-synthetic-event` Tauri 事件广播给 pet。
+
+布局 3x2（5 panel + 1 空 cell）：
+
+```
+[StateMachine]  [EventLog]      [VisualDebug]
+[Stores]        [FireSynthetic] [empty]
+```
 
 砍掉的两个候选：
-- **Panel 3（HTTP 服务器面板）** ——和 Panel 2 高度重叠（每个事件都来自 HTTP），真正的增量只有延迟和错误码，走 `tracing` 更轻量。
-- **Panel 6（设置 dump）** ——完全和 Settings 窗口本身重复，零增量。
+- ~~**Panel "HTTP 服务器面板"**~~ ——和 Panel 2 高度重叠（每个事件都来自 HTTP），真正的增量只有延迟和错误码，走 `tracing` 更轻量。
+- ~~**Panel "设置 dump"**~~ ——完全和 Settings 窗口本身重复，零增量。
 
 ### D4. 独立 devtools webview 窗口
 
@@ -93,6 +106,64 @@ Panel 4 住在 Rust 侧，dev 面板需要 IPC 才能看。同步模型：
 - Dev 面板 `onMounted` 时调两个 snapshot 命令初始化，之后订阅两个事件增量更新。
 
 Panel 1 / 2 / 5 都在 JS 侧（本地 StateMachine 实例 + 环形 buffer + Tauri 事件发射），不需要 Rust 介入。
+
+### D9. Visual Debug：3 个 color picker + 3x2 布局
+
+dev panel 的第 5 个 panel（3x2 grid 的右上格），让开发者给 pet 窗口加调试背景色，确认 sprite / hit-zone / window 的位置和大小关系。
+
+- 3 个 HTML5 color input：
+  - **Window BG** — 应用到 pet 窗口的 `body`（让原本透明的 200x200 窗口可见）
+  - **Sprite BG** — 应用到 `#pet-sprite`（对不透明 pixel art 实际不可见，但变量会设）
+  - **Hit-zone BG** — 应用到 `#hit-zone`（最实用，能看到 144x144 拖拽区域在哪）
+- 3 个 quick-color 按钮（red/blue/green 半透明），一键填入调试色
+- "Clear All" 按钮重置全部
+- 状态 in-memory only（重启 app 重置）
+
+实现：dev panel 内的 reactive state 维护 3 个颜色，emit `devtools-pet-debug-style` 事件，pet.html 监听并设置 `:root` 的 CSS var。**纯 JS 事件，无 Rust 介入**。
+
+布局从 2x2 升级到 3x2（5 panel + 1 空 cell）。3x2 在 800×600 窗口里平铺最舒服。
+
+### D10. 核心架构：dev panel 独立于 pet
+
+**这一条推翻了几次设计**。记录最终决定。
+
+**dev panel 不再观察 pet 的状态**。它有自己的 `StateMachine` 实例，自己处理 raw events，自己算 state。Pet 窗口的角色被降级为"**动画源**"——它仍然跑自己的 SM 来驱动 sprite，但 dev panel 不读它的状态。
+
+数据流（最终）：
+
+```
+HTTP agent ─► Rust http_server ─► emit('agent-hook-event') ──┐
+                                                                │
+                                              ┌─────────────────┤
+                                              ▼                 ▼
+                              ┌───────────────────────┐  ┌──────────────────────┐
+                              │  pet window           │  │  dev panel           │
+                              │  (动画源)            │  │  (ground truth)      │
+                              │                       │  │                       │
+                              │  SM.processEvent ────►│  │  SM.processEvent      │
+                              │  sprite 更新          │  │  Panel 1 显示 state   │
+                              │                       │  │                       │
+                              │  ◄── devtools-syn- ───┼──┼── 合成事件 (Panel 5) │
+                              │      thetic-event     │  │  ↑                     │
+                              │  ◄── devtools-reset ───┼──┼── Reset 按钮         │
+                              └───────────────────────┘  └──────────────────────┘
+```
+
+**之前的设计（已废）**：dev panel 观察 pet——pet 的 `stateMachine.onChange` emit `pet-state-changed` 给 dev panel，dev panel deserialize 后显示。这个方案有 3 个问题：
+
+1. **耦合**：dev panel 依赖 pet 端的 emit 时机。如果 pet 处理慢或卡，dev panel 也卡。
+2. **序列化成本**：跨 webview 传 `Map<aid, Map<sid, Entry>>` 不可靠（Tauri binary IPC 对 nested Map 不稳定），需要拍平成 plain object 再重建。删除这个通道后这层序列化也不需要了。
+3. **看不到 pet 的 bug**：dev panel 显示的是"pet 解出来的 state"，不是"它自己算的"。如果 pet 解析有 bug，dev panel 也会跟着错。
+
+**新设计的"双视图对照"用法**（可选，不强制）：
+
+dev panel 是 ground truth。Pet 的 sprite 是 pet 自己 SM 算出来的。**如果两者不一致，就是 pet 那边有 bug**。例如：
+- 合成 `ToolCallStart(tool_name='Task')`，dev panel 跳到 `subagent-groove`，pet 也是 → 一致 ✓
+- 合成 `UserPromptSubmit` 然后 `ToolCallEnd(success=false)`，dev panel 跳到 `error`，pet 也跳到 → 一致 ✓
+- 合成 `UserPromptSubmit` 100 次，dev panel 一直在 `thinking`，pet 也一直 → 一致 ✓
+- 合成 `ToolCallEnd` 工具是 `Task`，dev panel 的 subagent 计数 -1（从 1→0），pet 的 subagent 计数不变 → **不一致** → pet 那边有 bug
+
+这个对照是 dev tool 该有的能力，但**它不是 dev panel 的核心功能**。Dev panel 的核心是独立算 state、独立显示。
 
 ## Considered Options
 
@@ -154,6 +225,33 @@ Panel 1 / 2 / 5 都在 JS 侧（本地 StateMachine 实例 + 环形 buffer + Tau
 - (iii) 开窗 snapshot + 事件驱动 ← 选。
 - (iv) 仅 snapshot（手动刷新）。**否**：体验差。
 
+### D9 Visual Debug 层
+
+- 集成进 Fire panel（不开新 panel）。**否**：Fire 表单已经很满，加 3 个 color picker 会挤。
+- 集成进 Stores panel。**否**：概念不相关。
+- **新开 Visual Debug panel，3x2 布局** ← 选。3 列 2 行在 800×600 窗口里平铺最舒服。
+- 2x3 布局。**否**：宽屏下纵向会浪费空间。
+- 持久化颜色到 plugin-store。**否**：调试用，重启重置是合理默认。
+
+### D10 核心架构层
+
+- **方案 1（最初设计）**：dev panel 跟 pet 共享同一个 StateMachine 状态，靠事件同步（`pet-state-changed` 推送 + `devtools-pet-state-request` 拉取）。
+  - 实施后被推翻：耦合 + 序列化成本 + 看不到 pet bug（详见 D10 正文）。
+- **方案 2（中间方案）**：dev panel 完全观察 pet，pet 是 source of truth，dev panel 没有本地 SM。
+  - 推翻：丢失 ground truth 能力；pet 解析错 dev panel 也跟着错；调试 dev panel 自己逻辑的成本高。
+- **方案 3（当前设计）**：dev panel 独立，自己跑 SM，pet 降级为动画源。
+  - 选。dev panel 是 ground truth；pet 独立运行只管 sprite；如果两边 sprite 和 Panel 1 不一致就是 pet 那边有 bug——这是 dev tool 该有的"双视图对照"能力。
+
+### D11 跨 webview 序列化约束（已废）
+
+**本节在 D10 推翻后整体作废。** 之前为了在 dev panel 里反序列化 pet 的 snapshot，加了 `serializeSnapshot`（pet 端把 Map 拍平成 plain object）+ `deserializeSnapshot`（dev 端重建 Map）。D10 把这条数据流整个删了，所以：
+
+- `serializeSnapshot` helper（pet.html）—— 删
+- `deserializeSnapshot` function（DevToolsApp.vue）—— 删
+- `Map<AgentId, Map<SessionId, SessionEntry>>` 跨 webview 传递 —— 整条管道废弃
+
+未来如果再有"把 SM 状态传到另一个 webview"的需求，**优先用 plain object 表示**（不嵌套 Map），或者用 stringified keys 拍平。Tauri 2 的 binary IPC 对 nested Map 不可靠，对 plain object 是稳的。
+
 ## Consequences
 
 ### 实现成本
@@ -174,10 +272,11 @@ Panel 1 / 2 / 5 都在 JS 侧（本地 StateMachine 实例 + 环形 buffer + Tau
 
 ### 长期影响
 
-- 状态机从 pet 窗口独占 → pet 窗口 + dev 窗口各持一份。两者通过同一 `agent-hook-event` 流保持镜像，但 dev 窗口会"污染"——合成事件会让 dev 窗口的 StateMachine 进入合成状态。
+- **两个 StateMachine 实例同时运行**（pet 的 + dev panel 的）。两者接收同一 `agent-hook-event` 流，独立计算 state。**不保证一致**——如果 pet 的 SM 解析有 bug，sprite 和 Panel 1 会显示不同状态。这是 dev tool 的核心能力（"双视图对照"）。
 - 编译期 feature flag 增加了一个产品维度，未来如果需要"alpha 测试版"也可以复用同一个机制（代价：feature 多到一定数量后 `cfg` 分支会污染代码可读性）。
 - 4 个 webview（main / pet / pet-bubble / devtools）是这个项目目前的极限——再加一个需要重新评估 Tauri 多 webview 的性能开销。
 - dev 窗口启动时自动 show 是不可逆的——用户关掉后只能重启 app 重开。这是 dev 工具的合理代价，因为：(1) 调试本就是高频重启场景，(2) 没有"暂时关掉 dev 模式" 的合理需求。
+- 之前的"dev panel 观察 pet"设计（pet-state-changed 推送 / devtools-pet-state-request 拉取 / Map 序列化约束）**整体废弃**。如果未来 dev panel 还需要跨 webview 状态，优先用 plain object 表示。
 
 ### 已知边界
 

@@ -7,6 +7,7 @@
 // D6 — emits an envelope `{ event, synthetic: true, source: "devtools" }`.
 
 import { ref } from "vue";
+import type { HookEvent } from "../../pet/state-machine.js";
 
 interface AgentInfo {
   id: string;
@@ -15,7 +16,7 @@ interface AgentInfo {
 
 const props = defineProps<{
   agents: AgentInfo[];
-  fireSynthetic: (event: Record<string, unknown>) => Promise<void> | void;
+  fireSynthetic: (event: HookEvent) => Promise<void> | void;
 }>();
 
 const CANONICAL_EVENTS = [
@@ -36,7 +37,7 @@ const toolName = ref("");
 const success = ref<"" | "true" | "false">("");
 
 async function fire() {
-  const event: Record<string, unknown> = {
+  const event: HookEvent = {
     session_id: sessionId.value,
     event_type: eventType.value,
     agent: agent.value,

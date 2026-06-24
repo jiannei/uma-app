@@ -73,7 +73,6 @@
   <script type="module">
     import { getCurrentWindow, currentMonitor } from '@tauri-apps/api/window';
     import { LogicalSize, LogicalPosition } from '@tauri-apps/api/dpi';
-    import { emit as tauriEmit } from '@tauri-apps/api/event';
     import { StateMachine } from './src/pet/state-machine.js';
     import { ThemeManager } from './src/pet/theme-manager.js';
 
@@ -81,36 +80,6 @@
     const hitZone = document.getElementById('hit-zone');
     const statusEl = document.getElementById('status');
     const currentWindow = getCurrentWindow();
-
-    // ── Snapshot serialization ────────────────────────────────────
-    //
-    // `stateMachine.getSnapshot()` returns Maps (`Map<aid, Map<sid,
-    // Entry>>`). Tauri 2's binary IPC claims to support Map, but
-    // nested Maps have been observed to round-trip as empty `{}` in
-    // some cases. Convert to plain objects for transport; the dev
-    // panel rebuilds Maps on receipt.
-    function serializeSnapshot(snap) {
-      const sessions = {};
-      for (const [aid, bySession] of snap.sessions) {
-        sessions[aid] = {};
-        for (const [sid, entry] of bySession) {
-          sessions[aid][sid] = entry;
-        }
-      }
-      const activeSubagents = {};
-      for (const [aid, bySession] of snap.activeSubagents) {
-        activeSubagents[aid] = {};
-        for (const [sid, count] of bySession) {
-          activeSubagents[aid][sid] = count;
-        }
-      }
-      return {
-        sessions,
-        activeSubagents,
-        activeOneShot: snap.activeOneShot,
-        displayState: snap.displayState,
-      };
-    }
 
     // Theme manager
     const themeManager = new ThemeManager();
@@ -265,16 +234,11 @@
     }
 
     stateMachine.onChange(({ display }) => {
+      // Pet's SM is for driving the sprite. The dev panel has its
+      // own independent SM and no longer reads pet's state. We no
+      // longer broadcast snapshots — see docs/adr/0005-dev-tools.md
+      // D11 for the new architecture.
       setDisplayState(display);
-      // Broadcast the full snapshot to any listening webview (the
-      // dev panel uses this instead of maintaining its own state
-      // machine — see docs/adr/0005-dev-tools.md D9/D10). The pet
-      // is the single source of truth; everyone else is observational.
-      const snap = stateMachine.getSnapshot();
-      console.log('[pet] onChange → emit pet-state-changed', { display, sessions: snap.sessions.size, activeSubagents: snap.activeSubagents.size });
-      tauriEmit('pet-state-changed', serializeSnapshot(snap)).catch((err) =>
-        console.warn('[pet] pet-state-changed emit failed:', err)
-      );
     });
     themeManager.onChange(() => {
       refreshSprite();
@@ -358,15 +322,9 @@
         root.setProperty('--debug-sprite-bg', p.spriteBg || 'transparent');
         root.setProperty('--debug-hitzone-bg', p.hitzoneBg || 'transparent');
       });
-      // Dev panel pulls initial state on mount. Pet is the source of
-      // truth; the dev panel never builds its own StateMachine. This
-      // is a one-shot request/response on the same channel as the
-      // ongoing `pet-state-changed` pushes (see onChange above).
-      window.__TAURI__.event.listen('devtools-pet-state-request', () => {
-        tauriEmit('pet-state-changed', serializeSnapshot(stateMachine.getSnapshot())).catch((err) =>
-          console.warn('[pet] pet-state-changed (request) emit failed:', err)
-        );
-      });
+      // (Removed: devtools-pet-state-request listener. The dev panel
+      // no longer asks pet for state — it has its own SM and
+      // processes raw events directly. See D11.)
       window.__TAURI__.event.listen('pet-theme-change', (e) => {
         const themeId = e.payload?.theme;
         if (themeId) themeManager.setTheme(themeId);
