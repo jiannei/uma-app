@@ -241,7 +241,17 @@
     // heightRatio) × canvas. We collapse that to a single <img> by
     // setting width = baseSize × scale and height = auto, so for the
     // square uma viewBox (1:1) the content is min(1.9, 1.3) = 1.3× of
-    // the canvas, matching uma-pet's <object> rendering exactly.
+    // the canvas.
+    //
+    // For position, the img must land at the same screen rect as the
+    // SVG content inside upstream's box — not at the box itself, which
+    // is wider/taller than the content for non-square objectScale. The
+    // box is centered via offsetX = (1 - widthRatio) / 2 (so offsetX for
+    // uma = -0.45 because widthRatio = 1.9); the content is then
+    // centered inside the box, adding (widthRatio - heightRatio) / 2 on
+    // the wider axis. Combining: img_left = offsetX + (widthRatio -
+    // heightRatio) / 2 when the box is wider than tall, else just
+    // offsetX. Vertical mirror for the box-taller case.
     function applyObjectScaleStyle() {
       const os = themeManager.getObjectScale();
       if (!os) return;
@@ -251,15 +261,21 @@
       const fileOffsets = os.fileOffsets || {};
       const scale = (file && fileScales[file]) || 1.0;
       const fo = (file && fileOffsets[file]) || { x: 0, y: 0 };
-      const baseSize = Math.min(
-        os.imgWidthRatio != null ? os.imgWidthRatio : os.widthRatio,
-        os.heightRatio != null ? os.heightRatio : os.widthRatio,
-      ) * scale;
+      const widthRatio = os.imgWidthRatio != null ? os.imgWidthRatio : (os.widthRatio || 1);
+      const heightRatio = os.heightRatio != null ? os.heightRatio : (os.widthRatio || 1);
+      const baseSize = Math.min(widthRatio, heightRatio) * scale;
+      const boxWider = widthRatio >= heightRatio;
+      const leftPct = boxWider
+        ? (os.offsetX || 0) + (widthRatio - baseSize) / 2
+        : (os.offsetX || 0);
+      const topPct = boxWider
+        ? (os.offsetY || 0)
+        : (os.offsetY || 0) + (heightRatio - baseSize) / 2;
       sprite.style.width = `${baseSize * 100}%`;
       sprite.style.height = 'auto';
-      sprite.style.left = `calc(${(os.offsetX || 0) * 100}% + ${fo.x}px)`;
-      sprite.style.top = 'auto';
-      sprite.style.bottom = `calc(${(os.imgBottom != null ? os.imgBottom : 0.05) * 100}% + ${fo.y}px)`;
+      sprite.style.left = `calc(${leftPct * 100}% + ${fo.x}px)`;
+      sprite.style.top = `calc(${topPct * 100}% + ${fo.y}px)`;
+      sprite.style.bottom = 'auto';
     }
 
     // Map current state's viewBox hit-box through the sprite's actual rendered
