@@ -151,6 +151,17 @@ class ThemeManager {
   }
 
   /**
+   * Resolve objectScale config for the current theme. The renderer uses
+   * this to size + position the sprite (uma-pet semantics — see
+   * uma-pet/src/renderer.js applyObjectScaleStyle and uma-pet/src/styles.css
+   * #clawd). Returns null when the theme has no objectScale block.
+   */
+  getObjectScale() {
+    if (!this.currentTheme || !this.currentTheme.manifest) return null;
+    return this.currentTheme.manifest.objectScale || null;
+  }
+
+  /**
    * Subscribe to theme changes
    */
   onChange(listener) {

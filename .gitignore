@@ -26,3 +26,4 @@ dist-ssr
 # Ai
 .codegraph/
 .claude/worktrees
+.playwright-mcp/

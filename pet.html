@@ -28,6 +28,7 @@
       display: flex;
       align-items: center;
       justify-content: center;
+      position: relative;
       pointer-events: none;
     }
     #hit-zone {
@@ -45,8 +46,15 @@
     #hit-zone:active { cursor: grabbing; }
     #pet-sprite {
       display: block;
+      /* Width/height/positioning are applied by JS from
+         theme.objectScale (see applyObjectScaleStyle). Defaults
+         match the old "144px box centered in the window" behavior
+         so themes without objectScale still render something. */
+      position: absolute;
       width: 144px;
       height: 144px;
+      left: 0;
+      top: 0;
       image-rendering: pixelated;
       pointer-events: none;
       background: var(--debug-sprite-bg, transparent);
@@ -73,8 +81,8 @@
 
     themeManager.registerTheme('uma', {
       name: 'Uma',
-      // viewBox / hitBox / fileHitBox / wide + sleeping file lists copied
-      // verbatim from uma-pet's themes/uma/theme.json (assets are
+      // viewBox / hitBox / fileHitBox / wide + sleeping file lists / objectScale
+      // copied verbatim from uma-pet's themes/uma/theme.json (assets are
       // byte-identical, md5 verified). Keys translated w→width, h→height.
       // See ADR-0004.
       viewBox: { x: -15, y: -25, width: 45, height: 45 },
@@ -89,6 +97,12 @@
       },
       wideHitboxFiles: ['uma-error.svg', 'uma-notification.svg'],
       sleepingHitboxFiles: ['uma-sleeping.svg', 'uma-collapse-sleep.svg'],
+      objectScale: {
+        widthRatio: 1.9,
+        heightRatio: 1.3,
+        offsetX: -0.45,
+        offsetY: -0.25,
+      },
       states: {
         idle: { file: 'uma-idle-follow.svg', type: 'svg' },
         thinking: { file: 'uma-working-thinking.svg', type: 'svg' },
@@ -107,9 +121,10 @@
     });
     themeManager.registerTheme('calico', {
       name: 'Calico',
-      // viewBox / hitBox / wide + sleeping file lists copied verbatim from
-      // uma-pet's themes/calico/theme.json (assets byte-identical, md5
-      // verified). Keys translated w→width, h→height. See ADR-0004.
+      // viewBox / hitBox / wide + sleeping file lists / objectScale copied
+      // verbatim from uma-pet's themes/calico/theme.json (assets
+      // byte-identical, md5 verified). Keys translated w→width, h→height.
+      // See ADR-0004.
       viewBox: { x: 0, y: 0, width: 266, height: 200 },
       fileViewBoxes: {},
       hitBoxes: {
@@ -124,6 +139,71 @@
         'calico-working-conducting.apng',
       ],
       sleepingHitboxFiles: ['calico-sleeping.apng', 'calico-collapsing.apng'],
+      objectScale: {
+        widthRatio: 0.58,
+        heightRatio: 0.44,
+        imgWidthRatio: 0.6,
+        objBottom: 0.05,
+        imgBottom: 0.05,
+        offsetX: 0.21,
+        offsetY: 0.28,
+        fileScales: {
+          'calico-idle-follow.svg': 1.015,
+          'calico-idle.apng': 1.05,
+          'calico-thinking.apng': 1.2,
+          'calico-working-typing.apng': 1.2,
+          'calico-working-juggling.apng': 1.2,
+          'calico-working-building.apng': 1.25,
+          'calico-working-conducting.apng': 1.2,
+          'calico-working-sweeping.apng': 1.25,
+          'calico-working-carrying.apng': 1.4,
+          'calico-notification.apng': 1.02,
+          'calico-error.apng': 1.25,
+          'calico-happy.apng': 1.2,
+          'calico-yawning.apng': 1.15,
+          'calico-dozing.apng': 0.86,
+          'calico-collapsing.apng': 1.05,
+          'calico-sleeping.apng': 1.05,
+          'calico-waking.apng': 1.05,
+          'calico-react-poke.apng': 1.05,
+          'calico-react-drag.apng': 1.1,
+          'calico-mini-idle.apng': 1.15,
+          'calico-mini-alert.apng': 1.15,
+          'calico-mini-happy.apng': 1.15,
+          'calico-mini-enter.apng': 1.15,
+          'calico-mini-peek.apng': 1.15,
+          'calico-mini-crabwalk.apng': 1.05,
+          'calico-mini-sleep.apng': 1.15,
+        },
+        fileOffsets: {
+          'calico-idle-follow.svg': { x: -5, y: -5 },
+          'calico-idle.apng': { x: 10, y: -3 },
+          'calico-thinking.apng': { x: 0, y: 13 },
+          'calico-working-typing.apng': { x: -3, y: -5 },
+          'calico-working-juggling.apng': { x: 0, y: -5 },
+          'calico-working-building.apng': { x: 0, y: -5 },
+          'calico-working-conducting.apng': { x: 0, y: -5 },
+          'calico-working-sweeping.apng': { x: -16, y: 6 },
+          'calico-working-carrying.apng': { x: -24, y: 10 },
+          'calico-notification.apng': { x: 9, y: 0 },
+          'calico-error.apng': { x: 0, y: 7 },
+          'calico-happy.apng': { x: 8, y: 6 },
+          'calico-yawning.apng': { x: 8, y: 8 },
+          'calico-dozing.apng': { x: 7, y: 4 },
+          'calico-collapsing.apng': { x: 8, y: -5 },
+          'calico-sleeping.apng': { x: 8, y: -5 },
+          'calico-waking.apng': { x: 8, y: -5 },
+          'calico-react-poke.apng': { x: 10, y: 0 },
+          'calico-react-drag.apng': { x: 0, y: 6 },
+          'calico-mini-idle.apng': { x: 0, y: 65 },
+          'calico-mini-alert.apng': { x: 0, y: 65 },
+          'calico-mini-happy.apng': { x: 0, y: 65 },
+          'calico-mini-enter.apng': { x: 0, y: 65 },
+          'calico-mini-peek.apng': { x: 0, y: 65 },
+          'calico-mini-crabwalk.apng': { x: 0, y: 65 },
+          'calico-mini-sleep.apng': { x: 0, y: 65 },
+        },
+      },
       states: {
         idle: { file: 'calico-idle.apng', type: 'apng' },
         thinking: { file: 'calico-thinking.apng', type: 'apng' },
@@ -150,6 +230,36 @@
     function refreshSprite() {
       const url = themeManager.getAssetUrl(currentDisplayState);
       if (url) sprite.src = url;
+      applyObjectScaleStyle();
+    }
+
+    // Apply theme.objectScale to #pet-sprite — mirrors
+    // uma-pet/src/renderer.js applyObjectScaleStyle, but adapted for the
+    // <img> element we use here. Original code targets <object>, whose
+    // CSS box is widthRatio × heightRatio and the SVG content is fitted
+    // inside (aspect preserved) → content size = min(widthRatio,
+    // heightRatio) × canvas. We collapse that to a single <img> by
+    // setting width = baseSize × scale and height = auto, so for the
+    // square uma viewBox (1:1) the content is min(1.9, 1.3) = 1.3× of
+    // the canvas, matching uma-pet's <object> rendering exactly.
+    function applyObjectScaleStyle() {
+      const os = themeManager.getObjectScale();
+      if (!os) return;
+      const stateDef = themeManager.getCurrentTheme()?.states?.[currentDisplayState];
+      const file = stateDef?.file;
+      const fileScales = os.fileScales || {};
+      const fileOffsets = os.fileOffsets || {};
+      const scale = (file && fileScales[file]) || 1.0;
+      const fo = (file && fileOffsets[file]) || { x: 0, y: 0 };
+      const baseSize = Math.min(
+        os.imgWidthRatio != null ? os.imgWidthRatio : os.widthRatio,
+        os.heightRatio != null ? os.heightRatio : os.widthRatio,
+      ) * scale;
+      sprite.style.width = `${baseSize * 100}%`;
+      sprite.style.height = 'auto';
+      sprite.style.left = `calc(${(os.offsetX || 0) * 100}% + ${fo.x}px)`;
+      sprite.style.top = 'auto';
+      sprite.style.bottom = `calc(${(os.imgBottom != null ? os.imgBottom : 0.05) * 100}% + ${fo.y}px)`;
     }
 
     // Map current state's viewBox hit-box through the sprite's actual rendered
