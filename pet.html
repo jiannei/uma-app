@@ -12,11 +12,16 @@
       height: 100%;
       overflow: hidden;
       background-color: rgba(0, 0, 0, 0);
-      background: transparent;
+      background: var(--debug-window-bg, transparent);
       user-select: none;
       -webkit-user-select: none;
       pointer-events: none;
     }
+    /* Visual debug (see docs/adr/0005-dev-tools.md D9): the dev panel
+       sets --debug-*-bg CSS vars on :root via the
+       `devtools-pet-debug-style` Tauri event. Defaults are
+       transparent. Hit-zone bg is most useful in practice (sprite bg
+       is usually hidden behind the opaque pixel art). */
     #pet-container {
       width: 100%;
       height: 100%;
@@ -30,6 +35,7 @@
       pointer-events: auto;
       cursor: grab;
       touch-action: none;
+      background: var(--debug-hitzone-bg, transparent);
       /* Position + size set by JS via theme-manager.computeScreenHitRect() */
       left: 0;
       top: 0;
@@ -43,6 +49,7 @@
       height: 144px;
       image-rendering: pixelated;
       pointer-events: none;
+      background: var(--debug-sprite-bg, transparent);
     }
     #status {
       position: absolute;
@@ -66,6 +73,7 @@
   <script type="module">
     import { getCurrentWindow, currentMonitor } from '@tauri-apps/api/window';
     import { LogicalSize, LogicalPosition } from '@tauri-apps/api/dpi';
+    import { emit as tauriEmit } from '@tauri-apps/api/event';
     import { StateMachine } from './src/pet/state-machine.js';
     import { ThemeManager } from './src/pet/theme-manager.js';
 
@@ -73,6 +81,36 @@
     const hitZone = document.getElementById('hit-zone');
     const statusEl = document.getElementById('status');
     const currentWindow = getCurrentWindow();
+
+    // ── Snapshot serialization ────────────────────────────────────
+    //
+    // `stateMachine.getSnapshot()` returns Maps (`Map<aid, Map<sid,
+    // Entry>>`). Tauri 2's binary IPC claims to support Map, but
+    // nested Maps have been observed to round-trip as empty `{}` in
+    // some cases. Convert to plain objects for transport; the dev
+    // panel rebuilds Maps on receipt.
+    function serializeSnapshot(snap) {
+      const sessions = {};
+      for (const [aid, bySession] of snap.sessions) {
+        sessions[aid] = {};
+        for (const [sid, entry] of bySession) {
+          sessions[aid][sid] = entry;
+        }
+      }
+      const activeSubagents = {};
+      for (const [aid, bySession] of snap.activeSubagents) {
+        activeSubagents[aid] = {};
+        for (const [sid, count] of bySession) {
+          activeSubagents[aid][sid] = count;
+        }
+      }
+      return {
+        sessions,
+        activeSubagents,
+        activeOneShot: snap.activeOneShot,
+        displayState: snap.displayState,
+      };
+    }
 
     // Theme manager
     const themeManager = new ThemeManager();
@@ -226,7 +264,18 @@
       });
     }
 
-    stateMachine.onChange(({ display }) => setDisplayState(display));
+    stateMachine.onChange(({ display }) => {
+      setDisplayState(display);
+      // Broadcast the full snapshot to any listening webview (the
+      // dev panel uses this instead of maintaining its own state
+      // machine — see docs/adr/0005-dev-tools.md D9/D10). The pet
+      // is the single source of truth; everyone else is observational.
+      const snap = stateMachine.getSnapshot();
+      console.log('[pet] onChange → emit pet-state-changed', { display, sessions: snap.sessions.size, activeSubagents: snap.activeSubagents.size });
+      tauriEmit('pet-state-changed', serializeSnapshot(snap)).catch((err) =>
+        console.warn('[pet] pet-state-changed emit failed:', err)
+      );
+    });
     themeManager.onChange(() => {
       refreshSprite();
       updateHitZone();
@@ -263,6 +312,60 @@
             })
             .catch((err) => console.warn('[pet] clear_always_allow_session failed:', err));
         }
+      });
+      // Dev-tools synthetic events (see docs/adr/0005-dev-tools.md
+      // D6). Same wire shape as agent-hook-event but wrapped in an
+      // envelope `{ event, synthetic, source }`. The state machine
+      // sees a clean canonical HookEvent — it never inspects the
+      // `synthetic` flag. The synthetic path mirrors the real path's
+      // SessionEnd → clear_always_allow_session chain so debugging
+      // session-boundary cleanup is honest.
+      window.__TAURI__.event.listen('devtools-synthetic-event', (e) => {
+        const ev = e.payload?.event;
+        if (!ev) return;
+        stateMachine.processEvent({
+          session_id: ev.session_id,
+          event_type: ev.event_type,
+          tool_name: ev.tool_name,
+          agent: ev.agent,
+          success: ev.success,
+        });
+        if (ev.event_type === 'SessionEnd' && ev.session_id) {
+          window.__TAURI__.core
+            .invoke('clear_always_allow_session', {
+              agentId: ev.agent || 'unknown',
+              sessionId: ev.session_id,
+            })
+            .catch((err) =>
+              console.warn('[pet] clear_always_allow_session (synthetic) failed:', err)
+            );
+        }
+      });
+      // Dev-tools Reset (ADR-0005 D7). Wipes this StateMachine's
+      // session/subagent state and cancels any in-flight one-shot.
+      window.__TAURI__.event.listen('devtools-reset', () => {
+        stateMachine.reset();
+      });
+      // Visual debug (ADR-0005 D9): the dev panel broadcasts the
+      // current windowBg / spriteBg / hitzoneBg colors via this
+      // channel. We apply them as CSS vars on :root so the existing
+      // rules above pick them up. Pure JS event — no Rust
+      // involvement.
+      window.__TAURI__.event.listen('devtools-pet-debug-style', (e) => {
+        const p = e.payload || {};
+        const root = document.documentElement.style;
+        root.setProperty('--debug-window-bg', p.windowBg || 'transparent');
+        root.setProperty('--debug-sprite-bg', p.spriteBg || 'transparent');
+        root.setProperty('--debug-hitzone-bg', p.hitzoneBg || 'transparent');
+      });
+      // Dev panel pulls initial state on mount. Pet is the source of
+      // truth; the dev panel never builds its own StateMachine. This
+      // is a one-shot request/response on the same channel as the
+      // ongoing `pet-state-changed` pushes (see onChange above).
+      window.__TAURI__.event.listen('devtools-pet-state-request', () => {
+        tauriEmit('pet-state-changed', serializeSnapshot(stateMachine.getSnapshot())).catch((err) =>
+          console.warn('[pet] pet-state-changed (request) emit failed:', err)
+        );
       });
       window.__TAURI__.event.listen('pet-theme-change', (e) => {
         const themeId = e.payload?.theme;

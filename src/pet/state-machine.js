@@ -292,6 +292,73 @@ class StateMachine {
     return removed;
   }
 
+  /**
+   * Wipe ALL session state — both nested Maps, the active subagent
+   * counters, and any in-flight one-shot. Called from the dev
+   * panel's Reset button (which broadcasts `devtools-reset`; both
+   * the pet's StateMachine and the dev panel's local StateMachine
+   * invoke this). After reset, `getDisplayState()` returns `'idle'`
+   * and listeners are notified so any renderer re-paints to the
+   * default sprite.
+   */
+  reset() {
+    this.sessions.clear();
+    this.activeSubagents.clear();
+    if (this.oneShotTimer) {
+      clearTimeout(this.oneShotTimer);
+      this.oneShotTimer = null;
+    }
+    this.activeOneShot = null;
+    this.notify({
+      agentId: null,
+      sessionId: null,
+      state: 'idle',
+      display: this.getDisplayState(),
+      event: 'reset',
+    });
+  }
+
+  /**
+   * Return a deep-clone snapshot of the session state. Used by the
+   * dev panel's StateMachinePanel to render the current state tree.
+   * Deep clone prevents the UI from mutating the live machine
+   * state through a held reference; the snapshot is consistent
+   * within a render cycle even if a new event arrives mid-render.
+   */
+  getSnapshot() {
+    return {
+      sessions: this.cloneSessions(this.sessions),
+      activeSubagents: this.cloneSubagents(this.activeSubagents),
+      activeOneShot: this.activeOneShot
+        ? { state: this.activeOneShot.state, expiresAt: this.activeOneShot.expiresAt }
+        : null,
+      displayState: this.getDisplayState(),
+    };
+  }
+
+  /** Deep-clone the nested Map<agentId, Map<sessionId, SessionEntry>>. */
+  cloneSessions(src) {
+    const out = new Map();
+    for (const [aid, bySession] of src.entries()) {
+      const inner = new Map();
+      for (const [sid, entry] of bySession.entries()) {
+        // SessionEntry is a flat object — shallow clone is enough.
+        inner.set(sid, { ...entry });
+      }
+      out.set(aid, inner);
+    }
+    return out;
+  }
+
+  /** Deep-clone the nested Map<agentId, Map<sessionId, number>>. */
+  cloneSubagents(src) {
+    const out = new Map();
+    for (const [aid, bySession] of src.entries()) {
+      out.set(aid, new Map(bySession));
+    }
+    return out;
+  }
+
   // ── Nested-Map helpers (B1 key strategy) ─────────────────────
 
   getSubagentCount(aid, sid) {

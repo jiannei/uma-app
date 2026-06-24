@@ -35,6 +35,7 @@ use tauri::{AppHandle, Emitter, Manager};
 use tokio::sync::{oneshot, Mutex};
 
 use crate::agent;
+use crate::PendingEntry;
 
 // ── Internal types ──────────────────────────────────────────────
 
@@ -67,7 +68,11 @@ const MAX_PENDING_REQUESTS: usize = 50;
 #[derive(Clone)]
 struct AppState {
     app: AppHandle,
-    pending: Arc<Mutex<HashMap<String, oneshot::Sender<PermissionResponse>>>>,
+    /// Pending permission requests, keyed by request_id. The
+    /// `PendingEntry` carries the oneshot sender AND the canonical
+    /// request payload (so the dev-tools panel can render pending
+    /// requests without re-fetching). Mirrors `lib.rs::PendingStore`.
+    pending: Arc<Mutex<HashMap<String, PendingEntry>>>,
     /// Per-(agent, session) always-allow tool set. Scope follows ADR-0003:
     /// tool name is auto-approved only for that specific agent and session.
     /// Memory-only, lost on restart (intentional MVP scope).
@@ -186,7 +191,28 @@ async fn handle_permission(
             );
             return Err(StatusCode::SERVICE_UNAVAILABLE);
         }
-        pending.insert(request_id.clone(), tx);
+        pending.insert(
+            request_id.clone(),
+            PendingEntry {
+                tx,
+                request: canonical.clone(),
+                agent_id: agent_id.clone(),
+            },
+        );
+
+        // Dev-tools panel watches PendingStore mutations.
+        #[cfg(feature = "dev-tools")]
+        {
+            let _ = state.app.emit(
+                "devtools-pending-changed",
+                serde_json::json!({
+                    "kind": "insert",
+                    "request_id": &request_id,
+                    "agent_id": &agent_id,
+                    "request": &canonical,
+                }),
+            );
+        }
     }
 
     // Show bubble at the user-configured corner.
@@ -221,6 +247,20 @@ async fn handle_permission(
                     "[http] added '{}' to always-allow for {}/{}",
                     tool_name, agent_id, canonical.session_id
                 );
+
+                // Dev-tools panel watches AlwaysAllowStore mutations.
+                #[cfg(feature = "dev-tools")]
+                {
+                    let _ = state.app.emit(
+                        "devtools-always-allow-changed",
+                        serde_json::json!({
+                            "kind": "insert",
+                            "agent_id": &agent_id,
+                            "session_id": &canonical.session_id,
+                            "tool_name": &tool_name,
+                        }),
+                    );
+                }
             }
             hide_bubble_window(&state.app);
             let wire_decision = if response.decision == "always" {
@@ -242,6 +282,19 @@ async fn handle_permission(
             eprintln!("[http] permission timeout");
             let mut pending = state.pending.lock().await;
             pending.remove(&request_id);
+
+            // Dev-tools panel watches PendingStore mutations.
+            #[cfg(feature = "dev-tools")]
+            {
+                let _ = state.app.emit(
+                    "devtools-pending-changed",
+                    serde_json::json!({
+                        "kind": "remove",
+                        "request_id": &request_id,
+                    }),
+                );
+            }
+
             hide_bubble_window(&state.app);
             Err(StatusCode::NO_CONTENT)
         }
@@ -288,7 +341,7 @@ fn hide_bubble_window(app: &AppHandle) {
 
 pub fn build_router(
     app: AppHandle,
-    pending: Arc<Mutex<HashMap<String, oneshot::Sender<PermissionResponse>>>>,
+    pending: Arc<Mutex<HashMap<String, PendingEntry>>>,
     always_allow: Arc<Mutex<HashMap<(String, String), std::collections::HashSet<String>>>>,
     bubble_position: Arc<std::sync::Mutex<String>>,
 ) -> Router {
@@ -311,7 +364,7 @@ pub fn build_router(
 
 pub async fn run(
     app: AppHandle,
-    pending: Arc<Mutex<HashMap<String, oneshot::Sender<PermissionResponse>>>>,
+    pending: Arc<Mutex<HashMap<String, PendingEntry>>>,
     always_allow: Arc<Mutex<HashMap<(String, String), std::collections::HashSet<String>>>>,
     port: u16,
     bubble_position: Arc<std::sync::Mutex<String>>,

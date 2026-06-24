@@ -14,6 +14,12 @@ export default defineConfig(async () => ({
         main: "index.html",
         pet: "pet.html",
         "pet-bubble": "pet-bubble.html",
+        // Dev-tools webview (see docs/adr/0005-dev-tools.md). The
+        // Vite entry is always emitted; the runtime window is only
+        // created when the Rust `dev-tools` feature is enabled.
+        // In release builds the file exists in dist/ but is never
+        // loaded — see plan §Phase C / §Phase G.
+        devtools: "devtools.html",
       },
     },
   },

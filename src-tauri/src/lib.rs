@@ -40,10 +40,32 @@ impl Default for Settings {
 
 // ── State wrappers ──
 
+/// One outstanding permission request. The oneshot sender is the
+/// user-decision transport (resolved by `pet_permission_response` or
+/// by the 5-min timeout in `http_server`). The `request` field
+/// carries the canonical `PermissionRequest` so the dev-tools panel
+/// can render it without re-fetching.
+///
+/// Note: not `Clone` because `oneshot::Sender` isn't. PendingStore
+/// itself is cheap to clone (it wraps `Arc<Mutex<...>>`).
+pub struct PendingEntry {
+    pub tx: tokio::sync::oneshot::Sender<http_server::PermissionResponse>,
+    pub request: agent::PermissionRequest,
+    pub agent_id: String,
+}
+
+/// Serializable view of `PendingEntry` for the dev-tools panel
+/// (Tauri command return types must `Serialize`; `PendingEntry`
+/// can't derive it because `oneshot::Sender` isn't serializable).
+#[derive(serde::Serialize, Clone)]
+pub struct PendingEntryView {
+    pub request_id: String,
+    pub agent_id: String,
+    pub request: agent::PermissionRequest,
+}
+
 #[derive(Clone)]
-pub struct PendingStore(
-    pub Arc<Mutex<HashMap<String, tokio::sync::oneshot::Sender<http_server::PermissionResponse>>>>,
-);
+pub struct PendingStore(pub Arc<Mutex<HashMap<String, PendingEntry>>>);
 
 #[derive(Clone)]
 pub struct SettingsStore(pub Arc<std::sync::Mutex<Settings>>);
@@ -67,6 +89,15 @@ pub struct BubblePositionStore(pub Arc<std::sync::Mutex<String>>);
 pub struct AlwaysAllowStore(
     pub Arc<Mutex<HashMap<(String, String), std::collections::HashSet<String>>>>,
 );
+
+/// Serializable view of a single (agent, session) entry in
+/// `AlwaysAllowStore` for the dev-tools panel.
+#[derive(serde::Serialize, Clone)]
+pub struct AlwaysAllowView {
+    pub agent_id: String,
+    pub session_id: String,
+    pub tools: Vec<String>,
+}
 
 #[derive(serde::Deserialize)]
 pub struct PermissionDecision {
@@ -149,6 +180,7 @@ fn set_bubble_position(
     Ok(())
 }
 
+#[cfg_attr(not(feature = "dev-tools"), allow(unused_variables))]
 #[tauri::command]
 async fn pet_permission_response(
     app: AppHandle,
@@ -160,13 +192,25 @@ async fn pet_permission_response(
         decision.request_id, decision.decision
     );
     let mut pending = store.0.lock().await;
-    if let Some(tx) = pending.remove(&decision.request_id) {
-        let _ = tx.send(http_server::PermissionResponse {
-            request_id: decision.request_id,
-            decision: decision.decision,
+    if let Some(entry) = pending.remove(&decision.request_id) {
+        let _ = entry.tx.send(http_server::PermissionResponse {
+            request_id: decision.request_id.clone(),
+            decision: decision.decision.clone(),
             reason: decision.reason,
         });
         eprintln!("[clawd] permission resolved");
+
+        // Dev-tools panel watches PendingStore mutations.
+        #[cfg(feature = "dev-tools")]
+        {
+            let _ = app.emit(
+                "devtools-pending-changed",
+                serde_json::json!({
+                    "kind": "remove",
+                    "request_id": &decision.request_id,
+                }),
+            );
+        }
     } else {
         eprintln!(
             "[clawd] no pending request found for id={}",
@@ -240,19 +284,72 @@ fn uninstall_agent_hook(agent_id: String) -> Result<(), String> {
 /// Invoked from the pet frontend on `SessionEnd` so a closed
 /// session's allow rules don't leak to the next session opened by
 /// the same agent. No-op if the key isn't present.
+#[cfg_attr(not(feature = "dev-tools"), allow(unused_variables))]
 #[tauri::command]
 async fn clear_always_allow_session(
+    app: AppHandle,
     store: State<'_, AlwaysAllowStore>,
     agent_id: String,
     session_id: String,
 ) -> Result<(), String> {
     let mut allow = store.0.lock().await;
     if allow.remove(&(agent_id.clone(), session_id.clone())).is_some() {
-        eprintln!(
-            "[clawd] cleared always-allow for {agent_id}/{session_id}"
-        );
+        eprintln!("[clawd] cleared always-allow for {agent_id}/{session_id}");
+
+        // Dev-tools panel watches AlwaysAllowStore mutations.
+        #[cfg(feature = "dev-tools")]
+        {
+            let _ = app.emit(
+                "devtools-always-allow-changed",
+                serde_json::json!({
+                    "kind": "remove",
+                    "agent_id": &agent_id,
+                    "session_id": &session_id,
+                }),
+            );
+        }
     }
     Ok(())
+}
+
+// ── Dev-tools commands (gated by `dev-tools` feature) ──
+//
+// Snapshot the in-memory permission/allow stores for the dev panel's
+// initial render. Live updates flow through `devtools-pending-changed`
+// and `devtools-always-allow-changed` Tauri events (emitted at every
+// mutation point). The panel calls these on mount, then subscribes
+// to the events for incremental updates.
+
+#[cfg(feature = "dev-tools")]
+#[tauri::command]
+async fn devtools_get_pending(
+    store: State<'_, PendingStore>,
+) -> Result<Vec<PendingEntryView>, String> {
+    let pending = store.0.lock().await;
+    Ok(pending
+        .iter()
+        .map(|(id, entry)| PendingEntryView {
+            request_id: id.clone(),
+            agent_id: entry.agent_id.clone(),
+            request: entry.request.clone(),
+        })
+        .collect())
+}
+
+#[cfg(feature = "dev-tools")]
+#[tauri::command]
+async fn devtools_get_always_allow(
+    store: State<'_, AlwaysAllowStore>,
+) -> Result<Vec<AlwaysAllowView>, String> {
+    let allow = store.0.lock().await;
+    Ok(allow
+        .iter()
+        .map(|((aid, sid), tools)| AlwaysAllowView {
+            agent_id: aid.clone(),
+            session_id: sid.clone(),
+            tools: tools.iter().cloned().collect(),
+        })
+        .collect())
 }
 
 // ── App entry ──
@@ -264,9 +361,7 @@ pub fn run() {
         .and_then(|s| s.parse().ok())
         .unwrap_or(17373);
 
-    let pending = Arc::new(Mutex::new(
-        HashMap::<String, tokio::sync::oneshot::Sender<http_server::PermissionResponse>>::new(),
-    ));
+    let pending = Arc::new(Mutex::new(HashMap::<String, PendingEntry>::new()));
     let always_allow: AlwaysAllowStore = AlwaysAllowStore(Arc::new(Mutex::new(HashMap::new())));
 
     tauri::Builder::default()
@@ -288,6 +383,10 @@ pub fn run() {
             install_agent_hook,
             uninstall_agent_hook,
             clear_always_allow_session,
+            #[cfg(feature = "dev-tools")]
+            devtools_get_pending,
+            #[cfg(feature = "dev-tools")]
+            devtools_get_always_allow,
         ])
         .setup(move |app| {
             let app_handle = app.handle().clone();
@@ -325,6 +424,42 @@ pub fn run() {
                     if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                         api.prevent_close();
                         let _ = window.hide();
+                    }
+                });
+            }
+
+            // Dev-tools panel: a 4th webview created at startup
+            // (gated — does not exist in release). Auto-shown on
+            // launch in dev builds; close mirrors the main window's
+            // pattern (hide, don't exit). To bring it back: restart
+            // the app, or use the system menu / window list.
+            #[cfg(feature = "dev-tools")]
+            {
+                use tauri::{WebviewUrl, WebviewWindowBuilder};
+
+                let devtools = WebviewWindowBuilder::new(
+                    app,
+                    "devtools",
+                    WebviewUrl::App("devtools.html".into()),
+                )
+                .title("Clawd DevTools")
+                .inner_size(800.0, 600.0)
+                .resizable(true)
+                .decorations(true)
+                .skip_taskbar(true)
+                .visible(false)
+                .build()
+                .expect("failed to create devtools window");
+
+                let _ = devtools.show();
+                let _ = devtools.unminimize();
+                let _ = devtools.set_focus();
+
+                let devtools_handle = devtools.clone();
+                devtools.on_window_event(move |event| {
+                    if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                        api.prevent_close();
+                        let _ = devtools_handle.hide();
                     }
                 });
             }

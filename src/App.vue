@@ -68,7 +68,7 @@ async function loadSettings() {
       bubble_position: storedPos,
     };
 
-    // Also sync from Rust (in case anything diverged)
+    // Also sync from Rust (in case anything diverged).
     try {
       const rustSettings = await invoke<Settings>('get_settings');
       settings.value = { ...settings.value, ...rustSettings };
