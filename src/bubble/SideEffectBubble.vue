@@ -14,6 +14,7 @@
 import { ref, computed, onMounted, onUnmounted } from "vue";
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { Shield } from "@lucide/vue";
 import type {
   PermissionDecision,
   PermissionRequest,
@@ -24,6 +25,8 @@ import { bubbleText } from "./strings";
 import { formatDetail } from "./format-detail";
 import { suggestionLabel } from "./suggestion-label";
 import { useBubbleLang } from "./lang";
+import { Button } from "@/components/ui/button";
+import BubbleHeader from "@/components/bubble/BubbleHeader.vue";
 import ElicitationBubble from "./ElicitationBubble.vue";
 import PlanReviewBubble from "./PlanReviewBubble.vue";
 
@@ -113,7 +116,9 @@ function detailLine(s: SideEffectRequest): string {
     unambiguous to the compiler.
   -->
   <template v-if="!current">
-    <div class="empty">{{ bubbleText(lang, "waiting") }}</div>
+    <div class="flex items-center justify-center h-screen text-muted-foreground text-[12px]">
+      {{ bubbleText(lang, "waiting") }}
+    </div>
   </template>
 
   <template v-else-if="elicitation">
@@ -125,167 +130,52 @@ function detailLine(s: SideEffectRequest): string {
   </template>
 
   <template v-else-if="sideEffect">
-    <div class="kind sideeffect">
-      <header>
-        <span class="icon">🔐</span>
-        <span class="title">
-          {{ sideEffect.agentDisplayName }} wants permission
-        </span>
-        <span v-if="sideEffect.toolName" class="tool-pill">
-          {{ sideEffect.toolName }}
-        </span>
-      </header>
+    <div class="flex flex-col gap-2 p-3 text-[13px] select-none">
+      <BubbleHeader
+        :icon="Shield"
+        variant="destructive"
+        :title="`${sideEffect.agentDisplayName} wants permission`"
+        :tag="sideEffect.toolName"
+      />
 
-      <div v-if="detailLine(sideEffect)" class="details">
+      <div v-if="detailLine(sideEffect)" class="bg-muted text-muted-foreground font-mono text-[11px] p-2 rounded-md max-h-[60px] overflow-auto whitespace-pre-wrap break-words">
         {{ detailLine(sideEffect) }}
       </div>
 
       <div
         v-if="sideEffect.permissionSuggestions?.length"
-        class="suggestions"
+        class="flex flex-col gap-1"
       >
-        <button
+        <Button
           v-for="(entry, i) in sideEffect.permissionSuggestions"
           :key="i"
-          class="btn suggestion"
+          variant="outline"
+          class="w-full justify-center"
           :disabled="sending"
           @click="pickSuggestion(sideEffect.requestId, entry)"
         >
           {{ suggestionLabel(entry, lang) }}
-        </button>
+        </Button>
       </div>
 
-      <div class="actions">
-        <button
-          class="btn allow"
+      <div class="flex gap-1.5 mt-auto">
+        <Button
+          variant="default"
+          class="flex-1"
           :disabled="sending"
           @click="allow(sideEffect.requestId)"
         >
           {{ bubbleText(lang, "allow") }}
-        </button>
-        <button
-          class="btn deny"
+        </Button>
+        <Button
+          variant="destructive"
+          class="flex-1"
           :disabled="sending"
           @click="deny(sideEffect.requestId)"
         >
           {{ bubbleText(lang, "deny") }}
-        </button>
+        </Button>
       </div>
     </div>
   </template>
 </template>
-
-<style scoped>
-* { margin: 0; padding: 0; box-sizing: border-box; }
-
-.empty {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  height: 100vh;
-  color: #6c7086;
-  font-size: 12px;
-}
-
-.kind {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 12px;
-  font-size: 13px;
-  user-select: none;
-}
-
-header {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.icon {
-  width: 22px;
-  height: 22px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 14px;
-  background: #f38ba8;
-  border-radius: 50%;
-}
-
-.title {
-  font-weight: 600;
-  flex: 1;
-  color: #cdd6f4;
-}
-
-.tool-pill {
-  font-family: ui-monospace, "SF Mono", Menlo, monospace;
-  font-size: 11px;
-  background: #313244;
-  color: #fab387;
-  padding: 2px 8px;
-  border-radius: 4px;
-}
-
-.details {
-  background: #1e1e2e;
-  color: #a6adc8;
-  font-family: ui-monospace, "SF Mono", Menlo, monospace;
-  font-size: 11px;
-  padding: 8px 10px;
-  border-radius: 6px;
-  max-height: 60px;
-  overflow: auto;
-  white-space: pre-wrap;
-  word-break: break-word;
-}
-
-.suggestions {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.placeholder-note {
-  font-size: 11px;
-  color: #a6adc8;
-  line-height: 1.5;
-}
-
-.actions {
-  display: flex;
-  gap: 6px;
-  margin-top: auto;
-}
-
-.btn {
-  flex: 1;
-  padding: 8px 12px;
-  border: none;
-  border-radius: 6px;
-  cursor: pointer;
-  font-size: 12px;
-  font-weight: 500;
-  font-family: inherit;
-  background: #313244;
-  color: #cdd6f4;
-}
-
-.btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.btn:hover:not(:disabled) {
-  filter: brightness(1.1);
-}
-
-.btn:active:not(:disabled) {
-  transform: scale(0.98);
-}
-
-.btn.allow { background: #a6e3a1; color: #1e1e2e; }
-.btn.deny { background: #f38ba8; color: #1e1e2e; }
-.btn.suggestion { background: #89b4fa; color: #1e1e2e; }
-</style>

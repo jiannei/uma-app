@@ -27,9 +27,9 @@ import { displayStateResolver } from "../robot/display-state-resolver";
 import { DEFAULT_THEME } from "../robot/display-state-constants";
 import type { HookEvent, ThemeManifest } from "../robot/display-state-types";
 import type { PermissionRequest } from "../types/permission";
+import { Button } from "@/components/ui/button";
 
 import StateMachinePanel from "./panels/StateMachinePanel.vue";
-import EventLogPanel from "./panels/EventLogPanel.vue";
 import StoresPanel from "./panels/StoresPanel.vue";
 import SyntheticFirePanel from "./panels/SyntheticFirePanel.vue";
 import VisualDebugPanel from "./panels/VisualDebugPanel.vue";
@@ -54,27 +54,6 @@ watch(
   },
   { deep: false },
 );
-
-// ── Event log ring buffer (1000 entries) ────────────────────────
-
-interface EventLogEntry {
-  timestamp: number;
-  source: "http" | "devtools";
-  synthetic: boolean;
-  agent: string;
-  session_id: string;
-  event_type: string;
-  payload: unknown;
-}
-const EVENT_LOG_MAX = 1000;
-const eventLog = ref<EventLogEntry[]>([]);
-
-function pushEvent(entry: EventLogEntry) {
-  eventLog.value.push(entry);
-  if (eventLog.value.length > EVENT_LOG_MAX) {
-    eventLog.value.splice(0, eventLog.value.length - EVENT_LOG_MAX);
-  }
-}
 
 // ── Rust store snapshots (live) ─────────────────────────────────
 //
@@ -128,7 +107,6 @@ async function fireSynthetic(event: HookEvent) {
 
 async function resetAll() {
   send({ type: "RESET" });
-  eventLog.value = [];
   await tauriEmit("devtools-reset", {});
 }
 
@@ -194,40 +172,12 @@ onMounted(async () => {
     }),
   );
 
-  // Real events from HTTP server → feed local resolver + log.
+  // Real events from HTTP server → feed local resolver (ground truth
+  // state machine). Event log was removed — CLI output covers that.
   unsubscribers.push(
     await listen("agent-hook-event", (e) => {
       const p = e.payload as HookEvent;
       send({ type: "AGENT_HOOK", event: p });
-      pushEvent({
-        timestamp: Date.now(),
-        source: "http",
-        synthetic: false,
-        agent: p.agent ?? "",
-        session_id: p.session_id ?? "",
-        event_type: p.event_type ?? "",
-        payload: p,
-      });
-    })
-  );
-
-  // Synthetic events from dev panel form (received by both robot and
-  // dev panel — robot drives sprite, dev panel logs it; the local
-  // resolver was already fed by fireSynthetic before this emit, so
-  // we only log here).
-  unsubscribers.push(
-    await listen("devtools-synthetic-event", (e) => {
-      const env = e.payload as { event: HookEvent };
-      const ev = env.event;
-      pushEvent({
-        timestamp: Date.now(),
-        source: "devtools",
-        synthetic: true,
-        agent: ev.agent ?? "",
-        session_id: ev.session_id ?? "",
-        event_type: ev.event_type ?? "",
-        payload: ev,
-      });
     })
   );
 
@@ -238,11 +188,10 @@ onMounted(async () => {
     })
   );
   // Reset broadcast (from any source — this panel, another dev
-  // panel session, or a future trigger). Reset local resolver and log.
+  // panel session, or a future trigger). Reset local resolver.
   unsubscribers.push(
     await listen("devtools-reset", () => {
       send({ type: "RESET" });
-      eventLog.value = [];
     })
   );
 });
@@ -254,66 +203,19 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="devtools">
-    <header>
-      <span class="title">Uma DevTools</span>
-      <button class="reset" @click="resetAll">Reset</button>
+  <div class="flex flex-col h-full bg-background text-foreground">
+    <header class="flex items-center justify-between px-3 py-1.5 bg-background border-b border-border">
+      <span class="font-semibold text-[12px] tracking-wider text-foreground">Uma DevTools</span>
+      <Button variant="destructive" size="sm" @click="resetAll">
+        Reset
+      </Button>
     </header>
-    <main class="grid">
-      <StateMachinePanel :snapshot="snapshot" />
-      <EventLogPanel :entries="eventLog" />
-      <VisualDebugPanel />
-      <StoresPanel :pending="pending" />
-      <SyntheticFirePanel :agents="agents" :fire-synthetic="fireSynthetic" />
-      <ThemeEditorPanel />
+    <main class="flex-1 min-h-0 flex flex-wrap gap-px bg-border">
+      <StateMachinePanel :snapshot="snapshot" class="flex-1 min-w-[280px] bg-card overflow-auto" />
+      <VisualDebugPanel class="flex-1 min-w-[280px] overflow-auto" />
+      <StoresPanel :pending="pending" class="flex-1 min-w-[280px] overflow-auto" />
+      <SyntheticFirePanel :agents="agents" :fire-synthetic="fireSynthetic" class="flex-1 min-w-[280px] overflow-auto" />
+      <ThemeEditorPanel class="flex-1 min-w-[280px] overflow-auto" />
     </main>
   </div>
 </template>
-
-<style scoped>
-.devtools {
-  display: flex;
-  flex-direction: column;
-  height: 100vh;
-  background: #11111b;
-  color: #cdd6f4;
-}
-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 6px 12px;
-  background: #1e1e2e;
-  border-bottom: 1px solid #313244;
-}
-header .title {
-  font-weight: 600;
-  font-size: 12px;
-  letter-spacing: 0.5px;
-  color: #cdd6f4;
-}
-header .reset {
-  background: #f38ba8;
-  color: #1e1e2e;
-  border: none;
-  border-radius: 4px;
-  padding: 4px 10px;
-  font-size: 11px;
-  font-weight: 600;
-  cursor: pointer;
-}
-header .reset:hover { filter: brightness(0.9); }
-.grid {
-  flex: 1;
-  min-height: 0;
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  grid-template-rows: 1fr 1fr 1fr;
-  gap: 1px;
-  background: #313244;
-}
-.grid > section {
-  background: #181825;
-  overflow: auto;
-}
-</style>

@@ -1,0 +1,161 @@
+/* src/styles/shared.css — base for main + bubble windows.
+ *
+ * Robot window does NOT use this file (it has its own robot.css) — see
+ * ADR-0004 §Rendering paths: the robot sprite is themed by objectScale
+ * + viewBox, not by shadcn-vue / warm-dark theme tokens.
+ *
+ * Imports order matters:
+ *   1. tailwindcss  — engine + preflight
+ *   2. tw-animate-css  — animation utilities (used by shadcn-vue + main's toast)
+ *   3. shadcn-vue/tailwind.css  — component classes (Button, Card, …)
+ */
+
+@import url('https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&display=swap');
+
+@import "tailwindcss";
+
+@import "tw-animate-css";
+
+@import "shadcn-vue/tailwind.css";
+
+@custom-variant dark (&:is(.dark *));
+
+/* Warm-dark brand tokens — referenced via bg-background / text-foreground
+ * / border-border / etc. in the main UI and bubble components. The
+ * :root / .dark blocks below provide the actual oklch values. */
+@theme inline {
+    --font-sans: 'Geist Variable', sans-serif;
+    --font-heading: var(--font-sans);
+    --color-sidebar-ring: var(--sidebar-ring);
+    --color-sidebar-border: var(--sidebar-border);
+    --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+    --color-sidebar-accent: var(--sidebar-accent);
+    --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+    --color-sidebar-primary: var(--sidebar-primary);
+    --color-sidebar-foreground: var(--sidebar-foreground);
+    --color-sidebar: var(--sidebar);
+    --color-chart-5: var(--chart-5);
+    --color-chart-4: var(--chart-4);
+    --color-chart-3: var(--chart-3);
+    --color-chart-2: var(--chart-2);
+    --color-chart-1: var(--chart-1);
+    --color-ring: var(--ring);
+    --color-input: var(--input);
+    --color-border: var(--border);
+    --color-destructive: var(--destructive);
+    --color-accent-foreground: var(--accent-foreground);
+    --color-accent: var(--accent);
+    --color-muted-foreground: var(--muted-foreground);
+    --color-muted: var(--muted);
+    --color-secondary-foreground: var(--secondary-foreground);
+    --color-secondary: var(--secondary);
+    --color-primary-foreground: var(--primary-foreground);
+    --color-primary: var(--primary);
+    --color-popover-foreground: var(--popover-foreground);
+    --color-popover: var(--popover);
+    --color-card-foreground: var(--card-foreground);
+    --color-card: var(--card);
+    --color-foreground: var(--foreground);
+    --color-background: var(--background);
+    --radius-sm: calc(var(--radius) - 4px);
+    --radius-md: calc(var(--radius) - 2px);
+    --radius-lg: var(--radius);
+    --radius-xl: calc(var(--radius) + 4px);
+}
+
+:root {
+    /* Light theme — clean, modern palette */
+    --background: oklch(0.98 0.005 75);
+    --foreground: oklch(0.20 0.01 75);
+    --card: oklch(0.97 0.005 75);
+    --card-foreground: oklch(0.20 0.01 75);
+    --popover: oklch(0.98 0.005 75);
+    --popover-foreground: oklch(0.20 0.01 75);
+    --primary: oklch(0.55 0.20 145);
+    --primary-foreground: oklch(0.98 0.005 145);
+    --secondary: oklch(0.93 0.01 75);
+    --secondary-foreground: oklch(0.20 0.01 75);
+    --muted: oklch(0.93 0.01 75);
+    --muted-foreground: oklch(0.50 0.01 75);
+    --accent: oklch(0.93 0.02 145);
+    --accent-foreground: oklch(0.20 0.01 75);
+    --destructive: oklch(0.60 0.20 25);
+    --border: oklch(0.88 0.01 75);
+    --input: oklch(0.90 0.01 75);
+    --ring: oklch(0.55 0.20 145);
+    --chart-1: oklch(0.55 0.20 145);
+    --chart-2: oklch(0.60 0.20 25);
+    --chart-3: oklch(0.55 0.15 260);
+    --chart-4: oklch(0.60 0.15 60);
+    --chart-5: oklch(0.65 0.10 180);
+    --radius: 0.5rem;
+    --sidebar: oklch(0.96 0.005 75);
+    --sidebar-foreground: oklch(0.20 0.01 75);
+    --sidebar-primary: oklch(0.55 0.20 145);
+    --sidebar-primary-foreground: oklch(0.98 0.005 145);
+    --sidebar-accent: oklch(0.93 0.01 75);
+    --sidebar-accent-foreground: oklch(0.20 0.01 75);
+    --sidebar-border: oklch(0.88 0.01 75);
+    --sidebar-ring: oklch(0.55 0.20 145);
+}
+
+.dark {
+    --background: oklch(0.12 0.01 45);
+    --foreground: oklch(0.95 0.01 75);
+    --card: oklch(0.15 0.01 45);
+    --card-foreground: oklch(0.95 0.01 75);
+    --popover: oklch(0.12 0.01 45);
+    --popover-foreground: oklch(0.95 0.01 75);
+    --primary: oklch(0.72 0.15 145);
+    --primary-foreground: oklch(0.12 0.02 145);
+    --secondary: oklch(0.2 0.01 45);
+    --secondary-foreground: oklch(0.95 0.01 75);
+    --muted: oklch(0.22 0.01 45);
+    --muted-foreground: oklch(0.65 0.01 75);
+    --accent: oklch(0.72 0.15 145);
+    --accent-foreground: oklch(0.12 0.02 145);
+    --destructive: oklch(0.65 0.2 25);
+    --border: oklch(0.25 0.01 45);
+    --input: oklch(0.2 0.01 45);
+    --ring: oklch(0.72 0.15 145);
+    --chart-1: oklch(0.72 0.15 145);
+    --chart-2: oklch(0.65 0.2 25);
+    --chart-3: oklch(0.55 0.15 260);
+    --chart-4: oklch(0.6 0.15 60);
+    --chart-5: oklch(0.65 0.1 180);
+    --sidebar: oklch(0.15 0.01 45);
+    --sidebar-foreground: oklch(0.95 0.01 75);
+    --sidebar-primary: oklch(0.72 0.15 145);
+    --sidebar-primary-foreground: oklch(0.12 0.02 145);
+    --sidebar-accent: oklch(0.22 0.01 45);
+    --sidebar-accent-foreground: oklch(0.95 0.01 75);
+    --sidebar-border: oklch(0.25 0.01 45);
+    --sidebar-ring: oklch(0.72 0.15 145);
+}
+
+@layer base {
+  html, body {
+    @apply bg-background text-foreground;
+    @apply font-sans;
+    overscroll-behavior: none;
+    overflow: hidden;
+  }
+}
+
+/* Global webkit scrollbar hide — macOS default overlay scrollbar
+   looks out of place in the warm-dark UI. */
+@layer base {
+  *::-webkit-scrollbar {
+    @apply hidden;
+  }
+}
+/* ---break---
+ */
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+    }
+  body {
+    @apply bg-background text-foreground;
+    }
+}

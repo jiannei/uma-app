@@ -181,7 +181,7 @@ fn set_bubble_position(
     Ok(())
 }
 
-#[cfg_attr(not(feature = "dev-tools"), allow(unused_variables))]
+#[cfg_attr(not(debug_assertions), allow(unused_variables))]
 #[tauri::command]
 async fn respond_permission(
     app: AppHandle,
@@ -202,7 +202,7 @@ async fn respond_permission(
         eprintln!("[uma] permission resolved");
 
         // Dev-tools panel watches PendingStore mutations.
-        #[cfg(feature = "dev-tools")]
+        #[cfg(debug_assertions)]
         {
             let _ = app.emit(
                 "devtools-pending-changed",
@@ -278,14 +278,14 @@ fn uninstall_agent_hook(agent_id: String) -> Result<(), String> {
     lookup_or_404(&agent_id)?.uninstall()
 }
 
-// ── Dev-tools commands (gated by `dev-tools` feature) ──
+// ── Dev-tools commands (dev-only; gated by `cfg(debug_assertions)`) ──
 //
 // Snapshot the in-memory permission store for the dev panel's initial
 // render. Live updates flow through `devtools-pending-changed` Tauri
 // events (emitted at every mutation point). The panel calls this on
 // mount, then subscribes to the events for incremental updates.
 
-#[cfg(feature = "dev-tools")]
+#[cfg(debug_assertions)]
 #[tauri::command]
 async fn devtools_get_pending(
     store: State<'_, PendingStore>,
@@ -313,7 +313,7 @@ async fn devtools_get_pending(
 /// `kind` is one of "SideEffect" / "Elicitation" / "PlanReview".
 /// All three are hardcoded payloads that exercise the bubble's
 /// per-kind render path.
-#[cfg(feature = "dev-tools")]
+#[cfg(debug_assertions)]
 #[tauri::command]
 async fn devtools_fire_synthetic_permission(
     app: AppHandle,
@@ -483,11 +483,11 @@ async fn devtools_fire_synthetic_permission(
     Ok(request_id)
 }
 
-// ── Theme editor IPC (gated by `dev-tools` feature) ────────────
+// ── Theme editor IPC (dev-only; gated by `cfg(debug_assertions)`) ────
 //
 // Read / write public/themes/<id>/theme.json. Powers the dev panel's
-// visual sprite editor. Only available in dev-tools builds (release
-// release users don't have a UI to mutate themes — keep that gate as
+// visual sprite editor. Only compiled in debug builds (release
+// users don't have a UI to mutate themes — keep that gate as
 // one less moving part. After save, emits
 // `theme-updated` so the robot window re-reads and re-registers the
 // theme (no app restart needed for tweaks to take effect).
@@ -497,7 +497,7 @@ async fn devtools_fire_synthetic_permission(
 // themes are bundled read-only, so this command will fail at
 // runtime; that's intentional — release users have no editor.
 
-#[cfg(feature = "dev-tools")]
+#[cfg(debug_assertions)]
 fn theme_path(theme_id: &str) -> std::path::PathBuf {
     // CARGO_MANIFEST_DIR is src-tauri/, so project root is parent.
     let manifest = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
@@ -510,7 +510,7 @@ fn theme_path(theme_id: &str) -> std::path::PathBuf {
         .join("theme.json")
 }
 
-#[cfg(feature = "dev-tools")]
+#[cfg(debug_assertions)]
 #[tauri::command]
 fn theme_load(theme_id: String) -> Result<serde_json::Value, String> {
     let path = theme_path(&theme_id);
@@ -519,7 +519,7 @@ fn theme_load(theme_id: String) -> Result<serde_json::Value, String> {
     serde_json::from_str(&content).map_err(|e| format!("parse failed: {e}"))
 }
 
-#[cfg(feature = "dev-tools")]
+#[cfg(debug_assertions)]
 #[tauri::command]
 fn theme_save(
     app: AppHandle,
@@ -572,13 +572,13 @@ pub fn run() {
             check_agent_installed,
             install_agent_hook,
             uninstall_agent_hook,
-            #[cfg(feature = "dev-tools")]
+            #[cfg(debug_assertions)]
             devtools_get_pending,
-            #[cfg(feature = "dev-tools")]
+            #[cfg(debug_assertions)]
             devtools_fire_synthetic_permission,
-            #[cfg(feature = "dev-tools")]
+            #[cfg(debug_assertions)]
             theme_load,
-            #[cfg(feature = "dev-tools")]
+            #[cfg(debug_assertions)]
             theme_save,
         ])
         .setup(move |app| {
@@ -609,9 +609,14 @@ pub fn run() {
                 "main",
                 WebviewUrl::App("index.html".into()),
             )
-            .title("uma-app")
-            .inner_size(800.0, 600.0)
+            .title("")
+            .inner_size(800.0, 680.0)
             .visible(false)
+            // macOS: extend the page's dark background into the title
+            // bar so the chrome doesn't read as a light bar floating
+            // over a dark card. Overlay also makes the whole window
+            // draggable (no need for a custom drag region).
+            .title_bar_style(tauri::TitleBarStyle::Visible)
             .build()?;
 
             let _robot_window = WebviewWindowBuilder::new(
@@ -669,40 +674,6 @@ pub fn run() {
                 .await;
             });
 
-            // Dev-tools panel: a 4th webview created at startup
-            // (gated — does not exist in release). Auto-shown on
-            // launch in dev builds; close mirrors the main window's
-            // pattern (hide, don't exit). To bring it back: restart
-            // the app, or use the system menu / window list.
-            #[cfg(feature = "dev-tools")]
-            {
-                let devtools = WebviewWindowBuilder::new(
-                    app,
-                    "devtools",
-                    WebviewUrl::App("devtools.html".into()),
-                )
-                .title("Uma DevTools")
-                .inner_size(800.0, 600.0)
-                .resizable(true)
-                .decorations(true)
-                .skip_taskbar(true)
-                .visible(false)
-                .build()
-                .expect("failed to create devtools window");
-
-                let _ = devtools.show();
-                let _ = devtools.unminimize();
-                let _ = devtools.set_focus();
-
-                let devtools_handle = devtools.clone();
-                devtools.on_window_event(move |event| {
-                    if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-                        api.prevent_close();
-                        let _ = devtools_handle.hide();
-                    }
-                });
-            }
-
             // Load persisted settings from plugin-store
             let initial_settings = if let Ok(pstore) = app.store("settings.json") {
                 Settings {
@@ -756,7 +727,7 @@ pub fn run() {
 
 // ── Tests ────────────────────────────────────────────────────────────
 
-#[cfg(all(test, feature = "dev-tools"))]
+#[cfg(test)]
 mod tests {
     use super::*;
     use std::fs;

@@ -19,6 +19,8 @@ import { ref } from "vue";
 import { invoke } from "@tauri-apps/api/core";
 import type { HookEvent } from "../../robot/display-state-types";
 import { CANONICAL_EVENTS } from "../../robot/display-state-constants";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 
 interface AgentInfo {
   id: string;
@@ -85,210 +87,83 @@ async function fireSyntheticPermission(kind: PermKind) {
 </script>
 
 <template>
-  <section class="panel">
-    <h2>Fire Synthetic Event</h2>
-    <div class="body">
-      <form class="form" @submit.prevent="fire">
-        <div class="field">
-          <label>agent</label>
-          <select v-model="agent">
+  <section class="bg-card flex flex-col min-h-0 min-w-0">
+    <h2 class="text-[11px] font-semibold text-muted-foreground px-2.5 py-1.5 border-b border-border bg-secondary/30 tracking-wider uppercase">
+      Fire Synthetic Event
+    </h2>
+    <div class="flex-1 overflow-auto p-2 text-[11px]">
+      <form class="flex flex-col gap-1.5" @submit.prevent="fire">
+        <div class="flex flex-col gap-0.5">
+          <label class="text-[10px] text-muted-foreground uppercase">agent</label>
+          <select v-model="agent" class="bg-secondary border border-border text-foreground rounded px-1.5 py-1 font-mono text-[11px] focus:border-ring focus:outline-none">
             <option v-for="a in props.agents" :key="a.id" :value="a.id">
               {{ a.display_name }} ({{ a.id }})
             </option>
             <option v-if="props.agents.length === 0" value="claude-code">claude-code (no agents)</option>
           </select>
         </div>
-        <div class="field">
-          <label>session_id</label>
-          <input v-model="sessionId" type="text" />
+        <div class="flex flex-col gap-0.5">
+          <label class="text-[10px] text-muted-foreground uppercase">session_id</label>
+          <Input v-model="sessionId" type="text" class="h-7 font-mono text-[11px]" />
         </div>
-        <div class="field">
-          <label>event_type</label>
-          <select v-model="eventType">
+        <div class="flex flex-col gap-0.5">
+          <label class="text-[10px] text-muted-foreground uppercase">event_type</label>
+          <select v-model="eventType" class="bg-secondary border border-border text-foreground rounded px-1.5 py-1 font-mono text-[11px] focus:border-ring focus:outline-none">
             <option v-for="e in CANONICAL_EVENTS" :key="e" :value="e">{{ e }}</option>
           </select>
         </div>
-        <div v-if="eventType === 'ToolCallStart' || eventType === 'ToolCallEnd' || eventType === 'UserPromptSubmit'" class="field">
-          <label>tool_name</label>
-          <input v-model="toolName" type="text" placeholder="e.g. Read, Bash, Task" />
+        <div v-if="eventType === 'ToolCallStart' || eventType === 'ToolCallEnd' || eventType === 'UserPromptSubmit'" class="flex flex-col gap-0.5">
+          <label class="text-[10px] text-muted-foreground uppercase">tool_name</label>
+          <Input v-model="toolName" type="text" placeholder="e.g. Read, Bash, Task" class="h-7 font-mono text-[11px]" />
         </div>
-        <div v-if="eventType === 'ToolCallEnd'" class="field">
-          <label>success</label>
-          <select v-model="success">
+        <div v-if="eventType === 'ToolCallEnd'" class="flex flex-col gap-0.5">
+          <label class="text-[10px] text-muted-foreground uppercase">success</label>
+          <select v-model="success" class="bg-secondary border border-border text-foreground rounded px-1.5 py-1 font-mono text-[11px] focus:border-ring focus:outline-none">
             <option value="">(n/a)</option>
             <option value="true">true</option>
             <option value="false">false</option>
           </select>
         </div>
-        <div v-if="eventType === 'ToolCallStart' || eventType === 'ToolCallEnd'" class="field">
-          <label class="checkbox-label">
-            <input v-model="subagent" type="checkbox" />
+        <div v-if="eventType === 'ToolCallStart' || eventType === 'ToolCallEnd'" class="flex items-center gap-1.5">
+          <label class="flex items-center gap-1.5 text-[10px] text-muted-foreground uppercase">
+            <input v-model="subagent" type="checkbox" class="cursor-pointer" />
             subagent (ADR-0008 — drives juggling/groove/building)
           </label>
         </div>
-        <button type="submit" class="fire">Fire</button>
+        <Button type="submit" class="mt-1">
+          Fire
+        </Button>
       </form>
 
-      <div class="perm-section">
-        <h3>Fire Synthetic Permission</h3>
-        <p class="perm-hint">
+      <div class="border-t border-border mt-3 pt-1">
+        <h3 class="text-[10px] text-muted-foreground mt-3 mb-1 tracking-wider uppercase">
+          Fire Synthetic Permission
+        </h3>
+        <p class="text-[10px] text-muted-foreground leading-snug mb-1.5">
           Inserts a synthetic request into PendingStore + emits
-          <code>permission-request</code> so the bubble renders without
-          a real CC session. Click Allow / Deny in the bubble to
+          <code class="bg-secondary text-primary px-1 rounded text-[10px]">permission-request</code>
+          so the bubble renders without a real CC session. Click Allow / Deny in the bubble to
           complete the flow.
         </p>
-        <div class="perm-buttons">
-          <button
+        <div class="flex gap-1 mt-1">
+          <Button
             v-for="k in PERM_KINDS"
             :key="k"
-            class="perm-btn"
+            variant="secondary"
+            class="flex-1 font-mono"
             :disabled="firing !== null"
-            :data-firing="firing === k"
             @click="fireSyntheticPermission(k)"
           >
             {{ firing === k ? "firing…" : k }}
-          </button>
+          </Button>
         </div>
-        <p v-if="lastFiredId" class="perm-status">
-          ✓ last fired: <code>{{ lastFiredId }}</code>
+        <p v-if="lastFiredId" class="text-[10px] text-primary mt-1.5">
+          ✓ last fired: <code class="font-mono text-accent">{{ lastFiredId }}</code>
         </p>
-        <p v-if="lastError" class="perm-error">
+        <p v-if="lastError" class="text-[10px] text-destructive mt-1.5">
           ✗ {{ lastError }}
         </p>
       </div>
     </div>
   </section>
 </template>
-
-<style scoped>
-.panel {
-  background: #181825;
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-  min-width: 0;
-}
-h2 {
-  font-size: 11px;
-  font-weight: 600;
-  color: #a6adc8;
-  padding: 6px 10px;
-  border-bottom: 1px solid #313244;
-  background: #1e1e2e;
-  letter-spacing: 0.5px;
-  text-transform: uppercase;
-}
-h3 {
-  font-size: 10px;
-  color: #a6adc8;
-  margin: 12px 0 4px;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-}
-.body {
-  flex: 1;
-  overflow: auto;
-  padding: 8px 10px;
-  font-size: 11px;
-}
-.form {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-.field {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-label {
-  font-size: 10px;
-  color: #a6adc8;
-  text-transform: uppercase;
-}
-select, input, textarea {
-  background: #11111b;
-  border: 1px solid #313244;
-  color: #cdd6f4;
-  border-radius: 3px;
-  padding: 4px 6px;
-  font-family: monospace;
-  font-size: 11px;
-}
-select:focus, input:focus, textarea:focus {
-  outline: none;
-  border-color: #89b4fa;
-}
-.fire {
-  background: #a6e3a1;
-  color: #1e1e2e;
-  border: none;
-  border-radius: 4px;
-  padding: 6px 12px;
-  font-size: 11px;
-  font-weight: 600;
-  cursor: pointer;
-  margin-top: 4px;
-}
-.fire:hover { filter: brightness(0.9); }
-
-.perm-section {
-  border-top: 1px solid #313244;
-  margin-top: 12px;
-  padding-top: 4px;
-}
-.perm-hint {
-  font-size: 10px;
-  color: #a6adc8;
-  line-height: 1.4;
-  margin: 0 0 6px;
-}
-.perm-hint code {
-  background: #313244;
-  color: #fab387;
-  padding: 0 3px;
-  border-radius: 2px;
-  font-size: 10px;
-}
-.perm-buttons {
-  display: flex;
-  gap: 4px;
-  margin-top: 4px;
-}
-.perm-btn {
-  flex: 1;
-  background: #89b4fa;
-  color: #1e1e2e;
-  border: none;
-  border-radius: 4px;
-  padding: 6px 8px;
-  font-size: 11px;
-  font-weight: 600;
-  font-family: monospace;
-  cursor: pointer;
-}
-.perm-btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-.perm-btn:hover:not(:disabled) {
-  filter: brightness(1.1);
-}
-.perm-btn[data-firing="true"] {
-  background: #f9e2af;
-}
-.perm-status {
-  font-size: 10px;
-  color: #a6e3a1;
-  margin: 6px 0 0;
-}
-.perm-status code {
-  font-family: monospace;
-  color: #fab387;
-}
-.perm-error {
-  font-size: 10px;
-  color: #f38ba8;
-  margin: 6px 0 0;
-}
-</style>

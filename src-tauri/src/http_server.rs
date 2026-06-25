@@ -174,7 +174,7 @@ async fn handle_permission(
         );
 
         // Dev-tools panel watches PendingStore mutations.
-        #[cfg(feature = "dev-tools")]
+        #[cfg(debug_assertions)]
         {
             let _ = state.app.emit(
                 "devtools-pending-changed",
@@ -241,7 +241,7 @@ async fn handle_permission(
             pending.remove(&request_id);
 
             // Dev-tools panel watches PendingStore mutations.
-            #[cfg(feature = "dev-tools")]
+            #[cfg(debug_assertions)]
             {
                 let _ = state.app.emit(
                     "devtools-pending-changed",

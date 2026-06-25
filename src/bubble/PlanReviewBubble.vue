@@ -15,12 +15,17 @@
 
 import { ref, computed, watch } from "vue";
 import { invoke } from "@tauri-apps/api/core";
+import { ClipboardList } from "@lucide/vue";
 import type {
   PlanReviewRequest,
   PermissionDecision,
 } from "../types/permission";
 import { bubbleText } from "./strings";
 import { useBubbleLang } from "./lang";
+import { Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
+import { Label } from "@/components/ui/label";
+import BubbleHeader from "@/components/bubble/BubbleHeader.vue";
 
 const lang = useBubbleLang(); // reactive — updated by set_language
 
@@ -84,169 +89,50 @@ async function reject() {
 </script>
 
 <template>
-  <div class="kind planreview">
-    <header>
-      <span class="icon">📋</span>
-      <span class="title">{{ props.request.agentDisplayName }} plan review</span>
-      <span class="tool-pill">{{ bubbleText(lang, "toolPill") }}</span>
-    </header>
+  <div class="flex flex-col gap-2.5 p-3 text-[13px] select-none">
+    <BubbleHeader
+      :icon="ClipboardList"
+      variant="secondary"
+      :title="`${props.request.agentDisplayName} plan review`"
+      :tag="bubbleText(lang, 'toolPill')"
+    />
 
-    <pre class="plan">{{ planText }}</pre>
+    <pre class="bg-muted text-foreground font-mono text-[11px] p-2.5 rounded-md max-h-[180px] overflow-auto whitespace-pre-wrap break-words m-0 border border-border">{{ planText }}</pre>
 
-    <div class="feedback">
-      <label class="feedback-label" for="plan-feedback">
+    <div class="flex flex-col gap-1">
+      <Label for="plan-feedback" class="text-[10px] text-muted-foreground uppercase tracking-wider">
         {{ bubbleText(lang, "feedbackLabel") }}
-      </label>
-      <textarea
+      </Label>
+      <Textarea
         id="plan-feedback"
-        v-model="feedback"
-        class="feedback-textarea"
+        :model-value="feedback"
+        @update:model-value="(v: any) => (feedback = String(v))"
+        class="text-[12px] min-h-[60px]"
         rows="3"
         :placeholder="bubbleText(lang, 'feedbackPlaceholder')"
         :disabled="sending"
       />
     </div>
 
-    <div class="actions">
-      <button
-        class="btn primary"
+    <div class="flex gap-1.5 mt-auto">
+      <Button
+        variant="default"
+        class="flex-1"
         :disabled="sending"
         @click="approve"
       >
         {{ bubbleText(lang, "approve") }}
-      </button>
-      <button
-        class="btn deny"
+      </Button>
+      <Button
+        variant="destructive"
+        class="flex-1"
         :disabled="sending"
         @click="reject"
       >
         {{ feedback.trim()
           ? bubbleText(lang, "rejectWithFeedback")
           : bubbleText(lang, "reject") }}
-      </button>
+      </Button>
     </div>
   </div>
 </template>
-
-<style scoped>
-.kind {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  padding: 12px;
-  font-size: 13px;
-  user-select: none;
-}
-
-header {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.icon {
-  width: 22px;
-  height: 22px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 14px;
-  background: #cba6f7;
-  border-radius: 50%;
-  color: #1e1e2e;
-}
-
-.title {
-  font-weight: 600;
-  flex: 1;
-  color: #cdd6f4;
-}
-
-.tool-pill {
-  font-family: monospace;
-  font-size: 11px;
-  background: #313244;
-  color: #cba6f7;
-  padding: 2px 8px;
-  border-radius: 4px;
-}
-
-.plan {
-  background: #1e1e2e;
-  color: #cdd6f4;
-  font-family: ui-monospace, "SF Mono", Menlo, monospace;
-  font-size: 11px;
-  padding: 10px 12px;
-  border-radius: 6px;
-  max-height: 180px;
-  overflow: auto;
-  white-space: pre-wrap;
-  word-break: break-word;
-  margin: 0;
-  border: 1px solid #313244;
-}
-
-.feedback {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.feedback-label {
-  font-size: 10px;
-  color: #a6adc8;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-}
-
-.feedback-textarea {
-  width: 100%;
-  min-height: 60px;
-  background: #1e1e2e;
-  color: #cdd6f4;
-  border: 1px solid #45475a;
-  border-radius: 4px;
-  padding: 6px 8px;
-  font-family: inherit;
-  font-size: 12px;
-  resize: vertical;
-}
-
-.feedback-textarea:focus {
-  outline: none;
-  border-color: #89b4fa;
-}
-
-.actions {
-  display: flex;
-  gap: 6px;
-  margin-top: auto;
-}
-
-.btn {
-  flex: 1;
-  padding: 8px 12px;
-  border: none;
-  border-radius: 6px;
-  cursor: pointer;
-  font-size: 12px;
-  font-weight: 500;
-  font-family: inherit;
-}
-
-.btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.btn:hover:not(:disabled) {
-  filter: brightness(1.1);
-}
-
-.btn:active:not(:disabled) {
-  transform: scale(0.98);
-}
-
-.btn.primary { background: #a6e3a1; color: #1e1e2e; }
-.btn.deny { background: #f38ba8; color: #1e1e2e; }
-</style>

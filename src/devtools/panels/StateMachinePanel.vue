@@ -12,6 +12,8 @@ import type {
   SessionEntry,
   SessionKey,
 } from "../../robot/display-state-types";
+import { Badge } from "@/components/ui/badge";
+import type { BadgeVariants } from "@/components/ui/badge";
 
 const props = defineProps<{ snapshot: Snapshot }>();
 
@@ -29,6 +31,19 @@ function agentFromKey(key: SessionKey): string {
 function sidFromKey(key: SessionKey): string {
   const idx = key.indexOf(":");
   return idx >= 0 ? key.slice(idx + 1) : key;
+}
+
+// State → Badge variant mapping for color-coded session states.
+const stateVariant: Record<string, BadgeVariants["variant"]> = {
+  error: "destructive",
+  working: "default",
+  thinking: "secondary",
+  notification: "outline",
+  idle: "secondary",
+};
+
+function stateVariantFor(state: string): BadgeVariants["variant"] {
+  return stateVariant[state] ?? "outline";
 }
 
 /** Group flat session entries by their agent prefix for display. */
@@ -49,96 +64,30 @@ const sessionCount = computed(() => agentIds.value.length);
 </script>
 
 <template>
-  <section class="panel">
-    <h2>State Machine <span class="display">{{ props.snapshot.displayState }}</span></h2>
-    <div class="body">
-      <div v-if="sessionCount === 0" class="empty">
+  <section class="bg-card flex flex-col min-h-0 min-w-0">
+    <h2 class="text-[11px] font-semibold text-muted-foreground px-2.5 py-1.5 border-b border-border bg-secondary/30 tracking-wider uppercase flex justify-between items-center">
+      <span>State Machine</span>
+      <span class="text-primary font-mono text-[11px] normal-case tracking-normal">
+        {{ props.snapshot.displayState }}
+      </span>
+    </h2>
+    <div class="flex-1 overflow-auto p-2 text-[11px]">
+      <div v-if="sessionCount === 0" class="text-muted-foreground italic">
         No active sessions. Fire a synthetic SessionStart from Panel 5.
       </div>
-      <div v-for="aid in agentIds" :key="aid" class="agent">
-        <div class="agent-name">{{ aid }}</div>
-        <div v-for="[key, entry] in groupedByAgent[aid]" :key="key" class="session">
-          <span class="sid">{{ sidFromKey(key).slice(0, 12) }}</span>
-          <span :class="['state', entry.state]">{{ entry.state }}</span>
-          <span class="last">{{ entry.lastEvent }}</span>
-          <span v-if="entry.toolName" class="tool">{{ entry.toolName }}</span>
-          <span v-if="entry.subagentCount > 0" class="sub">+{{ entry.subagentCount }} sub</span>
-          <span class="time">{{ timeShort(entry.timestamp) }}</span>
+      <div v-for="aid in agentIds" :key="aid" class="mb-2">
+        <div class="font-semibold text-foreground mb-1 font-mono">{{ aid }}</div>
+        <div v-for="[key, entry] in groupedByAgent[aid]" :key="key" class="flex gap-1.5 items-center py-0.5 pl-2 border-l-2 border-border font-mono text-[10px] text-muted-foreground whitespace-nowrap overflow-hidden">
+          <span class="text-muted-foreground">{{ sidFromKey(key).slice(0, 12) }}</span>
+          <Badge :variant="stateVariantFor(entry.state)" class="px-1 py-0 text-[9px] font-semibold">
+            {{ entry.state }}
+          </Badge>
+          <span class="text-foreground">{{ entry.lastEvent }}</span>
+          <span v-if="entry.toolName" class="text-accent">{{ entry.toolName }}</span>
+          <span v-if="entry.subagentCount > 0" class="text-primary">+{{ entry.subagentCount }} sub</span>
+          <span class="text-muted-foreground ml-auto">{{ timeShort(entry.timestamp) }}</span>
         </div>
       </div>
     </div>
   </section>
 </template>
-
-<style scoped>
-.panel {
-  background: #181825;
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-  min-width: 0;
-}
-h2 {
-  font-size: 11px;
-  font-weight: 600;
-  color: #a6adc8;
-  padding: 6px 10px;
-  border-bottom: 1px solid #313244;
-  background: #1e1e2e;
-  letter-spacing: 0.5px;
-  text-transform: uppercase;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-.display {
-  color: #a6e3a1;
-  font-family: monospace;
-  font-size: 11px;
-  text-transform: none;
-}
-.body {
-  flex: 1;
-  overflow: auto;
-  padding: 8px 10px;
-  font-size: 11px;
-}
-.empty {
-  color: #6c7086;
-  font-style: italic;
-}
-.agent { margin-bottom: 8px; }
-.agent-name {
-  font-weight: 600;
-  color: #cdd6f4;
-  margin-bottom: 4px;
-  font-family: monospace;
-}
-.session {
-  display: flex;
-  gap: 6px;
-  align-items: center;
-  padding: 3px 0 3px 8px;
-  border-left: 2px solid #313244;
-  font-family: monospace;
-  font-size: 10px;
-  color: #a6adc8;
-  white-space: nowrap;
-  overflow: hidden;
-}
-.sid { color: #6c7086; }
-.state {
-  font-weight: 600;
-  padding: 0 4px;
-  border-radius: 2px;
-}
-.state.error { color: #f38ba8; background: #3a1f2a; }
-.state.working { color: #89b4fa; background: #1f2a3a; }
-.state.thinking { color: #cba6f7; background: #2a1f3a; }
-.state.notification { color: #fab387; background: #3a2a1f; }
-.state.idle { color: #a6e3a1; background: #1f3a2a; }
-.last { color: #cdd6f4; }
-.tool { color: #f9e2af; }
-.sub { color: #cba6f7; }
-.time { color: #6c7086; margin-left: auto; }
-</style>

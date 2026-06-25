@@ -1,0 +1,27 @@
+/* src/styles/robot.css — robot window styles.
+ *
+ * Robot is intentionally minimal: no theme tokens, no shadcn-vue, no
+ * base body styles (those live in robot.html as <body> utility classes
+ * so the 200×200 transparent window stays click-through — see ADR-0004).
+ *
+ * All we need from Tailwind is the utility class engine (for the
+ * handful of positioning / interaction classes used in RobotRoot.vue)
+ * plus the `.sprite-base` component rule.
+ *
+ * Imported by src/robot/entry.ts.
+ */
+
+@import "tailwindcss";
+
+/* Robot sprite base — shared by <img> and <object> in RobotRoot.vue
+   (see ADR-0004 §Rendering paths). Geometry (size/position) comes
+   from :style="spriteStyle"; this only sets the non-geometry rules
+   that are common to both rendering paths. The pixelated rendering
+   hint is inlined (not a utility) because @apply in components
+   can't reach utilities that live in the later utilities layer. */
+@layer components {
+  .sprite-base {
+    @apply absolute pointer-events-none bg-[var(--debug-sprite-bg,transparent)];
+    image-rendering: pixelated;
+  }
+}

@@ -4,6 +4,8 @@
 
 **核心架构**（见 D10）：dev panel **独立**于 robot 窗口——它有自己的 StateMachine 实例，自己处理 raw events，自己算 state。Robot 窗口的角色被降级为"**动画源**"（只跑自己的 SM 来驱动 sprite，不再是 dev panel 的数据源）。
 
+> **2026-06-25 部分修订 — 见 [ADR-0012](./0012-devtools-in-main-window.md)**：devtools 从独立 webview 窗口整合进主窗口 sidebar nav（第 6 项），仍在 `import.meta.env.DEV` 门控下。Cargo feature `dev-tools` 删除，改用 `cfg(debug_assertions)`。Event log panel 删除（CLI 输出可替代）。本文档的 D4 / D5 / 部分 Consequences 已被 ADR-0012 修订，但 D10（dev panel 独立于 robot）仍然有效。
+
 ## Status
 
 accepted — 2026-06-24（grilling session）

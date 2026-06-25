@@ -1,12 +1,20 @@
 import { defineConfig } from "vite";
 import vue from "@vitejs/plugin-vue";
+import tailwindcss from "@tailwindcss/vite";
+import { fileURLToPath, URL } from "node:url";
 
 // @ts-expect-error process is a nodejs global
 const host = process.env.TAURI_DEV_HOST;
 
 // https://vite.dev/config/
 export default defineConfig(async () => ({
-  plugins: [vue()],
+  plugins: [vue(), tailwindcss()],
+
+  resolve: {
+    alias: {
+      "@": fileURLToPath(new URL("./src", import.meta.url)),
+    },
+  },
 
   build: {
     rollupOptions: {
@@ -14,12 +22,10 @@ export default defineConfig(async () => ({
         main: "index.html",
         robot: "robot.html",
         "permission-bubble": "permission-bubble.html",
-        // Dev-tools webview (see docs/adr/0005-dev-tools.md). The
-        // Vite entry is always emitted; the runtime window is only
-        // created when the Rust `dev-tools` feature is enabled.
-        // In release builds the file exists in dist/ but is never
-        // loaded — see plan §Phase C / §Phase G.
-        devtools: "devtools.html",
+        // Three entries: settings (main), robot sprite, permission bubble.
+        // DevTools used to be a 4th entry (see ADR-0005) — it is now
+        // embedded inside the main window as a sidebar nav item, gated
+        // by `import.meta.env.DEV` in App.vue.
       },
     },
   },

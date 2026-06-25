@@ -12,12 +12,17 @@
 
 import { ref, computed } from "vue";
 import { invoke } from "@tauri-apps/api/core";
+import { HelpCircle } from "@lucide/vue";
 import type {
   ElicitationQuestion,
   ElicitationRequest,
   PermissionDecision,
 } from "../types/permission";
 import { bubbleText, type Lang } from "./strings";
+import { Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
+import { Label } from "@/components/ui/label";
+import BubbleHeader from "@/components/bubble/BubbleHeader.vue";
 
 const lang: Lang = "en"; // v1.1: hardcoded; settings-driven in v1.2
 
@@ -159,29 +164,30 @@ async function submit() {
 </script>
 
 <template>
-  <div v-if="currentQ" class="kind elicitation">
-    <header>
-      <span class="icon">❓</span>
-      <span class="title">
-        {{ bubbleText(lang, "needsInput", { agent: props.request.agentDisplayName }) }}
-      </span>
-      <span class="progress">
-        {{ bubbleText(lang, "questionProgress", { current: activeIndex + 1, total: questions.length }) }}
-      </span>
-    </header>
+  <div v-if="currentQ" class="flex flex-col gap-2.5 p-3 text-[13px] select-none">
+    <BubbleHeader
+      :icon="HelpCircle"
+      variant="accent"
+      :title="bubbleText(lang, 'needsInput', { agent: props.request.agentDisplayName })"
+      :tag="bubbleText(lang, 'questionProgress', { current: activeIndex + 1, total: questions.length })"
+    />
 
-    <div class="question-card">
-      <h3 class="question-header">{{ currentQ.header }}</h3>
-      <p class="question-text">{{ currentQ.question }}</p>
-      <p class="hint">
+    <div class="bg-muted rounded-md p-2.5 flex flex-col gap-1.5">
+      <h3 class="text-[10px] uppercase tracking-wider text-accent font-semibold m-0">
+        {{ currentQ.header }}
+      </h3>
+      <p class="text-[13px] text-foreground leading-snug m-0">
+        {{ currentQ.question }}
+      </p>
+      <p class="text-[11px] text-muted-foreground italic m-0">
         {{ bubbleText(lang, currentQ.multiSelect ? "chooseAtLeastOneOption" : "chooseOneOption") }}
       </p>
 
-      <div class="options">
-        <label
+      <div class="flex flex-col gap-1.5 mt-1">
+        <Label
           v-for="(option, optIndex) in currentQ.options"
           :key="optIndex"
-          class="option"
+          class="flex items-start gap-2 p-1.5 bg-background border border-border rounded cursor-pointer hover:bg-muted"
         >
           <input
             :type="currentQ.multiSelect ? 'checkbox' : 'radio'"
@@ -189,6 +195,7 @@ async function submit() {
             :value="optIndex"
             :checked="isSelected(activeIndex, optIndex)"
             :disabled="sending"
+            class="mt-0.5 cursor-pointer"
             @change="
               setSelected(
                 activeIndex,
@@ -197,25 +204,26 @@ async function submit() {
               )
             "
           />
-          <div class="option-content">
-            <div class="option-label">{{ option.label }}</div>
-            <div v-if="option.description" class="option-description">
+          <div class="flex-1 min-w-0">
+            <div class="text-[12px] font-medium text-foreground">{{ option.label }}</div>
+            <div v-if="option.description" class="text-[11px] text-muted-foreground mt-0.5 leading-snug">
               {{ option.description }}
             </div>
-            <pre v-if="option.preview" class="option-preview">{{
-              option.preview
-            }}</pre>
+            <pre v-if="option.preview" class="font-mono text-[10px] text-muted-foreground bg-muted py-1 px-1.5 rounded mt-1 whitespace-pre-wrap max-h-[80px] overflow-auto m-0">
+              {{ option.preview }}
+            </pre>
           </div>
-        </label>
+        </Label>
 
         <!-- Synthetic "Other" option. -->
-        <label class="option other-option">
+        <Label class="flex items-start gap-2 p-1.5 bg-background border border-border rounded cursor-pointer hover:bg-muted">
           <input
             :type="currentQ.multiSelect ? 'checkbox' : 'radio'"
             :name="`q-${activeIndex}`"
             :value="OTHER"
             :checked="isSelected(activeIndex, OTHER)"
             :disabled="sending"
+            class="mt-0.5 cursor-pointer"
             @change="
               setSelected(
                 activeIndex,
@@ -224,53 +232,52 @@ async function submit() {
               )
             "
           />
-          <div class="option-content">
-            <div class="option-label">{{ bubbleText(lang, "other") }}</div>
-            <textarea
+          <div class="flex-1 min-w-0">
+            <div class="text-[12px] font-medium text-foreground">{{ bubbleText(lang, "other") }}</div>
+            <Textarea
               v-if="isSelected(activeIndex, OTHER)"
-              class="other-textarea"
+              class="mt-1.5 text-[12px] min-h-[60px]"
               :placeholder="bubbleText(lang, 'otherPlaceholder')"
-              :value="currentAnswer.otherText"
+              :model-value="currentAnswer.otherText"
               :disabled="sending"
-              @input="
-                setOtherText(
-                  activeIndex,
-                  ($event.target as HTMLTextAreaElement).value,
-                )
-              "
+              @update:model-value="(v: any) => setOtherText(activeIndex, String(v))"
             />
           </div>
-        </label>
+        </Label>
       </div>
     </div>
 
-    <div class="actions">
-      <button
+    <div class="flex gap-1.5 mt-auto">
+      <Button
         v-if="activeIndex > 0"
-        class="btn secondary"
+        variant="secondary"
+        class="flex-1"
         :disabled="sending"
         @click="back"
       >
         {{ bubbleText(lang, "previousQuestion") }}
-      </button>
-      <button
+      </Button>
+      <Button
         v-if="!isLastQuestion"
-        class="btn primary"
+        variant="default"
+        class="flex-1"
         :disabled="!canProceed || sending"
         @click="next"
       >
         {{ bubbleText(lang, "nextQuestion") }}
-      </button>
-      <button
+      </Button>
+      <Button
         v-else
-        class="btn primary"
+        variant="default"
+        class="flex-1"
         :disabled="!canProceed || sending"
         @click="submit"
       >
         {{ bubbleText(lang, "submitAnswer") }}
-      </button>
-      <button
-        class="btn deny"
+      </Button>
+      <Button
+        variant="destructive"
+        class="flex-1"
         :disabled="sending"
         @click="
           invoke('respond_permission', {
@@ -283,196 +290,7 @@ async function submit() {
         "
       >
         {{ bubbleText(lang, "deny") }}
-      </button>
+      </Button>
     </div>
   </div>
 </template>
-
-<style scoped>
-.kind {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  padding: 12px;
-  font-size: 13px;
-  user-select: none;
-}
-
-header {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.icon {
-  width: 22px;
-  height: 22px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 14px;
-  background: #f9e2af;
-  border-radius: 50%;
-  color: #1e1e2e;
-}
-
-.title {
-  font-weight: 600;
-  flex: 1;
-  color: #cdd6f4;
-}
-
-.progress {
-  font-family: monospace;
-  font-size: 10px;
-  color: #a6adc8;
-  background: #313244;
-  padding: 2px 8px;
-  border-radius: 4px;
-}
-
-.question-card {
-  background: #1e1e2e;
-  border-radius: 6px;
-  padding: 10px 12px;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.question-header {
-  font-size: 10px;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-  color: #f9e2af;
-  font-weight: 600;
-  margin: 0;
-}
-
-.question-text {
-  font-size: 13px;
-  color: #cdd6f4;
-  line-height: 1.4;
-  margin: 0;
-}
-
-.hint {
-  font-size: 11px;
-  color: #6c7086;
-  font-style: italic;
-  margin: 0;
-}
-
-.options {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  margin-top: 4px;
-}
-
-.option {
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
-  padding: 6px 8px;
-  background: #11111b;
-  border: 1px solid #313244;
-  border-radius: 4px;
-  cursor: pointer;
-}
-
-.option:hover {
-  background: #181825;
-}
-
-.option input {
-  margin-top: 2px;
-  cursor: pointer;
-}
-
-.option-content {
-  flex: 1;
-  min-width: 0;
-}
-
-.option-label {
-  font-size: 12px;
-  font-weight: 500;
-  color: #cdd6f4;
-}
-
-.option-description {
-  font-size: 11px;
-  color: #a6adc8;
-  margin-top: 2px;
-  line-height: 1.4;
-}
-
-.option-preview {
-  font-family: monospace;
-  font-size: 10px;
-  color: #6c7086;
-  background: #1e1e2e;
-  padding: 4px 6px;
-  border-radius: 3px;
-  margin: 4px 0 0;
-  white-space: pre-wrap;
-  max-height: 80px;
-  overflow: auto;
-}
-
-.other-textarea {
-  width: 100%;
-  min-height: 60px;
-  margin-top: 6px;
-  background: #1e1e2e;
-  color: #cdd6f4;
-  border: 1px solid #45475a;
-  border-radius: 3px;
-  padding: 6px 8px;
-  font-family: inherit;
-  font-size: 12px;
-  resize: vertical;
-}
-
-.other-textarea:focus {
-  outline: none;
-  border-color: #89b4fa;
-}
-
-.actions {
-  display: flex;
-  gap: 6px;
-  margin-top: auto;
-}
-
-.btn {
-  flex: 1;
-  padding: 8px 12px;
-  border: none;
-  border-radius: 6px;
-  cursor: pointer;
-  font-size: 12px;
-  font-weight: 500;
-  font-family: inherit;
-  background: #313244;
-  color: #cdd6f4;
-}
-
-.btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.btn:hover:not(:disabled) {
-  filter: brightness(1.1);
-}
-
-.btn:active:not(:disabled) {
-  transform: scale(0.98);
-}
-
-.btn.primary { background: #a6e3a1; color: #1e1e2e; }
-.btn.secondary { background: #89b4fa; color: #1e1e2e; }
-.btn.deny { background: #f38ba8; color: #1e1e2e; }
-</style>

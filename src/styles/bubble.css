@@ -1,0 +1,13 @@
+/* src/styles/bubble.css — permission bubble window styles.
+ *
+ * Bubble components (ElicitationBubble, PlanReviewBubble, SideEffectBubble)
+ * use shadcn-vue's `Button` and the warm-dark theme tokens for cards,
+ * badges, foreground/background pairs — all of which live in shared.css.
+ *
+ * No bubble-specific rules yet. If bubble-only utilities or components
+ * get added later, they go here so shared.css stays main+bubble common.
+ *
+ * Imported by src/bubble/main.ts.
+ */
+
+@import "./shared.css";

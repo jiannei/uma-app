@@ -9,6 +9,7 @@
 
 import { reactive } from "vue";
 import { emit as tauriEmit } from "@tauri-apps/api/event";
+import { Button } from "@/components/ui/button";
 
 interface DebugStyle {
   windowBg: string | null;
@@ -41,107 +42,73 @@ const DEFAULT_HITZONE = "#00ff0033"; // translucent green — see drag area
 </script>
 
 <template>
-  <section class="panel">
-    <h2>Visual Debug</h2>
-    <div class="body">
-      <div class="row">
-        <label>Window BG</label>
-        <input type="color" v-model="style.windowBg" @change="broadcast" />
-        <button class="mini" @click="style.windowBg = DEFAULT_WINDOW; broadcast()">red</button>
+  <section class="bg-card flex flex-col min-h-0 min-w-0">
+    <h2 class="text-[11px] font-semibold text-muted-foreground px-2.5 py-1.5 border-b border-border bg-secondary/30 tracking-wider uppercase">
+      Visual Debug
+    </h2>
+    <div class="flex-1 overflow-auto p-2 text-[11px] flex flex-col gap-1.5">
+      <div class="flex items-center gap-1.5">
+        <label class="flex-1 text-[11px] text-foreground">Window BG</label>
+        <input
+          type="color"
+          v-model="style.windowBg"
+          @change="broadcast"
+          class="w-8 h-6 border border-border rounded bg-transparent cursor-pointer p-0"
+        />
+        <Button
+          variant="secondary"
+          size="sm"
+          class="h-6 px-2 text-[10px]"
+          @click="style.windowBg = DEFAULT_WINDOW; broadcast()"
+        >
+          red
+        </Button>
       </div>
-      <div class="row">
-        <label>Sprite BG</label>
-        <input type="color" v-model="style.spriteBg" @change="broadcast" />
-        <button class="mini" @click="style.spriteBg = DEFAULT_SPRITE; broadcast()">blue</button>
+      <div class="flex items-center gap-1.5">
+        <label class="flex-1 text-[11px] text-foreground">Sprite BG</label>
+        <input
+          type="color"
+          v-model="style.spriteBg"
+          @change="broadcast"
+          class="w-8 h-6 border border-border rounded bg-transparent cursor-pointer p-0"
+        />
+        <Button
+          variant="secondary"
+          size="sm"
+          class="h-6 px-2 text-[10px]"
+          @click="style.spriteBg = DEFAULT_SPRITE; broadcast()"
+        >
+          blue
+        </Button>
       </div>
-      <div class="row">
-        <label>Hit-zone BG</label>
-        <input type="color" v-model="style.hitzoneBg" @change="broadcast" />
-        <button class="mini" @click="style.hitzoneBg = DEFAULT_HITZONE; broadcast()">green</button>
+      <div class="flex items-center gap-1.5">
+        <label class="flex-1 text-[11px] text-foreground">Hit-zone BG</label>
+        <input
+          type="color"
+          v-model="style.hitzoneBg"
+          @change="broadcast"
+          class="w-8 h-6 border border-border rounded bg-transparent cursor-pointer p-0"
+        />
+        <Button
+          variant="secondary"
+          size="sm"
+          class="h-6 px-2 text-[10px]"
+          @click="style.hitzoneBg = DEFAULT_HITZONE; broadcast()"
+        >
+          green
+        </Button>
       </div>
-      <button class="clear" @click="clearAll">Clear All</button>
-      <p class="hint">
+      <Button
+        variant="secondary"
+        class="mt-1"
+        @click="clearAll"
+      >
+        Clear All
+      </Button>
+      <p class="text-[10px] text-muted-foreground mt-1 leading-snug">
         Colors apply to the robot window. Pick freely; this is in-memory
         only — restart the app to reset.
       </p>
     </div>
   </section>
 </template>
-
-<style scoped>
-.panel {
-  background: #181825;
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-  min-width: 0;
-}
-h2 {
-  font-size: 11px;
-  font-weight: 600;
-  color: #a6adc8;
-  padding: 6px 10px;
-  border-bottom: 1px solid #313244;
-  background: #1e1e2e;
-  letter-spacing: 0.5px;
-  text-transform: uppercase;
-}
-.body {
-  flex: 1;
-  overflow: auto;
-  padding: 8px 10px;
-  font-size: 11px;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-.row {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-label {
-  flex: 1;
-  font-size: 11px;
-  color: #cdd6f4;
-}
-input[type="color"] {
-  width: 32px;
-  height: 24px;
-  border: 1px solid #313244;
-  border-radius: 3px;
-  background: transparent;
-  cursor: pointer;
-  padding: 0;
-}
-.mini {
-  background: #313244;
-  color: #cdd6f4;
-  border: none;
-  border-radius: 3px;
-  padding: 3px 8px;
-  font-size: 10px;
-  cursor: pointer;
-  font-family: inherit;
-}
-.mini:hover { background: #45475a; }
-.clear {
-  background: #45475a;
-  color: #cdd6f4;
-  border: none;
-  border-radius: 4px;
-  padding: 5px 10px;
-  font-size: 11px;
-  font-weight: 500;
-  cursor: pointer;
-  margin-top: 4px;
-  font-family: inherit;
-}
-.clear:hover { background: #585b70; }
-.hint {
-  font-size: 10px;
-  color: #6c7086;
-  margin-top: 4px;
-  line-height: 1.4;
-}
-</style>

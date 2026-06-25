@@ -11,7 +11,7 @@
 // the sprite container is pointer-events: none except the per-asset
 // hit-zone which captures pointerdown for window dragging.
 
-import { ref, watch, onMounted, onUnmounted, computed } from "vue";
+import { ref, watch, onMounted, onUnmounted, computed, type CSSProperties } from "vue";
 import { useMachine } from "@xstate/vue";
 import { getCurrentWindow, currentMonitor } from "@tauri-apps/api/window";
 import { LogicalSize, LogicalPosition } from "@tauri-apps/api/dpi";
@@ -166,11 +166,26 @@ themeManager.registerTheme("calico", {
   },
 });
 
+// Which of the two sprite elements is currently visible: "img" for
+// APNG, "svg" for <object>, null before any theme loads. The shared
+// `sprite-base` class (absolute + pointer-events-none + pixelated +
+// debug bg) is defined via @apply in tailwind.css @layer components.
+const activeSprite = ref<"img" | "svg" | null>(null);
+
+// Inline geometry/size of the active sprite. `applyStyle()` recomputes
+// this on every theme/state change; null until the first theme loads.
+const spriteStyle = ref<CSSProperties>({});
+
+// Inline geometry of the hit-zone. `null` means "hide" (drives the
+// `block/hidden` toggle via :class). When set, contains left/top/width
+// height in absolute pixels — written by `updateHitZone()` from
+// `getBoundingClientRect()` projected through the theme's hit-box.
+const hitZoneStyle = ref<CSSProperties | null>(null);
+
 // ── DOM refs (must be after <template>) ─────────────────────────
 
 const sprite = ref<HTMLImageElement | null>(null);
 const robotObject = ref<HTMLObjectElement | null>(null);
-const robotContainer = ref<HTMLDivElement | null>(null);
 const hitZone = ref<HTMLDivElement | null>(null);
 
 // ── DisplayStateResolver (XState v5 via @xstate/vue) ────────────
@@ -204,26 +219,18 @@ function applyTheme(theme: ThemeManifest) {
 // ── Dual-element rendering (ADR-0004 §Rendering paths) ───────────
 
 function setActiveElement(type: string) {
-  if (!sprite.value || !robotObject.value) return;
-  // Until a theme loads, both elements stay hidden — avoids flashing
-  // an empty <img src=""> at (0,0) which would show as a 0×0 box.
+  // Until a theme loads, stay hidden — avoids flashing an empty
+  // <img src=""> at (0,0) which would show as a 0×0 box.
   if (!themeManager.getCurrentTheme()) {
-    sprite.value.classList.remove("is-active");
-    robotObject.value.classList.remove("is-active");
+    activeSprite.value = null;
     return;
   }
-  if (type === "svg") {
-    robotObject.value.classList.add("is-active");
-    sprite.value.classList.remove("is-active");
-  } else {
-    sprite.value.classList.add("is-active");
-    robotObject.value.classList.remove("is-active");
-  }
+  activeSprite.value = type === "svg" ? "svg" : "img";
 }
 
 function getActiveSpriteElement(): HTMLImageElement | HTMLObjectElement | null {
-  if (robotObject.value?.classList.contains("is-active")) return robotObject.value;
-  if (sprite.value?.classList.contains("is-active")) return sprite.value;
+  if (activeSprite.value === "svg") return robotObject.value;
+  if (activeSprite.value === "img") return sprite.value;
   return null;
 }
 
@@ -251,8 +258,9 @@ themeManager.onChange(() => {
   updateHitZone();
 });
 
-// Apply theme.objectScale to the active sprite element. CSS custom
-// properties on #robot-container cascade to whichever element is .is-active.
+// Apply theme.objectScale to the active sprite element. Result is
+// written to `spriteStyle` (a Vue ref bound to :style on both <img>
+// and <object>), so the active element picks it up automatically.
 //
 // Positioning is **bottom-anchored** (matching uma-pet's renderer.js):
 //   bottom = objBottom (or derived from offsetY + heightRatio) + fileOffset.y + viewportOffsetY
@@ -261,9 +269,11 @@ themeManager.onChange(() => {
 //   objBottom = 1 - (-0.25) - 1.3 = -0.05 → sprite extends 5% below the
 //   container bottom (compensated by viewportOffsetY for titlebar).
 function applyStyle() {
-  if (!robotContainer.value) return;
   const os = themeManager.getObjectScale();
-  if (!os) return;
+  if (!os) {
+    spriteStyle.value = {};
+    return;
+  }
   const stateDef = themeManager.getCurrentTheme()?.states?.[
     currentDisplayState.value
   ];
@@ -293,20 +303,13 @@ function applyStyle() {
   const imgBottom = os.imgBottom != null ? os.imgBottom : 0.05;
   const bottomRatio = isSvg ? objBottom : imgBottom;
 
-  robotContainer.value.style.setProperty("--sprite-w", `${widthRatio * 100}%`);
-  robotContainer.value.style.setProperty(
-    "--sprite-h",
-    heightRatio != null ? `${heightRatio * 100}%` : "auto",
-  );
-  robotContainer.value.style.setProperty(
-    "--sprite-l",
-    `calc(${leftPct}% + ${fo.x}px)`,
-  );
-  robotContainer.value.style.setProperty(
-    "--sprite-b",
-    `calc(${bottomRatio * 100}% + ${fo.y}px + ${viewportOffsetY.value}px)`,
-  );
-  robotContainer.value.style.setProperty("--sprite-t", "auto");
+  spriteStyle.value = {
+    width: `${widthRatio * 100}%`,
+    height: heightRatio != null ? `${heightRatio * 100}%` : "auto",
+    left: `calc(${leftPct}% + ${fo.x}px)`,
+    top: "auto",
+    bottom: `calc(${bottomRatio * 100}% + ${fo.y}px + ${viewportOffsetY.value}px)`,
+  };
 }
 
 /**
@@ -318,12 +321,13 @@ function applyStyle() {
 const viewportOffsetY = ref(0);
 
 // Map current state's viewBox hit-box through the sprite's actual
-// rendered rect and write the result onto #hit-zone. See ADR-0004.
+// rendered rect and write the result to `hitZoneStyle` (a Vue ref
+// bound to :style on #hit-zone). `null` means "hide" — the template
+// :class switches to `hidden` in that case. See ADR-0004.
 function updateHitZone() {
-  if (!hitZone.value) return;
   const active = getActiveSpriteElement();
   if (!active) {
-    hitZone.value.style.display = "none";
+    hitZoneStyle.value = null;
     return;
   }
   const renderedRect = active.getBoundingClientRect();
@@ -332,14 +336,15 @@ function updateHitZone() {
     renderedRect,
   );
   if (!hitRect) {
-    hitZone.value.style.display = "none";
+    hitZoneStyle.value = null;
     return;
   }
-  hitZone.value.style.display = "block";
-  hitZone.value.style.left = `${hitRect.x}px`;
-  hitZone.value.style.top = `${hitRect.y}px`;
-  hitZone.value.style.width = `${hitRect.width}px`;
-  hitZone.value.style.height = `${hitRect.height}px`;
+  hitZoneStyle.value = {
+    left: `${hitRect.x}px`,
+    top: `${hitRect.y}px`,
+    width: `${hitRect.width}px`,
+    height: `${hitRect.height}px`,
+  };
 }
 
 function setDisplayState(state: DisplayState) {
@@ -645,76 +650,33 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div ref="hitZone" id="hit-zone"></div>
-  <div ref="robotContainer" id="robot-container">
-    <img ref="sprite" id="robot-sprite" src="" alt="robot" />
-    <object ref="robotObject" id="robot-object" type="image/svg+xml" data=""></object>
+  <div
+    ref="hitZone"
+    id="hit-zone"
+    :class="['fixed pointer-events-auto cursor-grab touch-none z-10 active:cursor-grabbing bg-[var(--debug-hitzone-bg,transparent)]', hitZoneStyle ? 'block' : 'hidden']"
+    :style="hitZoneStyle || undefined"
+  ></div>
+  <div
+    id="robot-container"
+    class="relative flex items-center justify-center w-full h-full pointer-events-none"
+  >
+    <img
+      ref="sprite"
+      id="robot-sprite"
+      :class="['sprite-base', activeSprite === 'img' ? 'block' : 'hidden']"
+      :style="spriteStyle"
+      src=""
+      alt="robot"
+      @load="updateHitZone"
+    />
+    <object
+      ref="robotObject"
+      id="robot-object"
+      type="image/svg+xml"
+      data=""
+      :class="['sprite-base', activeSprite === 'svg' ? 'block' : 'hidden']"
+      :style="spriteStyle"
+      @load="updateHitZone"
+    ></object>
   </div>
 </template>
-
-<style>
-* {
-  margin: 0;
-  padding: 0;
-  box-sizing: border-box;
-}
-/* Vue mount point must fill the viewport so percentage heights work.
-   Old robot.html had #robot-container as direct child of <body> (height: 100%).
-   Now it's inside <div id="app"> which needs explicit height. */
-#app {
-  width: 100%;
-  height: 100%;
-}
-html,
-body {
-  width: 100%;
-  height: 100%;
-  overflow: hidden;
-  background-color: rgba(0, 0, 0, 0);
-  background: var(--debug-window-bg, transparent);
-  user-select: none;
-  -webkit-user-select: none;
-  pointer-events: none;
-}
-#robot-container {
-  width: 100%;
-  height: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  position: relative;
-  pointer-events: none;
-}
-#hit-zone {
-  position: fixed;
-  pointer-events: auto;
-  cursor: grab;
-  touch-action: none;
-  background: var(--debug-hitzone-bg, transparent);
-  left: 0;
-  top: 0;
-  width: 0;
-  height: 0;
-  z-index: 10;
-}
-#hit-zone:active {
-  cursor: grabbing;
-}
-#robot-sprite,
-#robot-object {
-  position: absolute;
-  width: var(--sprite-w, 144px);
-  height: var(--sprite-h, 144px);
-  left: var(--sprite-l, 0);
-  top: var(--sprite-t, auto);
-  bottom: var(--sprite-b, auto);
-  image-rendering: pixelated;
-  pointer-events: none;
-  background: var(--debug-sprite-bg, transparent);
-  display: none;
-}
-#robot-sprite.is-active,
-#robot-object.is-active {
-  display: block;
-}
-</style>

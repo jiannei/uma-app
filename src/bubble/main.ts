@@ -12,6 +12,7 @@
 import { createApp } from "vue";
 import SideEffectBubble from "./SideEffectBubble.vue";
 import { initBubbleLang } from "./lang";
+import "../styles/bubble.css";
 
 initBubbleLang().finally(() => {
   createApp(SideEffectBubble).mount("#app");

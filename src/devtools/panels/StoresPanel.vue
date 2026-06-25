@@ -14,6 +14,7 @@ import type {
   PlanReviewRequest,
   SideEffectRequest,
 } from "../../types/permission";
+import { Badge } from "@/components/ui/badge";
 
 interface PendingEntryView {
   requestId: string;
@@ -25,16 +26,9 @@ const props = defineProps<{
   pending: PendingEntryView[];
 }>();
 
-// Kind badge color (Catppuccin Mocha).
-function kindColor(kind: PermissionRequest["kind"]): string {
-  switch (kind) {
-    case "SideEffect":
-      return "#89b4fa"; // blue
-    case "Elicitation":
-      return "#f9e2af"; // yellow
-    case "PlanReview":
-      return "#cba6f7"; // mauve
-  }
+// Kind badge variant — maps to shadcn-vue Badge variants
+function kindVariant(kind: PermissionRequest["kind"]): "default" | "secondary" | "outline" {
+  return kind === "SideEffect" ? "default" : kind === "Elicitation" ? "secondary" : "outline";
 }
 
 // Per-kind detail string for the panel row.
@@ -60,36 +54,37 @@ function detail(req: PermissionRequest): string {
 </script>
 
 <template>
-  <section class="panel">
-    <h2>Stores</h2>
-    <div class="body">
-      <div class="group">
-        <h3>
+  <section class="bg-card flex flex-col min-h-0 min-w-0">
+    <h2 class="text-[11px] font-semibold text-muted-foreground px-2.5 py-1.5 border-b border-border bg-secondary/30 tracking-wider uppercase">
+      Stores
+    </h2>
+    <div class="flex-1 overflow-auto p-2 text-[11px]">
+      <div class="mb-3">
+        <h3 class="text-[10px] text-muted-foreground mb-1 tracking-wider uppercase flex items-center gap-1">
           Pending
-          <span class="count">{{ props.pending.length }}</span>
+          <Badge variant="secondary" class="px-1.5 py-0 text-[10px] font-mono">
+            {{ props.pending.length }}
+          </Badge>
         </h3>
-        <div v-if="props.pending.length === 0" class="empty">
+        <div v-if="props.pending.length === 0" class="text-muted-foreground italic py-0.5">
           No pending requests.
         </div>
         <div
           v-for="entry in props.pending"
           :key="entry.requestId"
-          class="entry"
+          class="flex gap-1.5 py-0.5 font-mono text-[10px] text-foreground whitespace-nowrap overflow-hidden flex-wrap"
         >
-          <span class="reqid">{{ entry.requestId }}</span>
-          <span
-            class="kind"
-            :style="{ color: kindColor(entry.request.kind) }"
-          >
+          <span class="text-muted-foreground">{{ entry.requestId }}</span>
+          <Badge :variant="kindVariant(entry.request.kind)" class="px-1 py-0 text-[9px] uppercase tracking-wider">
             {{ entry.request.kind }}
-          </span>
-          <span class="agent">
+          </Badge>
+          <span class="text-accent">
             {{ entry.request.agentDisplayName || entry.agentId }}
           </span>
-          <span class="detail">
+          <span class="text-primary">
             {{ detail(entry.request) }}
           </span>
-          <span class="session">
+          <span class="text-muted-foreground">
             {{ entry.request.sessionId.slice(0, 8) }}
           </span>
         </div>
@@ -97,74 +92,3 @@ function detail(req: PermissionRequest): string {
     </div>
   </section>
 </template>
-
-<style scoped>
-.panel {
-  background: #181825;
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-  min-width: 0;
-}
-h2 {
-  font-size: 11px;
-  font-weight: 600;
-  color: #a6adc8;
-  padding: 6px 10px;
-  border-bottom: 1px solid #313244;
-  background: #1e1e2e;
-  letter-spacing: 0.5px;
-  text-transform: uppercase;
-}
-.body {
-  flex: 1;
-  overflow: auto;
-  padding: 8px 10px;
-  font-size: 11px;
-}
-.group { margin-bottom: 12px; }
-h3 {
-  font-size: 10px;
-  color: #a6adc8;
-  margin-bottom: 4px;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-  display: flex;
-  align-items: center;
-  gap: 4px;
-}
-.count {
-  background: #313244;
-  color: #cdd6f4;
-  padding: 0 6px;
-  border-radius: 8px;
-  font-size: 10px;
-  font-family: monospace;
-}
-.empty {
-  color: #6c7086;
-  font-style: italic;
-  padding: 2px 0;
-}
-.entry {
-  display: flex;
-  gap: 6px;
-  padding: 2px 0;
-  font-family: monospace;
-  font-size: 10px;
-  color: #cdd6f4;
-  white-space: nowrap;
-  overflow: hidden;
-  flex-wrap: wrap;
-}
-.reqid { color: #6c7086; }
-.kind {
-  font-weight: 600;
-  text-transform: uppercase;
-  font-size: 9px;
-  letter-spacing: 0.5px;
-}
-.agent { color: #cba6f7; }
-.detail { color: #a6e3a1; }
-.session { color: #6c7086; }
-</style>

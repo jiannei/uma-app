@@ -59,13 +59,13 @@ There is **no test suite** — no `cargo test` target, no Vitest config. Linting
 
 | label        | entry           | geometry  | behavior |
 |--------------|-----------------|-----------|----------|
-| `main`       | `index.html` → `src/main.ts` → `src/App.vue` | 800×600, hidden | Settings UI. Close button is intercepted and hides instead of exiting. |
+| `main`       | `index.html` → `src/main.ts` → `src/App.vue` | 800×680, hidden | Settings UI (sidebar nav with 5 standard items + DevTools as a 6th dev-only item — see [ADR-0012](./docs/adr/0012-devtools-in-main-window.md)). Close button is intercepted and hides instead of exiting. |
 | `robot` | `robot.html` | 200×200, transparent, always-on-top, no decorations | The animated mascot. Body is `pointer-events: none`; only a centered 144×144 `#hit-zone` is draggable. Supports edge-snap to right side → "mini mode" (160×160) with peek-on-hover. |
 | `permission-bubble` | `permission-bubble.html` | 360×200, transparent, always-on-top, hidden by default | Permission request dialog. Shown only while a request is in flight; auto-hidden after response or 5-minute timeout. |
 
 ### Vite multi-page config
 
-`vite.config.ts` declares four Rollup inputs — `main`, `robot`, `permission-bubble`, `devtools` — that map to the HTML entry files. When adding a new HTML entry, register it here too.
+`vite.config.ts` declares three Rollup inputs — `main`, `robot`, `permission-bubble` — that map to the HTML entry files. When adding a new HTML entry, register it here too. DevTools used to be a 4th entry but is now embedded as a sidebar nav item inside `App.vue` (see [ADR-0012](./docs/adr/0012-devtools-in-main-window.md)).
 
 ### Backend layout (`src-tauri/src/`)
 
@@ -85,7 +85,7 @@ There is **no test suite** — no `cargo test` target, no Vitest config. Linting
 
 ### Frontend layout (`src/`)
 
-- **`App.vue`** — settings window. Loads from `plugin-store` on mount, also re-syncs from Rust via `get_settings`. Calls `list_agents` and renders one card per known agent with its `display_name`, `config_path`, install/uninstall button, and current `is_installed` state. Toggles write back to the store and (where relevant) invoke a Rust command. Theme / DND / bubble-position changes flow through Tauri commands; sound / auto-start bypass Rust and write to plugin-store directly.
+- **`App.vue`** — main window, macOS Settings-style layout with left sidebar nav and right-side grouped cards. 5 standard nav items (general / agents / theme / shortcuts / about) + a 6th "DevTools" nav item gated by `import.meta.env.DEV`. DevTools is embedded via `defineAsyncComponent(() => import('./devtools/DevToolsApp.vue'))` + `v-show` so state (theme editor dirty state, XState context) is preserved across tab switches. Release builds tree-shake the DevTools code via dynamic import. Loads from `plugin-store` on mount, also re-syncs from Rust via `get_settings`. Calls `list_agents` and renders one card per known agent with its `display_name`, `config_path`, install/uninstall button, and current `is_installed` state. Toggles write back to the store and (where relevant) invoke a Rust command. Theme / DND / bubble-position changes flow through Tauri commands; sound / auto-start bypass Rust and write to plugin-store directly.
 - **`robot/display-state-resolver.ts`** — XState v5 machine definition for the DisplayStateResolver. Consumes the **canonical 8-event vocabulary** (`SessionStart` / `SessionEnd` / `UserPromptSubmit` / `ToolCallStart` / `ToolCallEnd` / `AgentTurnEnd` / `Notification` / `PermissionRequest`) and resolves them to display states. Tracks sessions in context via flat `Record<\`${aid}:${sid}\`, SessionEntry>` (replaces the old nested `Map<AgentId, Map<SessionId, SessionEntry>>` from B1). Sleep sequence (`idle → yawning → dozing → collapsing → sleeping`) and one-shot auto-return (attention / error / notification) are first-class transitions driven by `theme.timings` via `setup({ delays })`; in-flight timers freeze their delay value (XState v5 evaluates at state-entry). See [ADR-0006](./docs/adr/0006-adopt-xstate-for-display-state-resolver.md).
 - **`robot/display-state-types.ts`** — shared types: `HookEvent`, `SessionEntry`, `SessionKey`, `DisplayState`, `ThemeManifest`, `ThemeTimings`, `MachineSnapshot`, `PermissionRequest`, `StateChangeEvent`. Replaces the old ambient `state-machine.d.ts`.
 - **`robot/display-state-constants.ts`** — runtime constants (`ALL_STATES`, `SUBAGENT_TOOLS`, `CANONICAL_EVENTS`, `UNKNOWN_AGENT`, `DEFAULT_THEME`). Single source of truth — replaces hand-rolled duplicates in SyntheticFirePanel and theme-manager's `DEFAULT_STATES`.
@@ -114,9 +114,11 @@ To add a new theme, create the directory + `assets/`, then register the state→
 | `theme-change`   | `set_theme` cmd, tray theme menu                          | `robot.html` (ThemeManager), bubble        |
 | `dnd-change`     | `set_dnd` cmd, tray DND toggle                            | `robot.html` (pauses sounds)               |
 | `toggle-mini`    | tray "Mini Mode" item                                     | `robot.html` (resize/edge-snap)            |
-| `agent-hook-event`   | `POST /agents/{id}/state` handler (canonical `HookEvent`) | `robot.html` (StateMachine)                |
+| `agent-hook-event`   | `POST /agents/{id}/state` handler (canonical `HookEvent`) | `robot.html` (StateMachine), `main` webview (DevToolsApp — dev builds only) |
 | `permission-request` | `POST /agents/{id}/permission` handler (canonical `PermissionRequest`) | `permission-bubble.html`                        |
 | `tauri://move`       | built-in (window moved)                                   | `robot.html` (post-drag edge-snap check)   |
+
+Dev-only cross-webview events (devtools in `main` ↔ `robot`): `devtools-synthetic-event` / `devtools-reset` / `devtools-robot-debug-style` (DevToolsApp → robot); `devtools-pending-changed` / `theme-updated` (Rust → DevToolsApp). See [ADR-0012](./docs/adr/0012-devtools-in-main-window.md).
 
 JS → Rust: bubble calls `invoke('respond_permission', { decision: { request_id, decision, reason } })`. App.vue calls the `set_*` commands for user preferences and the `*_agent_hook` / `list_agents` commands for agent management. The robot window invokes `clear_always_allow_session` on `SessionEnd` to drain the in-memory allow set.
 

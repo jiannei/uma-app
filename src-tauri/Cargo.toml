@@ -27,9 +27,7 @@ tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "net",
 axum = "0.7"
 tower = "0.4"
 
-# Developer-tools panel (see docs/adr/0005-dev-tools.md). Opt-in:
-# compiled only with `cargo build --features dev-tools`. Production
-# builds must NOT include any of the dev-only commands, events, or
-# webview registration.
-[features]
-dev-tools = []
+# Dev-tools commands (`devtools_get_pending`, `devtools_fire_synthetic_permission`,
+# `theme_load`, `theme_save`) and the dev-only Tauri event emits are gated by
+# `#[cfg(debug_assertions)]` — auto-enabled in `cargo build` (dev profile) and
+# auto-disabled in `cargo build --release`. No Cargo feature to maintain.
