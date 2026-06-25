@@ -311,7 +311,7 @@ onMounted(async () => {
 
 <template>
   <TooltipProvider>
-    <SidebarProvider class="h-screen">
+    <SidebarProvider class="h-screen overflow-hidden">
       <Sidebar side="left" variant="sidebar" collapsible="none" class="border-r border-border bg-sidebar overscroll-y-none">
         <SidebarContent class="py-4 px-3" style="overscroll-behavior-y: none">
           <SidebarGroup>
