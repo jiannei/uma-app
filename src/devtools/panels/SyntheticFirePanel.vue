@@ -5,8 +5,18 @@
 // StateMachine instance (and the robot's, via the
 // `devtools-synthetic-event` Tauri channel). See docs/adr/0005-dev-tools.md
 // D6 — emits an envelope `{ event, synthetic: true, source: "devtools" }`.
+//
+// Also exposes a second section: "Fire Synthetic Permission" — drives
+// each of the 3 permission bubble renderers (SideEffect /
+// Elicitation / PlanReview) without needing a real Claude Code
+// session. The synthetic request is inserted into the Rust
+// PendingStore and emitted on the `permission-request` Tauri event;
+// the bubble renders it, the user clicks Allow / Deny, the
+// decision flows through `respond_permission` and the entry is
+// removed. No real CC hook call required.
 
 import { ref } from "vue";
+import { invoke } from "@tauri-apps/api/core";
 import type { HookEvent } from "../../robot/display-state-types";
 import { CANONICAL_EVENTS } from "../../robot/display-state-constants";
 
@@ -25,6 +35,7 @@ const sessionId = ref("test-session-1");
 const eventType = ref<string>(CANONICAL_EVENTS[0]);
 const toolName = ref("");
 const success = ref<"" | "true" | "false">("");
+const subagent = ref(false);
 
 async function fire() {
   const event: HookEvent = {
@@ -35,11 +46,41 @@ async function fire() {
   if (eventType.value === "ToolCallStart" || eventType.value === "ToolCallEnd" ||
       eventType.value === "UserPromptSubmit") {
     if (toolName.value) event.tool_name = toolName.value;
+    // Drive the resolver's new subagent path (ADR-0008). Tool name
+    // alone no longer matters — the flag does.
+    if (eventType.value === "ToolCallStart" || eventType.value === "ToolCallEnd") {
+      event.subagent = subagent.value;
+    }
   }
   if (eventType.value === "ToolCallEnd" && success.value !== "") {
     event.success = success.value === "true";
   }
   await props.fireSynthetic(event);
+}
+
+// ── Synthetic permission (bubble) ─────────────────────────────
+
+type PermKind = "SideEffect" | "Elicitation" | "PlanReview";
+const PERM_KINDS: PermKind[] = ["SideEffect", "Elicitation", "PlanReview"];
+
+const lastFiredId = ref<string | null>(null);
+const lastError = ref<string | null>(null);
+const firing = ref<PermKind | null>(null);
+
+async function fireSyntheticPermission(kind: PermKind) {
+  if (firing.value) return;
+  firing.value = kind;
+  lastError.value = null;
+  try {
+    const id = await invoke<string>("devtools_fire_synthetic_permission", {
+      kind,
+    });
+    lastFiredId.value = id;
+  } catch (err) {
+    lastError.value = String(err);
+  } finally {
+    firing.value = null;
+  }
 }
 </script>
 
@@ -79,8 +120,42 @@ async function fire() {
             <option value="false">false</option>
           </select>
         </div>
+        <div v-if="eventType === 'ToolCallStart' || eventType === 'ToolCallEnd'" class="field">
+          <label class="checkbox-label">
+            <input v-model="subagent" type="checkbox" />
+            subagent (ADR-0008 — drives juggling/groove/building)
+          </label>
+        </div>
         <button type="submit" class="fire">Fire</button>
       </form>
+
+      <div class="perm-section">
+        <h3>Fire Synthetic Permission</h3>
+        <p class="perm-hint">
+          Inserts a synthetic request into PendingStore + emits
+          <code>permission-request</code> so the bubble renders without
+          a real CC session. Click Allow / Deny in the bubble to
+          complete the flow.
+        </p>
+        <div class="perm-buttons">
+          <button
+            v-for="k in PERM_KINDS"
+            :key="k"
+            class="perm-btn"
+            :disabled="firing !== null"
+            :data-firing="firing === k"
+            @click="fireSyntheticPermission(k)"
+          >
+            {{ firing === k ? "firing…" : k }}
+          </button>
+        </div>
+        <p v-if="lastFiredId" class="perm-status">
+          ✓ last fired: <code>{{ lastFiredId }}</code>
+        </p>
+        <p v-if="lastError" class="perm-error">
+          ✗ {{ lastError }}
+        </p>
+      </div>
     </div>
   </section>
 </template>
@@ -102,6 +177,13 @@ h2 {
   background: #1e1e2e;
   letter-spacing: 0.5px;
   text-transform: uppercase;
+}
+h3 {
+  font-size: 10px;
+  color: #a6adc8;
+  margin: 12px 0 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
 }
 .body {
   flex: 1;
@@ -149,4 +231,64 @@ select:focus, input:focus, textarea:focus {
   margin-top: 4px;
 }
 .fire:hover { filter: brightness(0.9); }
+
+.perm-section {
+  border-top: 1px solid #313244;
+  margin-top: 12px;
+  padding-top: 4px;
+}
+.perm-hint {
+  font-size: 10px;
+  color: #a6adc8;
+  line-height: 1.4;
+  margin: 0 0 6px;
+}
+.perm-hint code {
+  background: #313244;
+  color: #fab387;
+  padding: 0 3px;
+  border-radius: 2px;
+  font-size: 10px;
+}
+.perm-buttons {
+  display: flex;
+  gap: 4px;
+  margin-top: 4px;
+}
+.perm-btn {
+  flex: 1;
+  background: #89b4fa;
+  color: #1e1e2e;
+  border: none;
+  border-radius: 4px;
+  padding: 6px 8px;
+  font-size: 11px;
+  font-weight: 600;
+  font-family: monospace;
+  cursor: pointer;
+}
+.perm-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.perm-btn:hover:not(:disabled) {
+  filter: brightness(1.1);
+}
+.perm-btn[data-firing="true"] {
+  background: #f9e2af;
+}
+.perm-status {
+  font-size: 10px;
+  color: #a6e3a1;
+  margin: 6px 0 0;
+}
+.perm-status code {
+  font-family: monospace;
+  color: #fab387;
+}
+.perm-error {
+  font-size: 10px;
+  color: #f38ba8;
+  margin: 6px 0 0;
+}
 </style>

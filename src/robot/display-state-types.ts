@@ -28,6 +28,13 @@ export interface HookEvent {
   agent?: string;
   success?: boolean;
   error?: string;
+  /**
+   * `true` when the adapter recognises this tool call as a subagent
+   * spawn. The resolver reads this flag to drive the juggling /
+   * subagent-groove / building display states; it never inspects
+   * `tool_name` itself. See ADR-0008.
+   */
+  subagent?: boolean;
   prompt?: string;
   message?: string;
   model?: string;
@@ -50,7 +57,6 @@ export type DisplayState =
   | 'notification'
   | 'sleeping'
   | 'waking'
-  | 'sweeping'
   | 'carrying'
   | 'subagent-groove'
   | 'juggling'

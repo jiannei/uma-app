@@ -11,11 +11,15 @@
 //     response shape
 //
 // The state machine and HTTP server only deal with the *canonical* types
-// (`HookEvent`, `PermissionRequest`) and the `AgentId` newtype. They never
-// touch agent-specific DTOs — that is each adapter's job.
+// (`HookEvent`, `PermissionRequest`, `PermissionDecision`) and the
+// `AgentId` newtype. They never touch agent-specific DTOs — that is each
+// adapter's job.
 //
 // KNOWN_AGENTS is the compile-time registry. Adding a new agent means
 // writing a new module under `adapters/` and appending it to KNOWN_AGENTS.
+//
+// See ADR-0011 for the kind sub-discriminator on `PermissionRequest` and
+// the `PermissionUpdateEntry` type.
 
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
@@ -79,26 +83,311 @@ pub struct HookEvent {
     /// `ToolCallEnd` with `success = false`.
     #[serde(default)]
     pub error: Option<String>,
+    /// `Some(true)` when the adapter recognises this tool call as a
+    /// subagent-spawning tool (e.g. Claude Code's `Task` / `Agent`).
+    /// The resolver reads this flag to drive the juggling / subagent-
+    /// groove / building display states — it never inspects `tool_name`
+    /// itself, so the canonical layer stays agent-agnostic. See
+    /// ADR-0008.
+    #[serde(default)]
+    pub subagent: Option<bool>,
 }
 
-/// Canonical permission request, already routed to the right agent and
-/// ready to be shown in the bubble UI. The `request_id` is robot-generated
-/// (a per-process counter) and is what the bubble uses to refer back to
-/// the pending entry when the user decides.
+// ── PermissionRequest kind sub-discriminator (ADR-0011) ──────────
+
+/// Tag enum for the `PermissionRequest` discriminated union.
+///
+/// The three kinds correspond to three distinct user-decision shapes:
+/// - `SideEffect` — authorization for a tool with side effects
+///   (Bash, Edit, Write, Read, Glob, Grep, Task, …)
+/// - `Elicitation` — Claude Code's `AskUserQuestion`; the user fills
+///   structured answers and we echo them back via `updatedInput`
+/// - `PlanReview` — Claude Code's `ExitPlanMode`; the user approves
+///   the plan or rejects with feedback that becomes a `deny` reason
+///
+/// The tag is part of the canonical vocabulary; classification rules
+/// (which `tool_name` maps to which kind) are adapter-private.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "PascalCase")]
+pub enum PermissionKind {
+    SideEffect,
+    Elicitation,
+    PlanReview,
+}
+
+/// Shared fields for every `PermissionRequest` variant. Embedded via
+/// `#[serde(flatten)]` so the JSON wire format stays flat (only the
+/// `kind` discriminator is added at the top level).
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PermissionRequest {
+#[serde(rename_all = "camelCase")]
+pub struct PermissionBase {
+    /// Robot-generated id (per-process counter); the bubble uses this
+    /// to refer back to the pending entry when the user decides.
     pub request_id: String,
     pub session_id: String,
-    #[serde(default)]
-    pub tool_name: Option<String>,
-    #[serde(default)]
-    pub tool_input: Option<serde_json::Value>,
-    #[serde(default)]
-    pub cwd: Option<String>,
     pub agent: AgentId,
     /// Human-readable name for the bubble UI, sourced from the agent.
     #[serde(default)]
     pub agent_display_name: String,
+    #[serde(default)]
+    pub cwd: Option<String>,
+}
+
+/// Canonical permission request, already routed to the right agent and
+/// ready to be shown in the bubble UI. The `kind` field discriminates
+/// the variant; see ADR-0011 for the rationale.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "PascalCase")]
+pub enum PermissionRequest {
+    /// Authorization for a tool call with side effects.
+    /// Carries `permission_suggestions` from the agent (e.g. Claude
+    /// Code's `permission_suggestions` hook input) for the bubble to
+    /// render as suggestion buttons.
+    SideEffect {
+        #[serde(flatten)]
+        base: PermissionBase,
+        #[serde(default, rename = "toolName")]
+        tool_name: Option<String>,
+        #[serde(default, rename = "toolInput")]
+        tool_input: Option<serde_json::Value>,
+        #[serde(default, rename = "permissionSuggestions")]
+        permission_suggestions: Vec<PermissionUpdateEntry>,
+    },
+    /// Claude Code's `AskUserQuestion` (and equivalent tools from other
+    /// agents). `questions` is normalized from `tool_input.questions` by
+    /// the adapter for the renderer.
+    Elicitation {
+        #[serde(flatten)]
+        base: PermissionBase,
+        #[serde(rename = "toolName")]
+        tool_name: String,
+        #[serde(default, rename = "toolInput")]
+        tool_input: Option<serde_json::Value>,
+        #[serde(default)]
+        questions: Vec<ElicitationQuestion>,
+    },
+    /// Claude Code's `ExitPlanMode`. `plan_content` is normalized from
+    /// `tool_input` by the adapter (which field varies across CC
+    /// versions).
+    PlanReview {
+        #[serde(flatten)]
+        base: PermissionBase,
+        #[serde(rename = "toolName")]
+        tool_name: String,
+        #[serde(default, rename = "toolInput")]
+        tool_input: Option<serde_json::Value>,
+        #[serde(default, rename = "planContent")]
+        plan_content: Option<String>,
+    },
+}
+
+impl PermissionRequest {
+    pub fn request_id(&self) -> &str {
+        match self {
+            Self::SideEffect { base, .. }
+            | Self::Elicitation { base, .. }
+            | Self::PlanReview { base, .. } => &base.request_id,
+        }
+    }
+
+    pub fn session_id(&self) -> &str {
+        match self {
+            Self::SideEffect { base, .. }
+            | Self::Elicitation { base, .. }
+            | Self::PlanReview { base, .. } => &base.session_id,
+        }
+    }
+
+    pub fn agent(&self) -> &AgentId {
+        match self {
+            Self::SideEffect { base, .. }
+            | Self::Elicitation { base, .. }
+            | Self::PlanReview { base, .. } => &base.agent,
+        }
+    }
+
+    pub fn agent_display_name(&self) -> &str {
+        match self {
+            Self::SideEffect { base, .. }
+            | Self::Elicitation { base, .. }
+            | Self::PlanReview { base, .. } => &base.agent_display_name,
+        }
+    }
+
+    pub fn cwd(&self) -> Option<&str> {
+        match self {
+            Self::SideEffect { base, .. }
+            | Self::Elicitation { base, .. }
+            | Self::PlanReview { base, .. } => base.cwd.as_deref(),
+        }
+    }
+
+    /// `tool_name` is optional for `SideEffect` (some agents may not
+    /// carry it) but always present for `Elicitation` and `PlanReview`
+    /// (the kinds themselves are defined by the tool name).
+    pub fn tool_name(&self) -> Option<&str> {
+        match self {
+            Self::SideEffect { tool_name, .. } => tool_name.as_deref(),
+            Self::Elicitation { tool_name, .. } | Self::PlanReview { tool_name, .. } => {
+                Some(tool_name.as_str())
+            }
+        }
+    }
+
+    pub fn kind(&self) -> PermissionKind {
+        match self {
+            Self::SideEffect { .. } => PermissionKind::SideEffect,
+            Self::Elicitation { .. } => PermissionKind::Elicitation,
+            Self::PlanReview { .. } => PermissionKind::PlanReview,
+        }
+    }
+}
+
+// ── Elicitation structures (ADR-0011) ────────────────────────────
+
+/// Normalized shape for one entry in Claude Code's `AskUserQuestion`
+/// `tool_input.questions[]`. Other agents' equivalents map to the same
+/// shape via their adapter.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ElicitationQuestion {
+    pub question: String,
+    pub header: String,
+    pub multi_select: bool,
+    pub options: Vec<ElicitationOption>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ElicitationOption {
+    pub label: String,
+    #[serde(default)]
+    pub description: String,
+    /// Optional preview text (Claude Code supports it; some agents may
+    /// not). Used by the bubble when rendering the option.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub preview: Option<String>,
+}
+
+// ── PermissionUpdateEntry (ADR-0011) ─────────────────────────────
+
+/// Canonical "permission update" atomic operation, aligned with Claude
+/// Code's `PermissionRequest` hook protocol's `permission_suggestions` /
+/// `updatedPermissions` shared schema.
+///
+/// v1 only transports these entries — uma-app never synthesizes one.
+/// The bubble renders the agent-provided `permission_suggestions[]` as
+/// buttons; the user's pick is echoed back verbatim as
+/// `updatedPermissions`.
+///
+/// Source schema: <https://code.claude.com/docs/zh-CN/hooks>
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "camelCase")]
+pub enum PermissionUpdateEntry {
+    AddRules {
+        rules: Vec<RuleSpec>,
+        behavior: RuleBehavior,
+        destination: Destination,
+    },
+    ReplaceRules {
+        rules: Vec<RuleSpec>,
+        behavior: RuleBehavior,
+        destination: Destination,
+    },
+    RemoveRules {
+        rules: Vec<RuleSpec>,
+        behavior: RuleBehavior,
+        destination: Destination,
+    },
+    SetMode {
+        mode: PermissionMode,
+        destination: Destination,
+    },
+    AddDirectories {
+        directories: Vec<String>,
+        destination: Destination,
+    },
+    RemoveDirectories {
+        directories: Vec<String>,
+        destination: Destination,
+    },
+}
+
+/// One rule in a `addRules` / `replaceRules` / `removeRules` entry.
+/// `rule_content` is optional per CC protocol — omit to match the
+/// entire tool, or supply to scope the rule (e.g. `Bash` + `rm -rf *`).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RuleSpec {
+    pub tool_name: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rule_content: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum RuleBehavior {
+    Allow,
+    Deny,
+    Ask,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum Destination {
+    /// In-memory only; cleared at session end. CC short-circuits
+    /// subsequent requests matching the rule without firing the hook.
+    Session,
+    /// Written to `.claude/settings.local.json`.
+    LocalSettings,
+    /// Written to the project's `.claude/settings.json`.
+    ProjectSettings,
+    /// Written to the user's `~/.claude/settings.json`.
+    UserSettings,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum PermissionMode {
+    Default,
+    Auto,
+    AcceptEdits,
+    DontAsk,
+    BypassPermissions,
+    Plan,
+}
+
+// ── PermissionDecision (ADR-0011) ───────────────────────────────
+
+/// The bubble's decision on a pending `PermissionRequest`. Flat struct
+/// with optional fields that aligns with Claude Code's
+/// `hookSpecificOutput.decision` wire format — see
+/// <https://code.claude.com/docs/zh-CN/hooks>.
+///
+/// Field validity by `behavior`:
+/// - `Allow`: `updated_input?` and/or `updated_permissions?` may be set
+/// - `Deny`:  `message?` and/or `interrupt?` may be set
+///
+/// The HTTP server validates these invariants before forwarding.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PermissionDecision {
+    pub request_id: String,
+    pub behavior: DecisionBehavior,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub message: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub interrupt: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub updated_input: Option<serde_json::Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub updated_permissions: Option<Vec<PermissionUpdateEntry>>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum DecisionBehavior {
+    Allow,
+    Deny,
 }
 
 // ── Trait ────────────────────────────────────────────────────────
@@ -109,8 +398,8 @@ pub struct PermissionRequest {
 ///
 /// All methods are infallible at the *trait* level (they take `&self`,
 /// not `&mut self`) — they do not need to mutate agent-local state.
-/// Process-wide state (pending permission requests, always-allow set,
-/// etc.) lives elsewhere and is keyed by `AgentId`.
+/// Process-wide state (pending permission requests, etc.) lives
+/// elsewhere and is keyed by `AgentId`.
 ///
 /// `Send + Sync` because the HTTP handlers run on tokio and may share
 /// the trait object across tasks.
@@ -157,23 +446,22 @@ pub trait Agent: Send + Sync {
     fn parse_state_payload(&self, raw: serde_json::Value) -> Result<HookEvent>;
 
     /// Translate this agent's raw permission payload into a canonical
-    /// `PermissionRequest`. The `request_id` is the robot's internal
-    /// id (allocated by the HTTP server before calling this method).
+    /// `PermissionRequest` (with `kind` classified per adapter-private
+    /// rules). The `request_id` is the robot's internal id (allocated
+    /// by the HTTP server before calling this method).
     fn parse_permission_payload(
         &self,
         raw: serde_json::Value,
         request_id: String,
     ) -> Result<PermissionRequest>;
 
-    /// Serialize a permission decision into the JSON shape this agent's
-    /// hook protocol expects back. For Claude Code, this is
-    /// `{"hookSpecificOutput":{"hookEventName":"PermissionRequest",
-    ///   "decision":{"behavior":"allow"}}}`.
-    fn build_permission_response(
-        &self,
-        request_id: &str,
-        decision: &str,
-    ) -> Result<serde_json::Value>;
+    /// Serialize a canonical `PermissionDecision` into the JSON shape
+    /// this agent's hook protocol expects back. For Claude Code, this
+    /// is `{"hookSpecificOutput":{"hookEventName":"PermissionRequest",
+    /// "decision":{...}}}` where `decision` carries the optional
+    /// `message` / `interrupt` / `updatedInput` / `updatedPermissions`
+    /// fields per CC's wire format.
+    fn build_permission_response(&self, decision: &PermissionDecision) -> Result<serde_json::Value>;
 }
 
 // ── Registry ─────────────────────────────────────────────────────

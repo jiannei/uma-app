@@ -15,10 +15,7 @@
 // for the domain vocabulary; see the ADR for design trade-offs.
 
 import { setup, assign } from 'xstate';
-import {
-  SUBAGENT_TOOLS,
-  UNKNOWN_AGENT,
-} from './display-state-constants';
+import { UNKNOWN_AGENT } from './display-state-constants';
 import type {
   CanonicalEventName,
   DisplayState,
@@ -70,7 +67,6 @@ const STATE_PRIORITY_ORDER: DisplayState[] = [
   'thinking',
   'working',
   'carrying',
-  'sweeping',
 ];
 
 function recomputeDisplayState(
@@ -84,6 +80,61 @@ function recomputeDisplayState(
   return 'idle';
 }
 
+/**
+ * Pure derivation: given current context and an AGENT_HOOK event, compute
+ * the updated sessions map and subagent counts. Returns null for non-hook
+ * events. Shared by ingestEvent (which also recomputes displayState) and
+ * ingestEventSilent (which preserves the current display).
+ */
+function computeIngestUpdate(
+  context: ResolverContext,
+  event: ResolverEvent,
+): { sessions: Record<SessionKey, SessionEntry>; activeSubagents: Record<SessionKey, number> } | null {
+  if (event.type !== 'AGENT_HOOK') return null;
+  const key = sessionKeyOf(event.event);
+  const toolName = event.event.tool_name;
+  // `subagent` is the agent-specific decision made by the adapter; the
+  // canonical layer never inspects the tool name. See ADR-0008.
+  const isSubagent = event.event.subagent === true;
+
+  // Subagent counter delta
+  let subagentCount = context.activeSubagents[key] ?? 0;
+  if (isSubagent && event.event.event_type === 'ToolCallStart') {
+    subagentCount = subagentCount + 1;
+  } else if (
+    isSubagent &&
+    event.event.event_type === 'ToolCallEnd' &&
+    subagentCount > 0
+  ) {
+    subagentCount = subagentCount - 1;
+  }
+
+  // Session state: error overrides; subagent count shapes; else by event.
+  let sessionState: DisplayState = 'idle';
+  if (event.event.event_type === 'ToolCallEnd' && event.event.success === false) {
+    sessionState = 'error';
+  } else if (isSubagent && event.event.event_type === 'ToolCallStart') {
+    sessionState = subagentCount >= 2 ? 'juggling' : subagentCount === 1 ? 'subagent-groove' : 'building';
+  } else if (isSubagent && event.event.event_type === 'ToolCallEnd') {
+    sessionState = subagentCount >= 1 ? 'building' : 'working';
+  } else {
+    sessionState = deriveStateFromEvent(event.event.event_type as CanonicalEventName);
+  }
+
+  const entry: SessionEntry = {
+    state: sessionState,
+    lastEvent: event.event.event_type as CanonicalEventName,
+    toolName,
+    subagentCount,
+    timestamp: Date.now(),
+    success: event.event.event_type === 'ToolCallEnd' ? event.event.success : undefined,
+  };
+
+  const sessions = { ...context.sessions, [key]: entry };
+  const activeSubagents = { ...context.activeSubagents, [key]: subagentCount };
+  return { sessions, activeSubagents };
+}
+
 // ── Machine ─────────────────────────────────────────────────────
 
 export const displayStateResolver = setup({
@@ -95,6 +146,20 @@ export const displayStateResolver = setup({
   guards: {
     sessionEnded: ({ event }) =>
       event.type === 'AGENT_HOOK' && event.event.event_type === 'SessionEnd',
+    /**
+     * True when the incoming SessionEnd is also the last active session
+     * — after clearing, `sessions` would be empty, so the resolver has
+     * nothing left to display and should enter the sleep sequence.
+     * For multi-session scenarios, individual SessionEnd events fall
+     * through to the second-pass `sessionEnded` transition which only
+     * clears the entry without leaving the current state. See CONTEXT.md
+     * (SleepSequence) and ADR-0009 / follow-up (idleToSleepDelay).
+     */
+    sessionEndedAndIsLast: ({ context, event }) => {
+      if (event.type !== 'AGENT_HOOK') return false;
+      if (event.event.event_type !== 'SessionEnd') return false;
+      return Object.keys(context.sessions).length === 1;
+    },
     toolFailed: ({ event }) =>
       event.type === 'AGENT_HOOK' &&
       event.event.event_type === 'ToolCallEnd' &&
@@ -109,73 +174,51 @@ export const displayStateResolver = setup({
     isSubagentToolStart: ({ event }) =>
       event.type === 'AGENT_HOOK' &&
       event.event.event_type === 'ToolCallStart' &&
-      typeof event.event.tool_name === 'string' &&
-      SUBAGENT_TOOLS.has(event.event.tool_name),
+      event.event.subagent === true,
     isSubagentToolEnd: ({ event }) =>
       event.type === 'AGENT_HOOK' &&
       event.event.event_type === 'ToolCallEnd' &&
-      typeof event.event.tool_name === 'string' &&
-      SUBAGENT_TOOLS.has(event.event.tool_name),
-    /** Used by the juggling/subagent-groove/building dispatch on AGENT_HOOK. */
-    hasTwoOrMoreSubs: ({ context, event }) => {
-      if (event.type !== 'AGENT_HOOK') return false;
-      const key = sessionKeyOf(event.event);
-      const count = (context.activeSubagents[key] ?? 0) + (event.event.event_type === 'ToolCallStart' && SUBAGENT_TOOLS.has(event.event.tool_name ?? '') ? 1 : 0);
-      return count >= 2;
-    },
-    hasExactlyOneSub: ({ context, event }) => {
-      if (event.type !== 'AGENT_HOOK') return false;
-      const key = sessionKeyOf(event.event);
-      const count = context.activeSubagents[key] ?? 0;
-      return count === 1;
-    },
+      event.event.subagent === true,
+    /**
+     * Subagent count guards. Both only fire on `ToolCallStart` events
+     * with `subagent: true` — that's the only event type where the
+     * resolver would increment the subagent counter. ToolCallEnd and
+     * other events fall through to the catch-all `ingestEvent` action,
+     * which recomputes the display state from the updated `sessions`
+     * map. This avoids the previous bug where a ToolCallEnd at
+     * `currentCount == 2` would erroneously match `hasTwoOrMoreSubs`
+     * (the +1 only applied to starts) and bounce to `juggling` after
+     * the count had already been decremented to 1.
+     */
+    hasTwoOrMoreSubs: ({ context, event }) =>
+      event.type === 'AGENT_HOOK' &&
+      event.event.event_type === 'ToolCallStart' &&
+      event.event.subagent === true &&
+      (context.activeSubagents[sessionKeyOf(event.event)] ?? 0) + 1 >= 2,
+    hasExactlyOneSub: ({ context, event }) =>
+      event.type === 'AGENT_HOOK' &&
+      event.event.event_type === 'ToolCallStart' &&
+      event.event.subagent === true &&
+      (context.activeSubagents[sessionKeyOf(event.event)] ?? 0) + 1 === 1,
   },
   actions: {
     ingestEvent: assign(({ context, event }) => {
-      if (event.type !== 'AGENT_HOOK') return {};
-      const key = sessionKeyOf(event.event);
-      const toolName = event.event.tool_name;
-      const isSubagent = typeof toolName === 'string' && SUBAGENT_TOOLS.has(toolName);
-
-      // Subagent counter delta
-      let subagentCount = context.activeSubagents[key] ?? 0;
-      if (isSubagent && event.event.event_type === 'ToolCallStart') {
-        subagentCount = subagentCount + 1;
-      } else if (
-        isSubagent &&
-        event.event.event_type === 'ToolCallEnd' &&
-        subagentCount > 0
-      ) {
-        subagentCount = subagentCount - 1;
-      }
-
-      // Session state: error overrides; subagent count shapes; else by event.
-      let sessionState: DisplayState = 'idle';
-      if (event.event.event_type === 'ToolCallEnd' && event.event.success === false) {
-        sessionState = 'error';
-      } else if (isSubagent && event.event.event_type === 'ToolCallStart') {
-        sessionState = subagentCount >= 2 ? 'juggling' : subagentCount === 1 ? 'subagent-groove' : 'building';
-      } else if (isSubagent && event.event.event_type === 'ToolCallEnd') {
-        sessionState = subagentCount >= 1 ? 'building' : 'working';
-      } else {
-        sessionState = deriveStateFromEvent(event.event.event_type as CanonicalEventName);
-      }
-
-      const entry: SessionEntry = {
-        state: sessionState,
-        lastEvent: event.event.event_type as CanonicalEventName,
-        toolName,
-        subagentCount,
-        timestamp: Date.now(),
-        success: event.event.event_type === 'ToolCallEnd' ? event.event.success : undefined,
-      };
-
-      const sessions = { ...context.sessions, [key]: entry };
-      const activeSubagents = { ...context.activeSubagents, [key]: subagentCount };
-      const displayState = recomputeDisplayState(sessions);
-
-      return { sessions, activeSubagents, displayState };
+      const update = computeIngestUpdate(context, event);
+      if (!update) return {};
+      return { ...update, displayState: recomputeDisplayState(update.sessions) };
     }),
+    /**
+     * OneShot 期间使用:更新 sessions/activeSubagents 但不动 displayState/activeOneShot,
+     * 让当前 one-shot 显示继续。SessionEnd 例外——见 oneShot.* 状态里的转移。
+     */
+    ingestEventSilent: assign(({ context, event }) => {
+      const update = computeIngestUpdate(context, event);
+      return update ?? {};
+    }),
+    /** 在 one-shot 退出或外部显式刷新时,把 displayState 同步到当前 sessions 的聚合结果。 */
+    recomputeDisplay: assign(({ context }) => ({
+      displayState: recomputeDisplayState(context.sessions),
+    })),
     clearSession: assign(({ context, event }) => {
       if (event.type !== 'AGENT_HOOK') return {};
       const key = sessionKeyOf(event.event);
@@ -251,8 +294,12 @@ export const displayStateResolver = setup({
       on: {
         AGENT_HOOK: [
           {
-            guard: 'sessionEnded',
+            guard: 'sessionEndedAndIsLast',
             target: 'sleeping',
+            actions: 'clearSession',
+          },
+          {
+            guard: 'sessionEnded',
             actions: 'clearSession',
           },
           {
@@ -276,11 +323,6 @@ export const displayStateResolver = setup({
             actions: 'ingestEvent',
           },
           {
-            guard: 'isSubagentToolStart',
-            target: 'building',
-            actions: 'ingestEvent',
-          },
-          {
             guard: 'isUserPrompt',
             target: 'thinking',
             actions: 'ingestEvent',
@@ -294,7 +336,8 @@ export const displayStateResolver = setup({
     thinking: {
       on: {
         AGENT_HOOK: [
-          { guard: 'sessionEnded', target: 'sleeping', actions: 'clearSession' },
+          { guard: 'sessionEndedAndIsLast', target: 'sleeping', actions: 'clearSession' },
+          { guard: 'sessionEnded', actions: 'clearSession' },
           { guard: 'toolFailed', target: 'oneShot.error', actions: ['ingestEvent', 'armErrorOneShot'] },
           { guard: 'isNotification', target: 'oneShot.notification', actions: ['ingestEvent', 'armNotificationOneShot'] },
           { guard: 'isSubagentToolStart', target: 'subagentGroove', actions: 'ingestEvent' },
@@ -307,7 +350,8 @@ export const displayStateResolver = setup({
     working: {
       on: {
         AGENT_HOOK: [
-          { guard: 'sessionEnded', target: 'sleeping', actions: 'clearSession' },
+          { guard: 'sessionEndedAndIsLast', target: 'sleeping', actions: 'clearSession' },
+          { guard: 'sessionEnded', actions: 'clearSession' },
           { guard: 'toolFailed', target: 'oneShot.error', actions: ['ingestEvent', 'armErrorOneShot'] },
           { guard: 'isNotification', target: 'oneShot.notification', actions: ['ingestEvent', 'armNotificationOneShot'] },
           { guard: 'isSubagentToolStart', target: 'subagentGroove', actions: 'ingestEvent' },
@@ -321,7 +365,8 @@ export const displayStateResolver = setup({
     building: {
       on: {
         AGENT_HOOK: [
-          { guard: 'sessionEnded', target: 'sleeping', actions: 'clearSession' },
+          { guard: 'sessionEndedAndIsLast', target: 'sleeping', actions: 'clearSession' },
+          { guard: 'sessionEnded', actions: 'clearSession' },
           { guard: 'toolFailed', target: 'oneShot.error', actions: ['ingestEvent', 'armErrorOneShot'] },
           { guard: 'isNotification', target: 'oneShot.notification', actions: ['ingestEvent', 'armNotificationOneShot'] },
           { guard: 'isSubagentToolStart', target: 'subagentGroove', actions: 'ingestEvent' },
@@ -334,7 +379,8 @@ export const displayStateResolver = setup({
     subagentGroove: {
       on: {
         AGENT_HOOK: [
-          { guard: 'sessionEnded', target: 'sleeping', actions: 'clearSession' },
+          { guard: 'sessionEndedAndIsLast', target: 'sleeping', actions: 'clearSession' },
+          { guard: 'sessionEnded', actions: 'clearSession' },
           { guard: 'toolFailed', target: 'oneShot.error', actions: ['ingestEvent', 'armErrorOneShot'] },
           { guard: 'isNotification', target: 'oneShot.notification', actions: ['ingestEvent', 'armNotificationOneShot'] },
           { guard: 'hasTwoOrMoreSubs', target: 'juggling', actions: 'ingestEvent' },
@@ -348,7 +394,8 @@ export const displayStateResolver = setup({
     juggling: {
       on: {
         AGENT_HOOK: [
-          { guard: 'sessionEnded', target: 'sleeping', actions: 'clearSession' },
+          { guard: 'sessionEndedAndIsLast', target: 'sleeping', actions: 'clearSession' },
+          { guard: 'sessionEnded', actions: 'clearSession' },
           { guard: 'toolFailed', target: 'oneShot.error', actions: ['ingestEvent', 'armErrorOneShot'] },
           { guard: 'isNotification', target: 'oneShot.notification', actions: ['ingestEvent', 'armNotificationOneShot'] },
           { guard: 'isSubagentToolEnd', target: 'subagentGroove', actions: 'ingestEvent' },
@@ -405,7 +452,7 @@ export const displayStateResolver = setup({
         THEME_CHANGED: { actions: 'swapTheme' },
       },
     },
-    // ── One-shot composite (CONTEXT.md → OneShotState) ───────
+    // ── One-shot composite (CONTEXT.md → OneShotState, ADR-0007) ──
     oneShot: {
       initial: 'attention',
       states: {
@@ -413,10 +460,17 @@ export const displayStateResolver = setup({
           after: {
             attentionAutoReturn: {
               target: '#robot.idle',
-              actions: ['clearOneShot'],
+              actions: ['clearOneShot', 'recomputeDisplay'],
             },
           },
           on: {
+            AGENT_HOOK: [
+              // SessionEnd 在 one-shot 期间能正确收尾:跳 sleeping,清 session。
+              { guard: 'sessionEndedAndIsLast', target: '#robot.sleeping', actions: ['clearSession', 'clearOneShot'] },
+              { guard: 'sessionEnded', actions: 'clearSession' },
+              // 其它事件:静默 ingest,one-shot 显示保持,计时器继续。
+              { actions: 'ingestEventSilent' },
+            ],
             RESET: { target: '#robot.idle', actions: 'clearAll' },
             THEME_CHANGED: { actions: 'swapTheme' },
           },
@@ -425,10 +479,15 @@ export const displayStateResolver = setup({
           after: {
             errorAutoReturn: {
               target: '#robot.idle',
-              actions: ['clearOneShot'],
+              actions: ['clearOneShot', 'recomputeDisplay'],
             },
           },
           on: {
+            AGENT_HOOK: [
+              { guard: 'sessionEndedAndIsLast', target: '#robot.sleeping', actions: ['clearSession', 'clearOneShot'] },
+              { guard: 'sessionEnded', actions: 'clearSession' },
+              { actions: 'ingestEventSilent' },
+            ],
             RESET: { target: '#robot.idle', actions: 'clearAll' },
             THEME_CHANGED: { actions: 'swapTheme' },
           },
@@ -437,10 +496,15 @@ export const displayStateResolver = setup({
           after: {
             notificationAutoReturn: {
               target: '#robot.idle',
-              actions: ['clearOneShot'],
+              actions: ['clearOneShot', 'recomputeDisplay'],
             },
           },
           on: {
+            AGENT_HOOK: [
+              { guard: 'sessionEndedAndIsLast', target: '#robot.sleeping', actions: ['clearSession', 'clearOneShot'] },
+              { guard: 'sessionEnded', actions: 'clearSession' },
+              { actions: 'ingestEventSilent' },
+            ],
             RESET: { target: '#robot.idle', actions: 'clearAll' },
             THEME_CHANGED: { actions: 'swapTheme' },
           },

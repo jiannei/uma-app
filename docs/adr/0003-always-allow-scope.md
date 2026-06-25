@@ -1,10 +1,18 @@
 # "始终允许" 的 scope 是 per (agent, session, tool)，in-memory only
 
+> **Status: SUPERSEDED by [ADR-0011](./0011-permission-kind-and-update-entries.md) — 2026-06-25**
+>
+> "始终允许" 不再是 uma-app 的产品概念。`AlwaysAllowStore` 整层删除；Claude Code 自己通过 `destination: "session"` 的 `addRules` 维护 session-scoped 规则，并在发 hook 前 short-circuit 后续请求。机器人侧不再维护独立的 always-allow 缓存。
+>
+> 本 ADR 保留以记录历史决策和当时权衡；实现层不要按本 ADR 设计。
+
 权限气泡里"始终允许"按钮的语义是：**对于该 agent 的该 session 的该工具名，所有调用自动放行**；规则**仅存于机器人进程内存**，`HashMap<(AgentId, SessionId), HashSet<ToolName>>`，应用退出即清空。MVP 范围内有意不持久化到 `settings.json`。
 
-## Status
+## Status (历史)
 
 accepted — 2026-06-24（grilling session）
+
+**2026-06-25 update**: 被 [ADR-0011](./0011-permission-kind-and-update-entries.md) 取代。原因：Claude Code 官方 hook 协议通过 `permission_suggestions` / `updatedPermissions` 已经提供完整的"permission 更新"机制；`destination: "session"` 的规则在 CC 进程内存里维护，CC 自己 short-circuit 后续请求。我们之前的 `HashSet<tool_name>` 是绕过协议的简化版，丢失结构（`addRules.ruleContent` / `setMode` / `addDirectories` 等）且和 CC 真实状态存在不一致风险。
 
 ## Context
 

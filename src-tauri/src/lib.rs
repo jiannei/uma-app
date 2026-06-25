@@ -24,6 +24,10 @@ pub struct Settings {
     pub mini_mode: bool,
     pub sound_enabled: bool,
     pub auto_start: bool,
+    /// UI / bubble language tag. Matches the `Lang` union in
+    /// `src/bubble/strings.ts`. Unknown values fall back to "en"
+    /// at the bubble boundary.
+    pub language: String,
 }
 
 impl Default for Settings {
@@ -34,6 +38,7 @@ impl Default for Settings {
             mini_mode: false,
             sound_enabled: true,
             auto_start: false,
+            language: "en".into(),
         }
     }
 }
@@ -49,7 +54,7 @@ impl Default for Settings {
 /// Note: not `Clone` because `oneshot::Sender` isn't. PendingStore
 /// itself is cheap to clone (it wraps `Arc<Mutex<...>>`).
 pub struct PendingEntry {
-    pub tx: tokio::sync::oneshot::Sender<http_server::PermissionResponse>,
+    pub tx: tokio::sync::oneshot::Sender<agent::PermissionDecision>,
     pub request: agent::PermissionRequest,
     pub agent_id: String,
 }
@@ -58,6 +63,7 @@ pub struct PendingEntry {
 /// (Tauri command return types must `Serialize`; `PendingEntry`
 /// can't derive it because `oneshot::Sender` isn't serializable).
 #[derive(serde::Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
 pub struct PendingEntryView {
     pub request_id: String,
     pub agent_id: String,
@@ -74,37 +80,6 @@ pub struct SettingsStore(pub Arc<std::sync::Mutex<Settings>>);
 /// `show_bubble_window` can read the user's choice without a round-trip.
 #[derive(Clone)]
 pub struct BubblePositionStore(pub Arc<std::sync::Mutex<String>>);
-
-/// Per-(agent, session) "always allow" tool set. Scope follows ADR-0003:
-/// a tool name is auto-approved only for that specific agent and
-/// session. The HTTP server writes to this when the user clicks
-/// "Always", and reads it on every incoming permission request.
-///
-/// The robot frontend invokes `clear_always_allow_session` on
-/// `SessionEnd` so a closed session's allow rules don't bleed into
-/// the next session opened by the same agent.
-///
-/// Memory-only, lost on restart (intentional MVP scope).
-#[derive(Clone)]
-pub struct AlwaysAllowStore(
-    pub Arc<Mutex<HashMap<(String, String), std::collections::HashSet<String>>>>,
-);
-
-/// Serializable view of a single (agent, session) entry in
-/// `AlwaysAllowStore` for the dev-tools panel.
-#[derive(serde::Serialize, Clone)]
-pub struct AlwaysAllowView {
-    pub agent_id: String,
-    pub session_id: String,
-    pub tools: Vec<String>,
-}
-
-#[derive(serde::Deserialize)]
-pub struct PermissionDecision {
-    pub request_id: String,
-    pub decision: String,
-    pub reason: Option<String>,
-}
 
 // ── Tauri commands ──
 
@@ -160,6 +135,32 @@ fn set_dnd(
 }
 
 #[tauri::command]
+fn set_language(
+    app: AppHandle,
+    store: State<'_, SettingsStore>,
+    language: String,
+) -> Result<(), String> {
+    // Light validation: only the keys we ship today. Bubble falls
+    // back to "en" for anything it doesn't recognize, so this is a
+    // safety check rather than a strict whitelist.
+    if !matches!(language.as_str(), "en" | "zh") {
+        return Err(format!("unsupported language: {language}"));
+    }
+    eprintln!("[uma] set language: {language}");
+    {
+        let mut s = store.0.lock().unwrap();
+        s.language = language.clone();
+    }
+    if let Ok(pstore) = app.store("settings.json") {
+        pstore.set("language", serde_json::json!(language));
+        let _ = pstore.save();
+    }
+    app.emit("language-change", serde_json::json!({ "language": language }))
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
 fn set_bubble_position(
     app: AppHandle,
     pos_store: State<'_, BubblePositionStore>,
@@ -185,19 +186,19 @@ fn set_bubble_position(
 async fn respond_permission(
     app: AppHandle,
     store: State<'_, PendingStore>,
-    decision: PermissionDecision,
+    decision: agent::PermissionDecision,
 ) -> Result<(), String> {
     eprintln!(
-        "[uma] permission response: id={} decision={}",
-        decision.request_id, decision.decision
+        "[uma] permission response: id={} behavior={:?}",
+        decision.request_id, decision.behavior,
     );
+    // Extract the request_id before moving `decision` into the
+    // oneshot sender — both the dev-tools emit below and the
+    // "no pending" log on the else branch need it.
+    let request_id = decision.request_id.clone();
     let mut pending = store.0.lock().await;
-    if let Some(entry) = pending.remove(&decision.request_id) {
-        let _ = entry.tx.send(http_server::PermissionResponse {
-            request_id: decision.request_id.clone(),
-            decision: decision.decision.clone(),
-            reason: decision.reason,
-        });
+    if let Some(entry) = pending.remove(&request_id) {
+        let _ = entry.tx.send(decision);
         eprintln!("[uma] permission resolved");
 
         // Dev-tools panel watches PendingStore mutations.
@@ -207,15 +208,12 @@ async fn respond_permission(
                 "devtools-pending-changed",
                 serde_json::json!({
                     "kind": "remove",
-                    "request_id": &decision.request_id,
+                    "request_id": &request_id,
                 }),
             );
         }
     } else {
-        eprintln!(
-            "[uma] no pending request found for id={}",
-            decision.request_id
-        );
+        eprintln!("[uma] no pending request found for id={request_id}");
     }
 
     // Hide bubble window after user responds
@@ -280,45 +278,12 @@ fn uninstall_agent_hook(agent_id: String) -> Result<(), String> {
     lookup_or_404(&agent_id)?.uninstall()
 }
 
-/// Drop the always-allow set for a (agent_id, session_id) pair.
-/// Invoked from the robot frontend on `SessionEnd` so a closed
-/// session's allow rules don't leak to the next session opened by
-/// the same agent. No-op if the key isn't present.
-#[cfg_attr(not(feature = "dev-tools"), allow(unused_variables))]
-#[tauri::command]
-async fn clear_always_allow_session(
-    app: AppHandle,
-    store: State<'_, AlwaysAllowStore>,
-    agent_id: String,
-    session_id: String,
-) -> Result<(), String> {
-    let mut allow = store.0.lock().await;
-    if allow.remove(&(agent_id.clone(), session_id.clone())).is_some() {
-        eprintln!("[uma] cleared always-allow for {agent_id}/{session_id}");
-
-        // Dev-tools panel watches AlwaysAllowStore mutations.
-        #[cfg(feature = "dev-tools")]
-        {
-            let _ = app.emit(
-                "devtools-always-allow-changed",
-                serde_json::json!({
-                    "kind": "remove",
-                    "agent_id": &agent_id,
-                    "session_id": &session_id,
-                }),
-            );
-        }
-    }
-    Ok(())
-}
-
 // ── Dev-tools commands (gated by `dev-tools` feature) ──
 //
-// Snapshot the in-memory permission/allow stores for the dev panel's
-// initial render. Live updates flow through `devtools-pending-changed`
-// and `devtools-always-allow-changed` Tauri events (emitted at every
-// mutation point). The panel calls these on mount, then subscribes
-// to the events for incremental updates.
+// Snapshot the in-memory permission store for the dev panel's initial
+// render. Live updates flow through `devtools-pending-changed` Tauri
+// events (emitted at every mutation point). The panel calls this on
+// mount, then subscribes to the events for incremental updates.
 
 #[cfg(feature = "dev-tools")]
 #[tauri::command]
@@ -336,20 +301,186 @@ async fn devtools_get_pending(
         .collect())
 }
 
+/// Inject a synthetic permission request of the given `kind` into
+/// PendingStore + emit `permission-request` to the bubble. Lets the
+/// dev panel drive each of the 3 bubble renderers (SideEffect /
+/// Elicitation / PlanReview) without needing a real CC session +
+/// hook call. Clicking Allow / Deny in the bubble completes the
+/// flow through `respond_permission` (the oneshot sender we insert
+/// is dropped on the receive side, but `respond_permission` still
+/// removes the entry from the store cleanly).
+///
+/// `kind` is one of "SideEffect" / "Elicitation" / "PlanReview".
+/// All three are hardcoded payloads that exercise the bubble's
+/// per-kind render path.
 #[cfg(feature = "dev-tools")]
 #[tauri::command]
-async fn devtools_get_always_allow(
-    store: State<'_, AlwaysAllowStore>,
-) -> Result<Vec<AlwaysAllowView>, String> {
-    let allow = store.0.lock().await;
-    Ok(allow
-        .iter()
-        .map(|((aid, sid), tools)| AlwaysAllowView {
-            agent_id: aid.clone(),
-            session_id: sid.clone(),
-            tools: tools.iter().cloned().collect(),
-        })
-        .collect())
+async fn devtools_fire_synthetic_permission(
+    app: AppHandle,
+    store: State<'_, PendingStore>,
+    kind: String,
+) -> Result<String, String> {
+    use crate::agent::{
+        Destination, ElicitationQuestion, PermissionBase, PermissionRequest,
+        PermissionUpdateEntry, RuleBehavior, RuleSpec,
+    };
+    use serde_json::json;
+
+    let request_id = format!(
+        "synth-perm-{}",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis())
+            .unwrap_or(0)
+    );
+    let base = PermissionBase {
+        request_id: request_id.clone(),
+        session_id: "synth-session".into(),
+        agent: crate::agent::AgentId("claude-code".into()),
+        agent_display_name: "Claude Code".into(),
+        cwd: Some("/tmp".into()),
+    };
+
+    let request = match kind.as_str() {
+        "SideEffect" => PermissionRequest::SideEffect {
+            base,
+            tool_name: Some("Bash".into()),
+            tool_input: Some(json!({
+                "command": "rm -rf /tmp/synth-test",
+                "description": "Synthetic SideEffect (dev panel test)"
+            })),
+            permission_suggestions: vec![PermissionUpdateEntry::AddRules {
+                rules: vec![RuleSpec {
+                    tool_name: "Bash".into(),
+                    rule_content: Some("rm -rf /tmp/*".into()),
+                }],
+                behavior: RuleBehavior::Allow,
+                destination: Destination::Session,
+            }],
+        },
+        "Elicitation" => PermissionRequest::Elicitation {
+            base,
+            tool_name: "AskUserQuestion".into(),
+            tool_input: Some(json!({
+                "questions": [
+                    { "question": "Which database?", "header": "DATABASE",
+                      "multiSelect": false,
+                      "options": [
+                        { "label": "PostgreSQL", "description": "Relational, ACID, great for complex queries" },
+                        { "label": "SQLite",    "description": "File-based, zero-config, great for small apps" },
+                        { "label": "MongoDB",   "description": "Document store, flexible schema" }
+                      ]
+                    },
+                    { "question": "Set up migrations?", "header": "MIGRATIONS",
+                      "multiSelect": false,
+                      "options": [
+                        { "label": "Yes, use a migration tool", "description": "Add sqlx-cli or similar" },
+                        { "label": "No, manual schema only",    "description": "I'll write SQL by hand" }
+                      ]
+                    }
+                ]
+            })),
+            questions: vec![
+                ElicitationQuestion {
+                    question: "Which database?".into(),
+                    header: "DATABASE".into(),
+                    multi_select: false,
+                    options: vec![
+                        crate::agent::ElicitationOption {
+                            label: "PostgreSQL".into(),
+                            description: "Relational, ACID, great for complex queries".into(),
+                            preview: None,
+                        },
+                        crate::agent::ElicitationOption {
+                            label: "SQLite".into(),
+                            description: "File-based, zero-config, great for small apps".into(),
+                            preview: None,
+                        },
+                        crate::agent::ElicitationOption {
+                            label: "MongoDB".into(),
+                            description: "Document store, flexible schema".into(),
+                            preview: None,
+                        },
+                    ],
+                },
+                ElicitationQuestion {
+                    question: "Set up migrations?".into(),
+                    header: "MIGRATIONS".into(),
+                    multi_select: false,
+                    options: vec![
+                        crate::agent::ElicitationOption {
+                            label: "Yes, use a migration tool".into(),
+                            description: "Add sqlx-cli or similar".into(),
+                            preview: None,
+                        },
+                        crate::agent::ElicitationOption {
+                            label: "No, manual schema only".into(),
+                            description: "I'll write SQL by hand".into(),
+                            preview: None,
+                        },
+                    ],
+                },
+            ],
+        },
+        "PlanReview" => PermissionRequest::PlanReview {
+            base,
+            tool_name: "ExitPlanMode".into(),
+            tool_input: Some(json!({
+                "plan": "# Implementation Plan\n\n1. Add a database abstraction layer\n2. Wire up migrations\n3. Update connection pooling\n4. Add integration tests"
+            })),
+            plan_content: Some(
+                "# Implementation Plan\n\n1. Add a database abstraction layer\n2. Wire up migrations\n3. Update connection pooling\n4. Add integration tests".into(),
+            ),
+        },
+        other => return Err(format!("unknown kind: {other}")),
+    };
+
+    // Insert into PendingStore with a oneshot. The rx is dropped
+    // (no one listens) — that's fine, `respond_permission` removes
+    // the entry from the store cleanly either way.
+    let (tx, _rx) = tokio::sync::oneshot::channel::<crate::agent::PermissionDecision>();
+    {
+        let mut pending = store.0.lock().await;
+        pending.insert(
+            request_id.clone(),
+            PendingEntry {
+                tx,
+                request: request.clone(),
+                agent_id: "claude-code".into(),
+            },
+        );
+    }
+
+    let payload = serde_json::to_value(&request)
+        .map_err(|e| format!("serialize synthetic request: {e}"))?;
+    // The bubble window starts hidden. Make sure it's shown — the
+    // HTTP path does this in handle_permission; the dev-tools
+    // synthetic path bypasses HTTP, so we show it here.
+    if let Err(err) = crate::http_server::show_bubble_window(&app, "bottom-right") {
+        eprintln!("[devtools] failed to show bubble window: {err}");
+    }
+    if let Some(bubble) = app.get_webview_window("permission-bubble") {
+        match bubble.emit("permission-request", payload.clone()) {
+            Ok(()) => eprintln!(
+                "[devtools] synthetic emitted to permission-bubble webview (request_id={request_id})"
+            ),
+            Err(e) => eprintln!(
+                "[devtools] synthetic emit to bubble FAILED: {e}"
+            ),
+        }
+    } else {
+        eprintln!("[devtools] synthetic permission-bubble webview NOT FOUND");
+    }
+    match app.emit("permission-request", payload) {
+        Ok(()) => eprintln!(
+            "[devtools] synthetic emitted app-wide (request_id={request_id})"
+        ),
+        Err(e) => eprintln!("[devtools] synthetic app.emit FAILED: {e}"),
+    }
+    eprintln!(
+        "[devtools] synthetic permission fired: kind={kind} request_id={request_id}"
+    );
+    Ok(request_id)
 }
 
 // ── Theme editor IPC (gated by `dev-tools` feature) ────────────
@@ -422,13 +553,11 @@ pub fn run() {
         .unwrap_or(17373);
 
     let pending = Arc::new(Mutex::new(HashMap::<String, PendingEntry>::new()));
-    let always_allow: AlwaysAllowStore = AlwaysAllowStore(Arc::new(Mutex::new(HashMap::new())));
 
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_store::Builder::new().build())
         .manage(PendingStore(pending.clone()))
-        .manage(always_allow.clone())
         .manage(SettingsStore(Arc::new(std::sync::Mutex::new(
             Settings::default(),
         ))))
@@ -436,17 +565,17 @@ pub fn run() {
             get_settings,
             set_theme,
             set_dnd,
+            set_language,
             set_bubble_position,
             respond_permission,
             list_agents,
             check_agent_installed,
             install_agent_hook,
             uninstall_agent_hook,
-            clear_always_allow_session,
             #[cfg(feature = "dev-tools")]
             devtools_get_pending,
             #[cfg(feature = "dev-tools")]
-            devtools_get_always_allow,
+            devtools_fire_synthetic_permission,
             #[cfg(feature = "dev-tools")]
             theme_load,
             #[cfg(feature = "dev-tools")]
@@ -455,7 +584,6 @@ pub fn run() {
         .setup(move |app| {
             let app_handle = app.handle().clone();
             let pending_for_http = pending.clone();
-            let always_allow_for_http = always_allow.0.clone();
             let port = hook_port;
 
             // Load persisted bubble_position (default bottom-right)
@@ -535,7 +663,6 @@ pub fn run() {
                 http_server::run(
                     app_handle,
                     pending_for_http,
-                    always_allow_for_http,
                     port,
                     bubble_pos_store,
                 )
@@ -596,6 +723,11 @@ pub fn run() {
                         .get("auto_start")
                         .and_then(|v| v.as_bool())
                         .unwrap_or(false),
+                    language: pstore
+                        .get("language")
+                        .and_then(|v| v.as_str().map(String::from))
+                        .filter(|s| matches!(s.as_str(), "en" | "zh"))
+                        .unwrap_or_else(|| "en".into()),
                 }
             } else {
                 Settings::default()

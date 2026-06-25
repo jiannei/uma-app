@@ -21,6 +21,12 @@
 // we accept this risk in exchange for a simpler hook configuration
 // (no token, no signed URLs). If the user wants stronger isolation
 // later, the hook installer can switch to a Unix domain socket.
+//
+// ADR-0011: this server no longer maintains an `AlwaysAllowStore` —
+// Claude Code (and equivalent agents) own session-scoped permission
+// rules via `destination: "session"` entries in
+// `permission_suggestions`. We just relay the bubble's pick as
+// `updatedPermissions`; the agent handles persistence and short-circuit.
 
 use axum::{
     extract::{Path, State},
@@ -34,22 +40,10 @@ use std::sync::Arc;
 use tauri::{AppHandle, Emitter, Manager};
 use tokio::sync::{oneshot, Mutex};
 
-use crate::agent;
+use crate::agent::{self, PermissionDecision};
 use crate::PendingEntry;
 
 // ── Internal types ──────────────────────────────────────────────
-
-/// Permission response as the bubble UI sends it. Decision string is
-/// one of "allow" | "deny" | "always" — the HTTP layer normalizes
-/// "always" into a write to the always-allow set before translating
-/// the wire response via the adapter.
-#[derive(Debug, Clone, Serialize, serde::Deserialize)]
-pub struct PermissionResponse {
-    pub request_id: String,
-    pub decision: String, // "allow" | "deny" | "always"
-    #[serde(default)]
-    pub reason: Option<String>,
-}
 
 /// Generic success response for non-blocking endpoints.
 #[derive(Debug, Clone, Serialize)]
@@ -73,10 +67,6 @@ struct AppState {
     /// request payload (so the dev-tools panel can render pending
     /// requests without re-fetching). Mirrors `lib.rs::PendingStore`.
     pending: Arc<Mutex<HashMap<String, PendingEntry>>>,
-    /// Per-(agent, session) always-allow tool set. Scope follows ADR-0003:
-    /// tool name is auto-approved only for that specific agent and session.
-    /// Memory-only, lost on restart (intentional MVP scope).
-    always_allow: Arc<Mutex<HashMap<(String, String), std::collections::HashSet<String>>>>,
     /// Internal request ID counter (per process).
     request_counter: Arc<Mutex<u64>>,
     /// User-configured bubble position ("bottom-right" default).
@@ -105,8 +95,8 @@ async fn handle_state(
         .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
 
     eprintln!(
-        "[http] state event: agent={} session={} event={} tool={:?}",
-        agent_id, event.session_id, event.event_type, event.tool_name
+        "[http] state event: agent={} session={} event={} tool={:?} subagent={:?}",
+        agent_id, event.session_id, event.event_type, event.tool_name, event.subagent
     );
 
     // The state machine + robot window expect a flat JSON shape with these
@@ -129,21 +119,16 @@ async fn handle_state(
 
 /// POST /agents/{id}/permission — blocking permission request.
 ///
-/// The handler blocks until either the user clicks a button in the
-/// bubble (response arrives via `respond_permission`) or the
-/// 5-minute timeout elapses. On timeout, returns 204 so the agent
-/// can fall back to its native prompt.
+/// The handler blocks until either the user picks a button in the
+/// bubble (response arrives via `respond_permission`) or the 5-minute
+/// timeout elapses. On timeout, returns 204 so the agent can fall
+/// back to its native prompt.
 async fn handle_permission(
     State(state): State<Arc<AppState>>,
     Path(agent_id): Path<String>,
     Json(raw): Json<serde_json::Value>,
 ) -> Result<Json<serde_json::Value>, StatusCode> {
     let adapter = agent::lookup_agent(&agent_id).ok_or(StatusCode::NOT_FOUND)?;
-    let tool_name = raw
-        .get("tool_name")
-        .and_then(|v| v.as_str())
-        .unwrap_or("")
-        .to_string();
 
     // Allocate internal request id BEFORE calling the adapter, so the
     // canonical PermissionRequest carries it for the bubble UI.
@@ -157,30 +142,18 @@ async fn handle_permission(
         .parse_permission_payload(raw, request_id.clone())
         .map_err(|_| StatusCode::BAD_REQUEST)?;
 
+    let tool_name = canonical.tool_name().unwrap_or("").to_string();
+
     eprintln!(
-        "[http] permission request: agent={} tool={} session={}",
-        agent_id, tool_name, canonical.session_id
+        "[http] permission request: agent={} tool={} session={} kind={:?}",
+        agent_id,
+        tool_name,
+        canonical.session_id(),
+        canonical.kind(),
     );
 
-    // Check the always-allow set (per ADR-0003, scoped to (agent, session)).
-    {
-        let allow = state.always_allow.lock().await;
-        if let Some(tools) = allow.get(&(agent_id.clone(), canonical.session_id.clone())) {
-            if tools.contains(&tool_name) {
-                eprintln!(
-                    "[http] tool '{}' in always-allow for {}/{}, auto-approving",
-                    tool_name, agent_id, canonical.session_id
-                );
-                let response = adapter
-                    .build_permission_response(&request_id, "allow")
-                    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-                return Ok(Json(response));
-            }
-        }
-    }
-
     // Cap pending queue.
-    let (tx, rx) = oneshot::channel::<PermissionResponse>();
+    let (tx, rx) = oneshot::channel::<PermissionDecision>();
     {
         let mut pending = state.pending.lock().await;
         if pending.len() >= MAX_PENDING_REQUESTS {
@@ -228,48 +201,32 @@ async fn handle_permission(
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     let app = state.app.clone();
     if let Some(bubble_win) = app.get_webview_window("permission-bubble") {
-        let _ = bubble_win.emit("permission-request", bubble_payload.clone());
+        match bubble_win.emit("permission-request", bubble_payload.clone()) {
+            Ok(()) => eprintln!("[http] emitted to permission-bubble webview"),
+            Err(e) => eprintln!("[http] emit to bubble FAILED: {e}"),
+        }
+    } else {
+        eprintln!("[http] permission-bubble webview NOT FOUND");
     }
-    let _ = app.emit("permission-request", bubble_payload);
+    match app.emit("permission-request", bubble_payload) {
+        Ok(()) => eprintln!("[http] emitted app-wide"),
+        Err(e) => eprintln!("[http] app.emit FAILED: {e}"),
+    }
 
     // Block until user response or timeout.
     let timeout = tokio::time::Duration::from_secs(300);
     match tokio::time::timeout(timeout, rx).await {
-        Ok(Ok(response)) => {
-            eprintln!("[http] permission response: {:?}", response);
-            if response.decision == "always" {
-                let mut allow = state.always_allow.lock().await;
-                allow
-                    .entry((agent_id.clone(), canonical.session_id.clone()))
-                    .or_insert_with(std::collections::HashSet::new)
-                    .insert(tool_name.clone());
-                eprintln!(
-                    "[http] added '{}' to always-allow for {}/{}",
-                    tool_name, agent_id, canonical.session_id
-                );
-
-                // Dev-tools panel watches AlwaysAllowStore mutations.
-                #[cfg(feature = "dev-tools")]
-                {
-                    let _ = state.app.emit(
-                        "devtools-always-allow-changed",
-                        serde_json::json!({
-                            "kind": "insert",
-                            "agent_id": &agent_id,
-                            "session_id": &canonical.session_id,
-                            "tool_name": &tool_name,
-                        }),
-                    );
-                }
-            }
+        Ok(Ok(decision)) => {
+            eprintln!(
+                "[http] permission response: request_id={} behavior={:?}",
+                decision.request_id, decision.behavior,
+            );
             hide_bubble_window(&state.app);
-            let wire_decision = if response.decision == "always" {
-                "allow"
-            } else {
-                &response.decision
-            };
+            // Forward the canonical decision to the agent via the
+            // adapter; the agent owns the wire-format envelope
+            // (e.g. Claude Code's `hookSpecificOutput.decision`).
             let payload = adapter
-                .build_permission_response(&request_id, wire_decision)
+                .build_permission_response(&decision)
                 .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
             Ok(Json(payload))
         }
@@ -303,7 +260,7 @@ async fn handle_permission(
 
 // ── Bubble window positioning ───────────────────────────────────
 
-fn show_bubble_window(app: &AppHandle, position: &str) -> Result<(), String> {
+pub fn show_bubble_window(app: &AppHandle, position: &str) -> Result<(), String> {
     use tauri::PhysicalPosition;
     if let Some(bubble) = app.get_webview_window("permission-bubble") {
         if let Ok(Some(monitor)) = app.primary_monitor() {
@@ -342,14 +299,12 @@ fn hide_bubble_window(app: &AppHandle) {
 pub fn build_router(
     app: AppHandle,
     pending: Arc<Mutex<HashMap<String, PendingEntry>>>,
-    always_allow: Arc<Mutex<HashMap<(String, String), std::collections::HashSet<String>>>>,
     bubble_position: Arc<std::sync::Mutex<String>>,
 ) -> Router {
     let state = Arc::new(AppState {
         app,
         pending,
         request_counter: Arc::new(Mutex::new(0)),
-        always_allow,
         bubble_position,
     });
     Router::new()
@@ -365,11 +320,10 @@ pub fn build_router(
 pub async fn run(
     app: AppHandle,
     pending: Arc<Mutex<HashMap<String, PendingEntry>>>,
-    always_allow: Arc<Mutex<HashMap<(String, String), std::collections::HashSet<String>>>>,
     port: u16,
     bubble_position: Arc<std::sync::Mutex<String>>,
 ) {
-    let router = build_router(app, pending, always_allow, bubble_position);
+    let router = build_router(app, pending, bubble_position);
     let addr = std::net::SocketAddr::from(([127, 0, 0, 1], port));
 
     eprintln!("[http] starting hook server on http://{addr}");

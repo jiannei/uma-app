@@ -1,7 +1,17 @@
 <script setup lang="ts">
+// src/App.vue — Settings window. v1.2.1: Reka UI primitive
+// refactor. The hand-rolled `.toggle-row` / `.theme-grid` /
+// `.position-card` markup is replaced by Reka UI Switch,
+// RadioGroup, and Tooltip primitives (with local Catppuccin
+// Mocha styling). Per-agent installation state is NOT here —
+// read it from `list_agents` (ADR-0002).
+
 import { ref, reactive, onMounted } from "vue";
 import { invoke } from "@tauri-apps/api/core";
 import { load } from "@tauri-apps/plugin-store";
+import Switch from "./components/ui/switch/Switch.vue";
+import RadioGroup from "./components/ui/radio-group/RadioGroup.vue";
+import Tooltip from "./components/ui/tooltip/Tooltip.vue";
 
 // ── Types ──────────────────────────────────────────────────────
 
@@ -12,9 +22,9 @@ interface Settings {
   sound_enabled: boolean;
   auto_start: boolean;
   bubble_position: string;
+  language: string;
 }
 
-/// Mirrors `AgentInfo` in src-tauri/src/lib.rs.
 interface AgentInfo {
   id: string;
   display_name: string;
@@ -25,24 +35,36 @@ interface AgentInfo {
 // ── Reactive state ──────────────────────────────────────────────
 
 const settings = ref<Settings>({
-  theme: 'uma',
+  theme: "uma",
   dnd: false,
   mini_mode: false,
   sound_enabled: true,
   auto_start: false,
-  bubble_position: 'bottom-right',
+  bubble_position: "bottom-right",
+  language: "en",
 });
 
 const themes = [
-  { id: 'uma', name: 'Uma', emoji: '🦀' },
-  { id: 'calico', name: 'Calico', emoji: '🐱' },
+  { id: "uma", label: "Uma", hint: "🦀" },
+  { id: "calico", label: "Calico", hint: "🐱" },
 ];
 
-const isLoading = ref(true);
-const status = ref('');
-const bubblePosition = ref('bottom-right');
+const bubblePositions = [
+  { id: "top-left", label: "Top Left" },
+  { id: "top-right", label: "Top Right" },
+  { id: "bottom-left", label: "Bottom Left" },
+  { id: "bottom-right", label: "Bottom Right" },
+];
 
-// Agents (registered with KNOWN_AGENTS in Rust)
+const LANGUAGES = [
+  { id: "en", label: "English", hint: "Default" },
+  { id: "zh", label: "中文", hint: "简体中文" },
+] as const;
+
+const isLoading = ref(true);
+const status = ref("");
+const bubblePosition = ref("bottom-right");
+
 const agents = ref<AgentInfo[]>([]);
 const agentBusy = reactive<Record<string, boolean>>({});
 
@@ -50,13 +72,14 @@ const agentBusy = reactive<Record<string, boolean>>({});
 
 async function loadSettings() {
   try {
-    const store = await load('settings.json', { autoSave: false, defaults: {} });
-    const theme = (await store.get<string>('theme')) || 'uma';
-    const dnd = (await store.get<boolean>('dnd')) ?? false;
-    const mini_mode = (await store.get<boolean>('mini_mode')) ?? false;
-    const sound_enabled = (await store.get<boolean>('sound_enabled')) ?? true;
-    const auto_start = (await store.get<boolean>('auto_start')) ?? false;
-    const storedPos = (await store.get<string>('bubble_position')) || 'bottom-right';
+    const store = await load("settings.json", { autoSave: false, defaults: {} });
+    const theme = (await store.get<string>("theme")) || "uma";
+    const dnd = (await store.get<boolean>("dnd")) ?? false;
+    const mini_mode = (await store.get<boolean>("mini_mode")) ?? false;
+    const sound_enabled = (await store.get<boolean>("sound_enabled")) ?? true;
+    const auto_start = (await store.get<boolean>("auto_start")) ?? false;
+    const storedPos = (await store.get<string>("bubble_position")) || "bottom-right";
+    const storedLang = (await store.get<string>("language")) || "en";
     bubblePosition.value = storedPos;
 
     settings.value = {
@@ -66,17 +89,17 @@ async function loadSettings() {
       sound_enabled,
       auto_start,
       bubble_position: storedPos,
+      language: storedLang,
     };
 
-    // Also sync from Rust (in case anything diverged).
     try {
-      const rustSettings = await invoke<Settings>('get_settings');
+      const rustSettings = await invoke<Settings>("get_settings");
       settings.value = { ...settings.value, ...rustSettings };
     } catch {
       /* ignore */
     }
   } catch (err) {
-    status.value = 'Failed to load settings: ' + err;
+    status.value = "Failed to load settings: " + err;
   } finally {
     isLoading.value = false;
   }
@@ -84,16 +107,16 @@ async function loadSettings() {
 
 async function loadAgents() {
   try {
-    agents.value = await invoke<AgentInfo[]>('list_agents');
+    agents.value = await invoke<AgentInfo[]>("list_agents");
   } catch (err) {
-    console.warn('list_agents failed:', err);
-    status.value = 'Failed to list agents: ' + err;
+    console.warn("list_agents failed:", err);
+    status.value = "Failed to list agents: " + err;
   }
 }
 
 async function refreshAgent(agentId: string) {
   try {
-    const installed = await invoke<boolean>('check_agent_installed', { agentId });
+    const installed = await invoke<boolean>("check_agent_installed", { agentId });
     const idx = agents.value.findIndex((a) => a.id === agentId);
     if (idx >= 0) {
       agents.value[idx] = { ...agents.value[idx], is_installed: installed };
@@ -107,69 +130,81 @@ async function refreshAgent(agentId: string) {
 
 async function setTheme(theme: string) {
   try {
-    await invoke('set_theme', { theme });
+    await invoke("set_theme", { theme });
     settings.value.theme = theme;
     status.value = `Theme: ${theme}`;
-    setTimeout(() => { status.value = ''; }, 1500);
+    setTimeout(() => {
+      status.value = "";
+    }, 1500);
   } catch (err) {
-    status.value = 'Failed: ' + err;
+    status.value = "Failed: " + err;
   }
 }
 
-async function toggleDnd() {
-  const newValue = !settings.value.dnd;
+async function toggleDnd(v: boolean) {
   try {
-    await invoke('set_dnd', { enabled: newValue });
-    settings.value.dnd = newValue;
-    status.value = `DND: ${newValue ? 'on' : 'off'}`;
-    setTimeout(() => { status.value = ''; }, 1500);
+    await invoke("set_dnd", { enabled: v });
+    settings.value.dnd = v;
+    status.value = `DND: ${v ? "on" : "off"}`;
+    setTimeout(() => {
+      status.value = "";
+    }, 1500);
   } catch (err) {
-    status.value = 'Failed: ' + err;
+    status.value = "Failed: " + err;
   }
 }
 
-async function toggleSound() {
-  const newValue = !settings.value.sound_enabled;
-  settings.value.sound_enabled = newValue;
+async function toggleSound(v: boolean) {
+  settings.value.sound_enabled = v;
   try {
-    const store = await load('settings.json', { autoSave: true, defaults: {} });
-    await store.set('sound_enabled', newValue);
+    const store = await load("settings.json", { autoSave: true, defaults: {} });
+    await store.set("sound_enabled", v);
     await store.save();
   } catch (err) {
-    console.warn('Failed to persist sound_enabled:', err);
+    console.warn("Failed to persist sound_enabled:", err);
   }
 }
 
-async function toggleAutoStart() {
-  const newValue = !settings.value.auto_start;
-  settings.value.auto_start = newValue;
+async function toggleAutoStart(v: boolean) {
+  settings.value.auto_start = v;
   try {
-    const store = await load('settings.json', { autoSave: true, defaults: {} });
-    await store.set('auto_start', newValue);
+    const store = await load("settings.json", { autoSave: true, defaults: {} });
+    await store.set("auto_start", v);
     await store.save();
   } catch (err) {
-    console.warn('Failed to persist auto_start:', err);
+    console.warn("Failed to persist auto_start:", err);
   }
 }
-
-const bubblePositions = [
-  { id: 'top-left', label: 'Top Left' },
-  { id: 'top-right', label: 'Top Right' },
-  { id: 'bottom-left', label: 'Bottom Left' },
-  { id: 'bottom-right', label: 'Bottom Right' },
-];
 
 async function setBubblePosition(position: string) {
   try {
-    await invoke('set_bubble_position', { position });
-    const store = await load('settings.json', { autoSave: true, defaults: {} });
-    await store.set('bubble_position', position);
+    await invoke("set_bubble_position", { position });
+    const store = await load("settings.json", { autoSave: true, defaults: {} });
+    await store.set("bubble_position", position);
     await store.save();
     bubblePosition.value = position;
     status.value = `Bubble position: ${position}`;
-    setTimeout(() => { status.value = ''; }, 1500);
+    setTimeout(() => {
+      status.value = "";
+    }, 1500);
   } catch (err) {
-    status.value = 'Failed: ' + err;
+    status.value = "Failed: " + err;
+  }
+}
+
+async function setLanguage(language: string) {
+  try {
+    await invoke("set_language", { language });
+    settings.value.language = language;
+    const store = await load("settings.json", { autoSave: true, defaults: {} });
+    await store.set("language", language);
+    await store.save();
+    status.value = `Language: ${language}`;
+    setTimeout(() => {
+      status.value = "";
+    }, 1500);
+  } catch (err) {
+    status.value = "Failed: " + err;
   }
 }
 
@@ -178,11 +213,13 @@ async function setBubblePosition(position: string) {
 async function installAgent(agentId: string) {
   agentBusy[agentId] = true;
   try {
-    await invoke('install_agent_hook', { agentId });
+    await invoke("install_agent_hook", { agentId });
     await refreshAgent(agentId);
     const agent = agents.value.find((a) => a.id === agentId);
     status.value = `${agent?.display_name ?? agentId}: hook installed`;
-    setTimeout(() => { status.value = ''; }, 2000);
+    setTimeout(() => {
+      status.value = "";
+    }, 2000);
   } catch (err) {
     status.value = `Install failed: ${err}`;
   } finally {
@@ -193,11 +230,13 @@ async function installAgent(agentId: string) {
 async function uninstallAgent(agentId: string) {
   agentBusy[agentId] = true;
   try {
-    await invoke('uninstall_agent_hook', { agentId });
+    await invoke("uninstall_agent_hook", { agentId });
     await refreshAgent(agentId);
     const agent = agents.value.find((a) => a.id === agentId);
     status.value = `${agent?.display_name ?? agentId}: hook uninstalled`;
-    setTimeout(() => { status.value = ''; }, 2000);
+    setTimeout(() => {
+      status.value = "";
+    }, 2000);
   } catch (err) {
     status.value = `Uninstall failed: ${err}`;
   } finally {
@@ -220,31 +259,29 @@ onMounted(async () => {
 
     <section>
       <h2>Theme</h2>
-      <div class="theme-grid">
-        <button
-          v-for="t in themes"
-          :key="t.id"
-          :class="['theme-card', { active: settings.theme === t.id }]"
-          @click="setTheme(t.id)"
-        >
-          <span class="emoji">{{ t.emoji }}</span>
-          <span class="name">{{ t.name }}</span>
-        </button>
-      </div>
+      <RadioGroup
+        :model-value="settings.theme"
+        :options="themes"
+        @update:model-value="(v: string) => setTheme(v)"
+      />
     </section>
 
     <section>
       <h2>Permission Bubble Position</h2>
-      <div class="position-grid">
-        <button
-          v-for="p in bubblePositions"
-          :key="p.id"
-          :class="['position-card', { active: bubblePosition === p.id }]"
-          @click="setBubblePosition(p.id)"
-        >
-          {{ p.label }}
-        </button>
-      </div>
+      <RadioGroup
+        :model-value="bubblePosition"
+        :options="bubblePositions"
+        @update:model-value="(v: string) => setBubblePosition(v)"
+      />
+    </section>
+
+    <section>
+      <h2>Language</h2>
+      <RadioGroup
+        :model-value="settings.language"
+        :options="LANGUAGES.map((l) => ({ id: l.id, label: l.label, hint: l.hint }))"
+        @update:model-value="(v: string) => setLanguage(v)"
+      />
     </section>
 
     <section>
@@ -261,7 +298,7 @@ onMounted(async () => {
           <div class="agent-name">{{ agent.display_name }}</div>
           <div class="agent-config">{{ agent.config_path }}</div>
           <div class="agent-status" :class="{ installed: agent.is_installed }">
-            {{ agent.is_installed ? '✅ 已安装' : '❌ 未安装' }}
+            {{ agent.is_installed ? "✅ 已安装" : "❌ 未安装" }}
           </div>
         </div>
         <div class="agent-actions">
@@ -271,7 +308,7 @@ onMounted(async () => {
             :disabled="agentBusy[agent.id]"
             @click="installAgent(agent.id)"
           >
-            {{ agentBusy[agent.id] ? '安装中...' : '安装' }}
+            {{ agentBusy[agent.id] ? "安装中..." : "安装" }}
           </button>
           <button
             v-else
@@ -279,12 +316,12 @@ onMounted(async () => {
             :disabled="agentBusy[agent.id]"
             @click="uninstallAgent(agent.id)"
           >
-            {{ agentBusy[agent.id] ? '卸载中...' : '卸载' }}
+            {{ agentBusy[agent.id] ? "卸载中..." : "卸载" }}
           </button>
         </div>
       </div>
       <p class="agent-hint">
-        安装后，agent 的事件将通过 HTTP hook 转发到本地 17373 端口。<br>
+        安装后，agent 的事件将通过 HTTP hook 转发到本地 17373 端口。<br />
         卸载会从该 agent 的配置文件中移除本应用添加的条目，保留其他 hooks。
       </p>
     </section>
@@ -292,22 +329,31 @@ onMounted(async () => {
     <section>
       <h2>Behavior</h2>
       <div class="toggle-row">
-        <span>Do Not Disturb</span>
-        <button :class="['toggle', { on: settings.dnd }]" @click="toggleDnd">
-          {{ settings.dnd ? 'ON' : 'OFF' }}
-        </button>
+        <Tooltip text="Suppress permission bubbles; CC falls back to its terminal prompt.">
+          <span>Do Not Disturb</span>
+        </Tooltip>
+        <Switch
+          :model-value="settings.dnd"
+          @update:model-value="(v: boolean) => toggleDnd(v)"
+        />
       </div>
       <div class="toggle-row">
-        <span>Sound Effects</span>
-        <button :class="['toggle', { on: settings.sound_enabled }]" @click="toggleSound">
-          {{ settings.sound_enabled ? 'ON' : 'OFF' }}
-        </button>
+        <Tooltip text="Play a chime when a permission request arrives.">
+          <span>Sound Effects</span>
+        </Tooltip>
+        <Switch
+          :model-value="settings.sound_enabled"
+          @update:model-value="(v: boolean) => toggleSound(v)"
+        />
       </div>
       <div class="toggle-row">
-        <span>Auto-start at login</span>
-        <button :class="['toggle', { on: settings.auto_start }]" @click="toggleAutoStart">
-          {{ settings.auto_start ? 'ON' : 'OFF' }}
-        </button>
+        <Tooltip text="Start the robot + hook server automatically when you log in.">
+          <span>Auto-start at login</span>
+        </Tooltip>
+        <Switch
+          :model-value="settings.auto_start"
+          @update:model-value="(v: boolean) => toggleAutoStart(v)"
+        />
       </div>
     </section>
 
@@ -337,141 +383,69 @@ onMounted(async () => {
 
 <style scoped>
 .settings {
-  padding: 32px;
-  max-width: 640px;
+  padding: 24px;
+  max-width: 720px;
   margin: 0 auto;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  color: #cdd6f4;
 }
 
-header h1 {
-  margin: 0 0 4px;
-  font-size: 28px;
-  font-weight: 700;
+header {
+  margin-bottom: 24px;
+}
+
+h1 {
+  font-size: 24px;
+  margin: 0;
 }
 
 .subtitle {
-  margin: 0 0 24px;
-  color: #888;
   font-size: 13px;
+  color: #a6adc8;
+  margin: 4px 0 0;
 }
 
 section {
-  margin-bottom: 28px;
+  background: #181825;
+  border: 1px solid #313244;
+  border-radius: 8px;
+  padding: 16px 20px;
+  margin-bottom: 16px;
 }
 
 h2 {
-  margin: 0 0 12px;
-  font-size: 13px;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-  color: #888;
+  font-size: 11px;
   font-weight: 600;
+  color: #a6adc8;
+  margin: 0 0 12px;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
 }
 
-.theme-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
-  gap: 12px;
-}
-
-.theme-card {
-  background: #1e1e2e;
-  border: 2px solid transparent;
-  border-radius: 10px;
-  padding: 16px 12px;
-  cursor: pointer;
-  transition: all 0.15s;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 6px;
-  font-family: inherit;
-  color: inherit;
-}
-
-.theme-card:hover {
-  background: #313244;
-  border-color: #45475a;
-}
-
-.theme-card.active {
-  border-color: #89b4fa;
-  background: #313244;
-}
-
-.theme-card .emoji {
-  font-size: 32px;
-}
-
-.theme-card .name {
-  font-size: 13px;
-  font-weight: 500;
-}
+/* ── Behavior section (Switches in toggle rows) ────────────── */
 
 .toggle-row {
   display: flex;
-  justify-content: space-between;
   align-items: center;
-  padding: 10px 0;
-  border-bottom: 1px solid #313244;
-  font-size: 14px;
-}
-
-.toggle-row:last-child {
-  border-bottom: none;
-}
-
-.toggle {
-  background: #45475a;
-  color: #cdd6f4;
-  border: none;
-  border-radius: 6px;
-  padding: 6px 14px;
-  cursor: pointer;
-  font-weight: 600;
-  font-size: 11px;
-  letter-spacing: 0.5px;
-  font-family: inherit;
-  min-width: 60px;
-}
-
-.toggle.on {
-  background: #a6e3a1;
-  color: #1e1e2e;
-}
-
-.status-grid {
-  background: #1e1e2e;
-  border-radius: 10px;
-  padding: 14px 16px;
-  font-size: 13px;
-}
-
-.status-item {
-  display: flex;
   justify-content: space-between;
-  padding: 6px 0;
+  padding: 8px 0;
+  font-size: 13px;
 }
 
-.status-item .label {
-  color: #888;
+.toggle-row + .toggle-row {
+  border-top: 1px solid #313244;
 }
 
-.status-item .value {
-  font-family: monospace;
+.toggle-row span {
   color: #cdd6f4;
 }
 
-footer {
-  position: fixed;
-  bottom: 16px;
-  left: 50%;
-  transform: translateX(-50%);
-  background: #89b4fa;
-  color: #1e1e2e;
-  padding: 8px 16px;
-  border-radius: 8px;
-  font-size: 13px;
-  font-weight: 500;
+/* ── Agent section (cards) ──────────────────────────────────── */
+
+.empty-hint {
+  color: #6c7086;
+  font-style: italic;
+  font-size: 12px;
 }
 
 .agent-card {
@@ -479,147 +453,119 @@ footer {
   align-items: center;
   justify-content: space-between;
   background: #1e1e2e;
-  border-radius: 10px;
-  padding: 14px 16px;
+  border: 1px solid #313244;
+  border-radius: 6px;
+  padding: 12px;
   margin-bottom: 8px;
 }
 
 .agent-info {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  min-width: 0;
   flex: 1;
+  min-width: 0;
 }
 
 .agent-name {
-  font-size: 14px;
-  font-weight: 600;
+  font-weight: 500;
+  font-size: 13px;
+  color: #cdd6f4;
 }
 
 .agent-config {
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
   font-size: 11px;
   color: #6c7086;
-  font-family: monospace;
+  margin-top: 2px;
+  white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .agent-status {
-  font-size: 12px;
-  color: #888;
+  font-size: 11px;
+  margin-top: 4px;
+  color: #f38ba8;
 }
 
 .agent-status.installed {
   color: #a6e3a1;
 }
 
-.empty-hint {
-  font-size: 12px;
-  color: #888;
-  padding: 14px 16px;
-  background: #1e1e2e;
-  border-radius: 10px;
-  margin-bottom: 8px;
+.agent-actions {
+  margin-left: 12px;
 }
 
-.agent-actions button {
-  min-width: 80px;
+.btn-primary,
+.btn-secondary {
+  padding: 6px 12px;
+  border: none;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  font-family: inherit;
 }
 
 .btn-primary {
-  background: #89b4fa;
+  background: #a6e3a1;
   color: #1e1e2e;
-  border: none;
-  border-radius: 6px;
-  padding: 8px 16px;
-  cursor: pointer;
-  font-weight: 600;
-  font-size: 12px;
-  font-family: inherit;
-}
-
-.btn-primary:hover:not(:disabled) {
-  filter: brightness(0.9);
-}
-
-.btn-primary:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
 }
 
 .btn-secondary {
-  background: #45475a;
-  color: #cdd6f4;
-  border: none;
-  border-radius: 6px;
-  padding: 8px 16px;
-  cursor: pointer;
-  font-weight: 600;
-  font-size: 12px;
-  font-family: inherit;
+  background: #f38ba8;
+  color: #1e1e2e;
 }
 
-.btn-secondary:hover:not(:disabled) {
-  filter: brightness(0.9);
-}
-
+.btn-primary:disabled,
 .btn-secondary:disabled {
   opacity: 0.5;
   cursor: not-allowed;
 }
 
 .agent-hint {
-  font-size: 12px;
-  color: #888;
-  line-height: 1.5;
+  font-size: 11px;
+  color: #a6adc8;
   margin: 8px 0 0;
-}
-
-.position-grid {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 10px;
-}
-
-.position-card {
-  background: #1e1e2e;
-  border: 2px solid transparent;
-  border-radius: 8px;
-  padding: 12px;
-  cursor: pointer;
-  transition: all 0.15s;
-  font-family: inherit;
-  color: inherit;
-  font-size: 13px;
-}
-
-.position-card:hover {
-  background: #313244;
-  border-color: #45475a;
-}
-
-.position-card.active {
-  border-color: #89b4fa;
-  background: #313244;
-}
-</style>
-
-<style>
-:root {
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  font-size: 14px;
   line-height: 1.5;
-  color: #cdd6f4;
-  background-color: #11111b;
-  font-synthesis: none;
-  -webkit-font-smoothing: antialiased;
 }
 
-body {
+/* ── Status section ─────────────────────────────────────────── */
+
+.status-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 12px;
+}
+
+.status-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.status-item .label {
+  font-size: 10px;
+  color: #a6adc8;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.status-item .value {
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 12px;
+  color: #cdd6f4;
+}
+
+footer {
+  margin-top: 16px;
+}
+
+.status-msg {
+  background: #313244;
+  color: #cdd6f4;
+  padding: 8px 12px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
   margin: 0;
-  background: #11111b;
-  min-height: 100vh;
 }
 </style>

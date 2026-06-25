@@ -25,11 +25,8 @@ import { listen, type UnlistenFn, emit as tauriEmit } from "@tauri-apps/api/even
 import { useMachine } from "@xstate/vue";
 import { displayStateResolver } from "../robot/display-state-resolver";
 import { DEFAULT_THEME } from "../robot/display-state-constants";
-import type {
-  HookEvent,
-  PermissionRequest,
-  ThemeManifest,
-} from "../robot/display-state-types";
+import type { HookEvent, ThemeManifest } from "../robot/display-state-types";
+import type { PermissionRequest } from "../types/permission";
 
 import StateMachinePanel from "./panels/StateMachinePanel.vue";
 import EventLogPanel from "./panels/EventLogPanel.vue";
@@ -80,32 +77,28 @@ function pushEvent(entry: EventLogEntry) {
 }
 
 // ── Rust store snapshots (live) ─────────────────────────────────
+//
+// PendingStore: kept (one pending permission per request, with the
+// full canonical PermissionRequest payload so the panel can render
+// kind + per-kind fields).
+//
+// AlwaysAllowStore: REMOVED in ADR-0011 — CC owns session-scoped
+// permission rules via destination: "session" entries; we no longer
+// keep a parallel cache. See ADR-0003 (archived) for the previous
+// per-(agent, session) HashSet<tool_name> shape.
 
 interface PendingEntryView {
-  request_id: string;
-  agent_id: string;
+  requestId: string;
+  agentId: string;
   request: PermissionRequest;
 }
-interface AlwaysAllowView {
-  agent_id: string;
-  session_id: string;
-  tools: string[];
-}
 const pending = ref<PendingEntryView[]>([]);
-const alwaysAllow = ref<AlwaysAllowView[]>([]);
 
 async function refreshPending() {
   try {
     pending.value = await invoke<PendingEntryView[]>("devtools_get_pending");
   } catch (err) {
     console.warn("[devtools] devtools_get_pending failed:", err);
-  }
-}
-async function refreshAlwaysAllow() {
-  try {
-    alwaysAllow.value = await invoke<AlwaysAllowView[]>("devtools_get_always_allow");
-  } catch (err) {
-    console.warn("[devtools] devtools_get_always_allow failed:", err);
   }
 }
 
@@ -153,7 +146,6 @@ onMounted(async () => {
 
   // Initial Rust store snapshots.
   await refreshPending();
-  await refreshAlwaysAllow();
 
   // Fetch the active theme manifest so timings match the robot window.
   // `get_settings` returns the current theme id; `theme_load` reads
@@ -245,12 +237,6 @@ onMounted(async () => {
       refreshPending();
     })
   );
-  unsubscribers.push(
-    await listen("devtools-always-allow-changed", () => {
-      refreshAlwaysAllow();
-    })
-  );
-
   // Reset broadcast (from any source — this panel, another dev
   // panel session, or a future trigger). Reset local resolver and log.
   unsubscribers.push(
@@ -277,7 +263,7 @@ onUnmounted(() => {
       <StateMachinePanel :snapshot="snapshot" />
       <EventLogPanel :entries="eventLog" />
       <VisualDebugPanel />
-      <StoresPanel :pending="pending" :always-allow="alwaysAllow" />
+      <StoresPanel :pending="pending" />
       <SyntheticFirePanel :agents="agents" :fire-synthetic="fireSynthetic" />
       <ThemeEditorPanel />
     </main>

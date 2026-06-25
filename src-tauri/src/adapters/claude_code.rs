@@ -8,7 +8,10 @@
 // Lives in the Tauri binary so the rest of the app (HTTP server,
 // state machine, bubble) can stay agent-agnostic. See ADR-0002.
 
-use crate::agent::{Agent, AgentId, HookEvent, PermissionRequest, Result};
+use crate::agent::{
+    Agent, AgentId, DecisionBehavior, ElicitationQuestion, HookEvent, PermissionBase,
+    PermissionDecision, PermissionRequest, PermissionUpdateEntry, Result,
+};
 use serde::Deserialize;
 use serde_json::{json, Value};
 use std::fs;
@@ -26,6 +29,19 @@ const MAX_PERMISSION_MODE_LEN: usize = 64;
 
 const AGENT_ID: &str = "claude-code";
 const AGENT_DISPLAY_NAME: &str = "Claude Code";
+
+/// Tool names that Claude Code uses to spawn a subagent. The resolver
+/// uses this to flip `subagent: true` on the canonical HookEvent;
+/// it never inspects the tool name itself. Keep this in lockstep
+/// with whatever Claude Code currently ships — see ADR-0008.
+const SUBAGENT_TOOL_NAMES: &[&str] = &["Task", "Agent", "task"];
+
+fn is_subagent_tool(tool_name: Option<&str>) -> bool {
+    match tool_name {
+        Some(name) => SUBAGENT_TOOL_NAMES.contains(&name),
+        None => false,
+    }
+}
 
 /// Per-hook timeouts (seconds) for Claude Code's HTTP hook protocol.
 /// State hooks are fire-and-forget (2s is enough for the loopback round
@@ -95,6 +111,11 @@ pub struct ClaudeCodePermissionPayload {
     pub tool_input: Option<serde_json::Value>,
     #[serde(default)]
     pub cwd: Option<String>,
+    /// CC's `permission_suggestions` input field. Pass-through; the
+    /// bubble renders them as suggestion buttons and the user's pick
+    /// is echoed back as `updatedPermissions`. See ADR-0011.
+    #[serde(default)]
+    pub permission_suggestions: Vec<PermissionUpdateEntry>,
 }
 
 impl ClaudeCodePermissionPayload {
@@ -174,6 +195,16 @@ impl Agent for ClaudeCodeAdapter {
             .map_err(|e| format!("invalid Claude Code hook payload: {e}"))?;
         payload.validate()?;
         let (event_type, success, error) = translate_event(&payload.hook_event_name);
+        // `subagent: true` is set on the tool-call events (`PreToolUse` →
+        // ToolCallStart, `PostToolUse`/`PostToolUseFailure` → ToolCallEnd)
+        // when the tool is one Claude Code uses to spawn a subagent.
+        // The resolver never inspects `tool_name` itself — it reads the
+        // bool. See ADR-0008.
+        let subagent = if event_type == "ToolCallStart" || event_type == "ToolCallEnd" {
+            Some(is_subagent_tool(payload.tool_name.as_deref()))
+        } else {
+            None
+        };
         Ok(HookEvent {
             session_id: payload.session_id,
             event_type,
@@ -183,6 +214,7 @@ impl Agent for ClaudeCodeAdapter {
             cwd: payload.cwd,
             success,
             error,
+            subagent,
         })
     }
 
@@ -194,34 +226,104 @@ impl Agent for ClaudeCodeAdapter {
         let payload: ClaudeCodePermissionPayload = serde_json::from_value(raw)
             .map_err(|e| format!("invalid Claude Code permission payload: {e}"))?;
         payload.validate()?;
-        Ok(PermissionRequest {
+
+        let base = PermissionBase {
             request_id,
             session_id: payload.session_id,
-            tool_name: payload.tool_name,
-            tool_input: payload.tool_input,
-            cwd: payload.cwd,
             agent: AgentId(AGENT_ID.into()),
             agent_display_name: AGENT_DISPLAY_NAME.into(),
-        })
+            cwd: payload.cwd,
+        };
+
+        let tool_name = payload.tool_name.unwrap_or_default();
+        let tool_input = payload.tool_input;
+        match tool_name.as_str() {
+            "AskUserQuestion" => Ok(PermissionRequest::Elicitation {
+                base,
+                tool_name,
+                tool_input: tool_input.clone(),
+                questions: extract_elicitation_questions(tool_input.as_ref()),
+            }),
+            "ExitPlanMode" => Ok(PermissionRequest::PlanReview {
+                base,
+                tool_name,
+                tool_input: tool_input.clone(),
+                plan_content: extract_plan_content(tool_input.as_ref()),
+            }),
+            _ => Ok(PermissionRequest::SideEffect {
+                base,
+                tool_name: (!tool_name.is_empty()).then_some(tool_name),
+                tool_input,
+                permission_suggestions: payload.permission_suggestions,
+            }),
+        }
     }
 
     fn build_permission_response(
         &self,
-        _request_id: &str,
-        decision: &str,
+        decision: &PermissionDecision,
     ) -> Result<serde_json::Value> {
-        // Claude Code's hook protocol only accepts "allow" / "deny" —
-        // the robot's "always" decision collapses to "allow" on the wire
-        // (the in-memory always-allow set is updated separately by the
-        // HTTP server before this method is called).
-        let behavior = if decision == "always" { "allow" } else { decision };
+        // CC's `decision` shape is flat: `behavior` required, the rest
+        // optional and only-valid-for-the-relevant-behavior (validated
+        // at the HTTP server boundary). Serialize from the canonical
+        // `PermissionDecision` field by field.
+        let behavior = match decision.behavior {
+            DecisionBehavior::Allow => "allow",
+            DecisionBehavior::Deny => "deny",
+        };
+        let mut wire = json!({ "behavior": behavior });
+        if let Some(message) = &decision.message {
+            wire["message"] = json!(message);
+        }
+        if let Some(interrupt) = decision.interrupt {
+            wire["interrupt"] = json!(interrupt);
+        }
+        if let Some(updated_input) = &decision.updated_input {
+            wire["updatedInput"] = updated_input.clone();
+        }
+        if let Some(updated_permissions) = &decision.updated_permissions {
+            wire["updatedPermissions"] = json!(updated_permissions);
+        }
         Ok(json!({
             "hookSpecificOutput": {
                 "hookEventName": "PermissionRequest",
-                "decision": { "behavior": behavior },
+                "decision": wire,
             }
         }))
     }
+}
+
+// ── Permission payload extraction (ADR-0011) ─────────────────────
+
+/// Pull `questions[]` out of Claude Code's `AskUserQuestion` tool input.
+/// Each entry is deserialized into the canonical `ElicitationQuestion`
+/// shape; entries that don't fit are skipped rather than failing the
+/// whole request — the bubble still shows what it can.
+fn extract_elicitation_questions(tool_input: Option<&Value>) -> Vec<ElicitationQuestion> {
+    let Some(input) = tool_input else { return Vec::new() };
+    let Some(questions) = input.get("questions").and_then(|q| q.as_array()) else {
+        return Vec::new();
+    };
+    questions
+        .iter()
+        .filter_map(|q| serde_json::from_value::<ElicitationQuestion>(q.clone()).ok())
+        .collect()
+}
+
+/// Pull the plan text out of Claude Code's `ExitPlanMode` tool input.
+/// CC's shape varies across versions; we try the most common field
+/// names and fall back to `None` — the bubble can still render the raw
+/// `tool_input` if `plan_content` is missing.
+fn extract_plan_content(tool_input: Option<&Value>) -> Option<String> {
+    let input = tool_input?;
+    for key in ["plan", "Plan", "content", "message"] {
+        if let Some(s) = input.get(key).and_then(|v| v.as_str()) {
+            if !s.is_empty() {
+                return Some(s.to_string());
+            }
+        }
+    }
+    None
 }
 
 // ── Event translation (Claude Code → canonical 8 events, ADR-0001) ─

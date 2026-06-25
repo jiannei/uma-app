@@ -1,29 +1,62 @@
 <script setup lang="ts">
 // src/devtools/panels/StoresPanel.vue — Panel 4.
 //
-// Live view of the Rust PendingStore and AlwaysAllowStore. Initial
-// snapshot via `devtools_get_pending` + `devtools_get_always_allow`
-// on mount; subsequent updates via `devtools-pending-changed` and
-// `devtools-always-allow-changed` events. See docs/adr/0005-dev-tools.md
+// Live view of the Rust PendingStore. Initial snapshot via
+// `devtools_get_pending` on mount; subsequent updates via the
+// `devtools-pending-changed` event. See docs/adr/0005-dev-tools.md
 // D8.
+//
+// AlwaysAllowStore was removed in ADR-0011 — that section is gone.
 
-import type { PermissionRequest } from "../../robot/display-state-types";
+import type {
+  ElicitationRequest,
+  PermissionRequest,
+  PlanReviewRequest,
+  SideEffectRequest,
+} from "../../types/permission";
 
 interface PendingEntryView {
-  request_id: string;
-  agent_id: string;
+  requestId: string;
+  agentId: string;
   request: PermissionRequest;
-}
-interface AlwaysAllowView {
-  agent_id: string;
-  session_id: string;
-  tools: string[];
 }
 
 const props = defineProps<{
   pending: PendingEntryView[];
-  alwaysAllow: AlwaysAllowView[];
 }>();
+
+// Kind badge color (Catppuccin Mocha).
+function kindColor(kind: PermissionRequest["kind"]): string {
+  switch (kind) {
+    case "SideEffect":
+      return "#89b4fa"; // blue
+    case "Elicitation":
+      return "#f9e2af"; // yellow
+    case "PlanReview":
+      return "#cba6f7"; // mauve
+  }
+}
+
+// Per-kind detail string for the panel row.
+function detail(req: PermissionRequest): string {
+  switch (req.kind) {
+    case "SideEffect": {
+      const r = req as SideEffectRequest;
+      const sug = r.permissionSuggestions.length;
+      const sugSuffix = sug ? ` · ${sug} suggestion${sug === 1 ? "" : "s"}` : "";
+      return `${r.toolName ?? "—"}${sugSuffix}`;
+    }
+    case "Elicitation": {
+      const r = req as ElicitationRequest;
+      return `${r.questions.length} question${r.questions.length === 1 ? "" : "s"}`;
+    }
+    case "PlanReview": {
+      const r = req as PlanReviewRequest;
+      const len = r.planContent?.length ?? 0;
+      return `plan ${len > 0 ? `${len} chars` : "no content"}`;
+    }
+  }
+}
 </script>
 
 <template>
@@ -35,24 +68,30 @@ const props = defineProps<{
           Pending
           <span class="count">{{ props.pending.length }}</span>
         </h3>
-        <div v-if="props.pending.length === 0" class="empty">No pending requests.</div>
-        <div v-for="entry in props.pending" :key="entry.request_id" class="entry">
-          <span class="reqid">{{ entry.request_id }}</span>
-          <span class="agent">{{ entry.request.agent_display_name || entry.agent_id }}</span>
-          <span class="tool">{{ entry.request.tool_name || "—" }}</span>
-          <span class="session">{{ (entry.request.session_id || "").slice(0, 8) }}</span>
+        <div v-if="props.pending.length === 0" class="empty">
+          No pending requests.
         </div>
-      </div>
-      <div class="group">
-        <h3>
-          Always Allow
-          <span class="count">{{ props.alwaysAllow.length }}</span>
-        </h3>
-        <div v-if="props.alwaysAllow.length === 0" class="empty">No always-allow entries.</div>
-        <div v-for="entry in props.alwaysAllow" :key="entry.agent_id + entry.session_id" class="entry">
-          <span class="agent">{{ entry.agent_id }}</span>
-          <span class="session">{{ entry.session_id.slice(0, 8) }}</span>
-          <span class="tools">{{ entry.tools.join(", ") }}</span>
+        <div
+          v-for="entry in props.pending"
+          :key="entry.requestId"
+          class="entry"
+        >
+          <span class="reqid">{{ entry.requestId }}</span>
+          <span
+            class="kind"
+            :style="{ color: kindColor(entry.request.kind) }"
+          >
+            {{ entry.request.kind }}
+          </span>
+          <span class="agent">
+            {{ entry.request.agentDisplayName || entry.agentId }}
+          </span>
+          <span class="detail">
+            {{ detail(entry.request) }}
+          </span>
+          <span class="session">
+            {{ entry.request.sessionId.slice(0, 8) }}
+          </span>
         </div>
       </div>
     </div>
@@ -116,10 +155,16 @@ h3 {
   color: #cdd6f4;
   white-space: nowrap;
   overflow: hidden;
+  flex-wrap: wrap;
 }
 .reqid { color: #6c7086; }
+.kind {
+  font-weight: 600;
+  text-transform: uppercase;
+  font-size: 9px;
+  letter-spacing: 0.5px;
+}
 .agent { color: #cba6f7; }
-.tool { color: #f9e2af; }
+.detail { color: #a6e3a1; }
 .session { color: #6c7086; }
-.tools { color: #a6e3a1; }
 </style>

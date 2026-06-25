@@ -19,7 +19,6 @@ export const ALL_STATES: readonly DisplayState[] = [
   'notification',
   'sleeping',
   'waking',
-  'sweeping',
   'carrying',
   'subagent-groove',
   'juggling',
@@ -27,13 +26,6 @@ export const ALL_STATES: readonly DisplayState[] = [
   'dozing',
   'collapsing',
 ] as const;
-
-/** Tool names that count as a subagent spawn (ADR-0001 subagent decision). */
-export const SUBAGENT_TOOLS: ReadonlySet<string> = new Set([
-  'Task',
-  'Agent',
-  'task',
-]);
 
 /** Canonical 8-event vocabulary (ADR-0001). */
 export const CANONICAL_EVENTS: readonly CanonicalEventName[] = [
@@ -69,7 +61,6 @@ export const DEFAULT_THEME = {
       attention: 4000,
       error: 5000,
       notification: 5000,
-      sweeping: 300000,
       carrying: 3000,
     },
     yawnDuration: 3000,
