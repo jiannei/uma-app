@@ -198,6 +198,30 @@ async fn respond_permission(
     Ok(())
 }
 
+/// Resize the permission-bubble webview to fit the current request kind.
+///
+/// Called by `BubbleApp.vue` on mount of an expanded kind (SideEffect /
+/// Elicitation / PlanReview) or on returning to the pill. The window
+/// stays anchored at `Position::TopCenter` (set once at window creation
+/// in `setup`) — `set_size` does not move it. ADR-0014 follow-up
+/// (2026-06-26)统一宽度 480pt，只变 height。
+#[tauri::command]
+fn set_bubble_size(
+    app: AppHandle,
+    width: f64,
+    height: f64,
+) -> Result<(), String> {
+    if let Some(bubble) = app.get_webview_window("permission-bubble") {
+        // Logical pixels; Tauri handles DPR conversion internally.
+        bubble
+            .set_size(tauri::LogicalSize::new(width, height))
+            .map_err(|e| format!("set_bubble_size: {e}"))?;
+    } else {
+        return Err("permission-bubble window not found".into());
+    }
+    Ok(())
+}
+
 // ── Agent Tauri commands ──
 
 /// Information about a registered agent, surfaced to the settings UI.
@@ -528,10 +552,18 @@ pub fn run() {
 
     let pending = Arc::new(Mutex::new(HashMap::<String, PendingEntry>::new()));
 
-    tauri::Builder::default()
+    let builder = tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_positioner::init())
-        .plugin(tauri_plugin_store::Builder::new().build())
+        .plugin(tauri_plugin_store::Builder::new().build());
+
+    // Dev-only: enables the `mcp___hypothesi_tauri-mcp-server__*`
+    // tools (screenshots, DOM snapshots, IPC) over WebSocket on
+    // port 9223. No-op in release builds.
+    #[cfg(debug_assertions)]
+    let builder = builder.plugin(tauri_plugin_mcp_bridge::init());
+
+    builder
         .manage(PendingStore(pending.clone()))
         .manage(SettingsStore(Arc::new(std::sync::Mutex::new(
             Settings::default(),
@@ -542,6 +574,7 @@ pub fn run() {
             set_dnd,
             set_language,
             respond_permission,
+            set_bubble_size,
             list_agents,
             check_agent_installed,
             install_agent_hook,
@@ -611,15 +644,15 @@ pub fn run() {
                 WebviewUrl::App("permission-bubble.html".into()),
             )
             .title("Uma Permission")
-            // 固定 480×360：装下所有状态（pill / SideEffect / Elicitation /
-            // PlanReview）。Pill + SideEffect 顶部居中（剩下区域 click-through）；
-            // Elicitation/PlanReview 全填 + 内部 ScrollArea 滚动。**不**做
-            // 动态 resize — robot 同款：CSS `pointer-events: none` on body,
-            // 真正可点的元素加 `pointer-events: auto`，让 webview 自身做
-            // click-through，消除 setSize/setPosition race。
-            .inner_size(480.0, 360.0)
-            .min_inner_size(480.0, 360.0)
-            .max_inner_size(480.0, 360.0)
+            // ADR-0014 follow-up (2026-06-26)：动态 resize 按 kind 设尺寸。
+            // 统一 width = 280pt（极简，iPhone 灵动岛 compact pill 风）。
+            // 初始 280×80（pill 态）。Pill → SideEffect (280×200) /
+            // Elicitation (280×360) / PlanReview (280×600) 由
+            // BubbleApp.vue 在 mount 时调 `set_bubble_size()`。
+            // CSS `pointer-events: none` on body + 可点元素加
+            // `pointer-events: auto`，让 webview 自身做 click-through。
+            .inner_size(280.0, 80.0)
+            .min_inner_size(280.0, 80.0)
             .decorations(false)
             .always_on_top(true)
             .skip_taskbar(true)

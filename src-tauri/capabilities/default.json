@@ -17,6 +17,7 @@
     "core:window:allow-close",
     "opener:default",
     "positioner:default",
-    "store:default"
+    "store:default",
+    "mcp-bridge:default"
   ]
 }
