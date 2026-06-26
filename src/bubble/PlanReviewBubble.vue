@@ -14,7 +14,6 @@
 // plan is rejected without a revision hint.)
 
 import { ref, computed, watch } from "vue";
-import { invoke } from "@tauri-apps/api/core";
 import { ClipboardList } from "@lucide/vue";
 import type {
   PlanReviewRequest,
@@ -31,6 +30,10 @@ const lang = useBubbleLang(); // reactive — updated by set_language
 
 const props = defineProps<{
   request: PlanReviewRequest;
+}>();
+
+const emit = defineEmits<{
+  decide: [decision: PermissionDecision];
 }>();
 
 // Prefer the normalized plan_content; fall back to toolInput.plan
@@ -55,41 +58,33 @@ watch(
   },
 );
 
-async function approve() {
+function approve() {
   if (sending.value) return;
   sending.value = true;
-  const decision: PermissionDecision = {
+  emit("decide", {
     requestId: props.request.requestId,
     behavior: "allow",
-  };
-  try {
-    await invoke("respond_permission", { decision });
-  } catch (err) {
-    console.error("[bubble] respond_permission failed:", err);
-    sending.value = false;
-  }
+  });
 }
 
-async function reject() {
+function reject() {
   if (sending.value) return;
   sending.value = true;
   const trimmed = feedback.value.trim();
-  const decision: PermissionDecision = {
+  emit("decide", {
     requestId: props.request.requestId,
     behavior: "deny",
     ...(trimmed ? { message: trimmed } : {}),
-  };
-  try {
-    await invoke("respond_permission", { decision });
-  } catch (err) {
-    console.error("[bubble] respond_permission failed:", err);
-    sending.value = false;
-  }
+  });
 }
 </script>
 
 <template>
-  <div class="flex flex-col gap-2.5 p-3 text-[13px] select-none">
+  <!--
+    PlanReview 全填 480×360（ADR-0013 固定 webview）。
+    header 顶 / textarea + 按钮底固定；plan pre 中间 flex-1 滚动。
+  -->
+  <div class="expanded-shell flex flex-col gap-2.5 p-3 text-[13px] select-none w-full h-full min-h-0">
     <BubbleHeader
       :icon="ClipboardList"
       variant="secondary"
@@ -97,9 +92,9 @@ async function reject() {
       :tag="bubbleText(lang, 'toolPill')"
     />
 
-    <pre class="bg-muted text-foreground font-mono text-[11px] p-2.5 rounded-md max-h-[180px] overflow-auto whitespace-pre-wrap break-words m-0 border border-border">{{ planText }}</pre>
+    <pre class="bg-muted text-foreground font-mono text-[11px] p-2.5 rounded-md flex-1 min-h-0 overflow-auto whitespace-pre-wrap break-words m-0 border border-border">{{ planText }}</pre>
 
-    <div class="flex flex-col gap-1">
+    <div class="flex flex-col gap-1 flex-shrink-0">
       <Label for="plan-feedback" class="text-[10px] text-muted-foreground uppercase tracking-wider">
         {{ bubbleText(lang, "feedbackLabel") }}
       </Label>
@@ -114,7 +109,7 @@ async function reject() {
       />
     </div>
 
-    <div class="flex gap-1.5 mt-auto">
+    <div class="flex gap-1.5 mt-auto flex-shrink-0">
       <Button
         variant="default"
         class="flex-1"

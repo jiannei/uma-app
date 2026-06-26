@@ -1,181 +1,133 @@
 <script setup lang="ts">
-// src/bubble/SideEffectBubble.vue — top-level permission bubble
-// dispatcher. Listens for the `permission-request` Tauri event and
-// routes by kind:
-//   - SideEffect → inline render (tool pill + tool_input summary
-//     + permission_suggestions + Allow / Deny)
-//   - Elicitation → ElicitationBubble (multi-question form)
-//   - PlanReview → PlanReviewBubble (plan content + feedback)
+// src/bubble/SideEffectBubble.vue — SideEffect kind 展开态。
 //
-// Click handlers invoke the canonical `respond_permission` Tauri
-// command, which forwards the `PermissionDecision` to the HTTP
-// server's `handle_permission` via the oneshot channel.
+// ADR-0013 架构：原本是顶层 dispatcher（监听 `permission-request`
+// + 按 kind 路由），现在拆成"展开态"——BubbleApp 持有 request 状态，
+// view='expanded' 时按 kind 渲染对应 SFC，决策通过 `decide` 事件
+// 通知父级统一 invoke respond_permission + 管理 fade-out。
+//
+// 渲染：BubbleHeader + tool_input 详情 + permission_suggestions
+// + Allow / Deny。固定宽 480pt，长内容走内部 ScrollArea（ADR-0013
+// 决策 14）。
 
-import { ref, computed, onMounted, onUnmounted } from "vue";
-import { invoke } from "@tauri-apps/api/core";
-import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { ref } from "vue";
 import { Shield } from "@lucide/vue";
 import type {
   PermissionDecision,
-  PermissionRequest,
   PermissionUpdateEntry,
   SideEffectRequest,
-} from "./types";
+} from "../types/permission";
 import { bubbleText } from "./strings";
 import { formatDetail } from "./format-detail";
 import { suggestionLabel } from "./suggestion-label";
 import { useBubbleLang } from "./lang";
 import { Button } from "@/components/ui/button";
 import BubbleHeader from "@/components/bubble/BubbleHeader.vue";
-import ElicitationBubble from "./ElicitationBubble.vue";
-import PlanReviewBubble from "./PlanReviewBubble.vue";
 
 const lang = useBubbleLang(); // reactive — updated by set_language
 
-const current = ref<PermissionRequest | null>(null);
+const props = defineProps<{
+  request: SideEffectRequest;
+}>();
+
+const emit = defineEmits<{
+  decide: [decision: PermissionDecision];
+}>();
+
 const sending = ref(false);
-let unlisten: UnlistenFn | undefined;
 
-// Computed projections for each kind. Vue's template type checker
-// doesn't narrow discriminated unions across v-if/v-else-if chains,
-// so we resolve the variant explicitly in the script side and let
-// the template consume the typed computed. `null` when the variant
-// doesn't match.
-const sideEffect = computed<SideEffectRequest | null>(() => {
-  const c = current.value;
-  return c && c.kind === "SideEffect" ? c : null;
-});
-const elicitation = computed(() => {
-  const c = current.value;
-  return c && c.kind === "Elicitation" ? c : null;
-});
-const planReview = computed(() => {
-  const c = current.value;
-  return c && c.kind === "PlanReview" ? c : null;
-});
-
-onMounted(async () => {
-  try {
-    unlisten = await listen<PermissionRequest>("permission-request", (e) => {
-      current.value = e.payload;
-      sending.value = false;
-    });
-  } catch (err) {
-    console.error("[bubble] listen() failed:", err);
-  }
-});
-
-onUnmounted(() => {
-  unlisten?.();
-});
-
-async function decide(decision: PermissionDecision) {
+function emitDecide(decision: PermissionDecision) {
   if (sending.value) return;
   sending.value = true;
-  try {
-    await invoke("respond_permission", { decision });
-  } catch (err) {
-    console.error("[bubble] respond_permission failed:", err);
-    sending.value = false;
-  }
+  emit("decide", decision);
 }
 
-function allow(requestId: string) {
-  return decide({ requestId, behavior: "allow" });
+function allow() {
+  emitDecide({ requestId: props.request.requestId, behavior: "allow" });
 }
 
-function deny(requestId: string) {
-  return decide({ requestId, behavior: "deny" });
+function deny() {
+  emitDecide({ requestId: props.request.requestId, behavior: "deny" });
 }
 
-function pickSuggestion(
-  requestId: string,
-  entry: PermissionUpdateEntry,
-) {
-  return decide({
-    requestId,
+function pickSuggestion(entry: PermissionUpdateEntry) {
+  emitDecide({
+    requestId: props.request.requestId,
     behavior: "allow",
     updatedPermissions: [entry],
   });
 }
 
 // Per-tool tool_input one-liner.
-function detailLine(s: SideEffectRequest): string {
-  return formatDetail(s.toolName, s.toolInput);
+function detailLine(): string {
+  return formatDetail(props.request.toolName, props.request.toolInput);
 }
 </script>
 
 <template>
   <!--
-    Use a v-if / v-else-if / v-else-if / v-else-if chain on a single
-    <template> wrapper. Mixing `v-if` + multiple sibling `v-else-if`
-    on independent <div> roots works in Vue 3 but the template
-    compiler occasionally evaluates inner expressions of branches
-    that don't end up selected, which can throw on nullish
-    access. Wrapping in a single <template> makes the chain
-    unambiguous to the compiler.
+    SideEffect 展开态：固定 480 宽，顶部居中（不 h-full）。
+    高度 auto 装内容；超长用内部 overflow-auto 滚动。
+    底部留空区域自动 click-through（webview body pointer-events-none）。
   -->
-  <template v-if="!current">
-    <div class="flex items-center justify-center h-screen text-muted-foreground text-[12px]">
-      {{ bubbleText(lang, "waiting") }}
+  <div class="expanded-shell flex flex-col gap-2 p-3 text-[13px] select-none w-full max-h-[360px] overflow-y-auto">
+    <BubbleHeader
+      :icon="Shield"
+      variant="destructive"
+      :title="`${request.agentDisplayName} wants permission`"
+      :tag="request.toolName"
+    />
+
+    <div
+      v-if="detailLine()"
+      class="bg-muted text-muted-foreground font-mono text-[11px] p-2 rounded-md max-h-[80px] overflow-auto whitespace-pre-wrap break-words"
+    >
+      {{ detailLine() }}
     </div>
-  </template>
 
-  <template v-else-if="elicitation">
-    <ElicitationBubble :request="elicitation" />
-  </template>
-
-  <template v-else-if="planReview">
-    <PlanReviewBubble :request="planReview" />
-  </template>
-
-  <template v-else-if="sideEffect">
-    <div class="flex flex-col gap-2 p-3 text-[13px] select-none">
-      <BubbleHeader
-        :icon="Shield"
-        variant="destructive"
-        :title="`${sideEffect.agentDisplayName} wants permission`"
-        :tag="sideEffect.toolName"
-      />
-
-      <div v-if="detailLine(sideEffect)" class="bg-muted text-muted-foreground font-mono text-[11px] p-2 rounded-md max-h-[60px] overflow-auto whitespace-pre-wrap break-words">
-        {{ detailLine(sideEffect) }}
-      </div>
-
-      <div
-        v-if="sideEffect.permissionSuggestions?.length"
-        class="flex flex-col gap-1"
+    <div
+      v-if="request.permissionSuggestions?.length"
+      class="flex flex-col gap-1 suggestions-scroll"
+    >
+      <Button
+        v-for="(entry, i) in request.permissionSuggestions"
+        :key="i"
+        variant="outline"
+        class="w-full justify-center"
+        :disabled="sending"
+        @click="pickSuggestion(entry)"
       >
-        <Button
-          v-for="(entry, i) in sideEffect.permissionSuggestions"
-          :key="i"
-          variant="outline"
-          class="w-full justify-center"
-          :disabled="sending"
-          @click="pickSuggestion(sideEffect.requestId, entry)"
-        >
-          {{ suggestionLabel(entry, lang) }}
-        </Button>
-      </div>
-
-      <div class="flex gap-1.5 mt-auto">
-        <Button
-          variant="default"
-          class="flex-1"
-          :disabled="sending"
-          @click="allow(sideEffect.requestId)"
-        >
-          {{ bubbleText(lang, "allow") }}
-        </Button>
-        <Button
-          variant="destructive"
-          class="flex-1"
-          :disabled="sending"
-          @click="deny(sideEffect.requestId)"
-        >
-          {{ bubbleText(lang, "deny") }}
-        </Button>
-      </div>
+        {{ suggestionLabel(entry, lang) }}
+      </Button>
     </div>
-  </template>
+
+    <div class="flex gap-1.5 mt-auto">
+      <Button
+        variant="default"
+        class="flex-1"
+        :disabled="sending"
+        @click="allow"
+      >
+        {{ bubbleText(lang, "allow") }}
+      </Button>
+      <Button
+        variant="destructive"
+        class="flex-1"
+        :disabled="sending"
+        @click="deny"
+      >
+        {{ bubbleText(lang, "deny") }}
+      </Button>
+    </div>
+  </div>
 </template>
+
+<style scoped>
+/* .expanded-shell 共享样式在 src/styles/bubble.css（ADR-0013 Y1）。
+   这里只放 SideEffect 特有样式。 */
+
+.suggestions-scroll {
+  max-height: 110px;
+  overflow-y: auto;
+}
+</style>

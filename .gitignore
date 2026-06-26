@@ -27,3 +27,4 @@ dist-ssr
 .codegraph/
 .claude/worktrees
 .playwright-mcp/
+.scratch/

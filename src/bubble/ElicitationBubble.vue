@@ -11,7 +11,6 @@
 // the decision via `respond_permission` with `behavior: "allow"`.
 
 import { ref, computed } from "vue";
-import { invoke } from "@tauri-apps/api/core";
 import { HelpCircle } from "@lucide/vue";
 import type {
   ElicitationQuestion,
@@ -41,6 +40,10 @@ interface AnswerState {
 
 const props = defineProps<{
   request: ElicitationRequest;
+}>();
+
+const emit = defineEmits<{
+  decide: [decision: PermissionDecision];
 }>();
 
 const questions = computed(() => props.request.questions);
@@ -134,7 +137,7 @@ function next() {
 
 const sending = ref(false);
 
-async function submit() {
+function submit() {
   if (!canProceed.value || sending.value) return;
   // Build answers map keyed by question.question (per CC protocol).
   const answersMap: Record<string, string> = {};
@@ -148,23 +151,31 @@ async function submit() {
     questions: questions.value,
     answers: answersMap,
   };
-  const decision: PermissionDecision = {
+  sending.value = true;
+  emit("decide", {
     requestId: props.request.requestId,
     behavior: "allow",
     updatedInput,
-  };
+  });
+}
+
+function deny() {
+  if (sending.value) return;
   sending.value = true;
-  try {
-    await invoke("respond_permission", { decision });
-  } catch (err) {
-    console.error("[bubble] respond_permission failed:", err);
-    sending.value = false;
-  }
+  emit("decide", {
+    requestId: props.request.requestId,
+    behavior: "deny",
+    message: "Elicitation answered in terminal",
+  });
 }
 </script>
 
 <template>
-  <div v-if="currentQ" class="flex flex-col gap-2.5 p-3 text-[13px] select-none">
+  <!--
+    Elicitation 全填 480×360（ADR-0013 固定 webview）。
+    header 顶 / 按钮底固定；问题 + 选项区 flex-1 + 内部滚动。
+  -->
+  <div v-if="currentQ" class="expanded-shell flex flex-col gap-2.5 p-3 text-[13px] select-none w-full h-full min-h-0">
     <BubbleHeader
       :icon="HelpCircle"
       variant="accent"
@@ -172,7 +183,7 @@ async function submit() {
       :tag="bubbleText(lang, 'questionProgress', { current: activeIndex + 1, total: questions.length })"
     />
 
-    <div class="bg-muted rounded-md p-2.5 flex flex-col gap-1.5">
+    <div class="bg-muted rounded-md p-2.5 flex flex-col gap-1.5 flex-1 min-h-0 overflow-y-auto">
       <h3 class="text-[10px] uppercase tracking-wider text-accent font-semibold m-0">
         {{ currentQ.header }}
       </h3>
@@ -247,7 +258,7 @@ async function submit() {
       </div>
     </div>
 
-    <div class="flex gap-1.5 mt-auto">
+    <div class="flex gap-1.5 mt-auto flex-shrink-0">
       <Button
         v-if="activeIndex > 0"
         variant="secondary"
@@ -279,15 +290,7 @@ async function submit() {
         variant="destructive"
         class="flex-1"
         :disabled="sending"
-        @click="
-          invoke('respond_permission', {
-            decision: {
-              requestId: props.request.requestId,
-              behavior: 'deny',
-              message: 'Elicitation answered in terminal',
-            } satisfies PermissionDecision,
-          })
-        "
+        @click="deny"
       >
         {{ bubbleText(lang, "deny") }}
       </Button>

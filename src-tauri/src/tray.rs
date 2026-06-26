@@ -71,8 +71,15 @@ pub fn install_tray<R: Runtime>(
             }
         })
         .on_tray_icon_event(|tray, event| {
+            // ADR-0013 决策 4：把 tray event 喂给 tauri-plugin-positioner
+            // 让它把 tray 当前位置存到 Tray state。bubble 调
+            // moveWindow(Position.TrayBottomCenter) 时才有 tray
+            // 位置可用（不喂的话 plugin 返回 Err "Tray position not set"）。
+            // 必须在 destructure 之前调用，因为 `event` 是 owned，
+            // 被 if let 消耗后就没法再借用了。
+            tauri_plugin_positioner::on_tray_event(tray.app_handle(), &event);
+
             // Click on tray icon — menu is already shown via show_menu_on_left_click
-            // This is here for any custom click logic if needed
             if let TrayIconEvent::Click {
                 button: MouseButton::Left,
                 button_state: MouseButtonState::Up,

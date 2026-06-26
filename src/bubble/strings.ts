@@ -17,6 +17,8 @@ export const BUBBLE_STRINGS: Record<Lang, Strings> = {
     // ── Generic / chrome ─────────────────────────────────
     waiting: "Waiting for permission request…",
     permissionRequest: "Permission Request",
+    // ADR-0013 决策 8: 5min 超时反馈（橙色"⏰ 已超时"）
+    permissionTimeout: "Timed out (5 min)",
 
     // ── SideEffect buttons ──────────────────────────────
     allow: "Allow",
@@ -65,6 +67,8 @@ export const BUBBLE_STRINGS: Record<Lang, Strings> = {
     // ── Generic / chrome ─────────────────────────────────
     waiting: "等待权限请求…",
     permissionRequest: "权限请求",
+    // ADR-0013 决策 8: 5min 超时反馈
+    permissionTimeout: "已超时（5 分钟）",
 
     // ── SideEffect buttons ──────────────────────────────
     allow: "批准",

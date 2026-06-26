@@ -11,3 +11,43 @@
  */
 
 @import "./shared.css";
+@import "vue-sonner/style.css";
+
+/* 强制 bubble webview body 透明 — 防止 idle 状态时（没渲染任何
+   内容）Tauri 透明窗口在某些平台（Windows 7-era WebView2、Linux
+   Wayland）显示默认深色矩形。`transparent: true` 是 webview 之外
+   的窗口层 transparent；body transparent 是 webview 内部的 canvas
+   transparent。两层都设才能让"无内容时窗口真正不可见"。 */
+body {
+  background: transparent;
+  margin: 0;
+}
+html, #app {
+  background: transparent;
+}
+
+/* ADR-0013 决策 12 / Y1: 展开态共享毛玻璃背景。
+   PillBubble / SideEffectBubble 各自的 scoped style 也有同名 class
+   （用于局部覆盖），这里的 unscoped 规则作为三个 SFC 的公共底。 */
+.expanded-shell {
+  background: rgba(24, 24, 28, 0.78);
+  border-radius: 16px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  backdrop-filter: blur(24px) saturate(180%);
+  -webkit-backdrop-filter: blur(24px) saturate(180%);
+  /* 480×360 固定 webview + body pointer-events-none — 展开态
+     需要 auto 才能接住点击。 */
+  pointer-events: auto;
+}
+@supports not (backdrop-filter: blur(24px)) {
+  .expanded-shell {
+    background: rgba(24, 24, 28, 0.97);
+  }
+}
+
+/* Sonner toast 容器：body 是 pointer-events-none（robot 同款），
+   pill 在 sonner li 内部，li 自身要 auto 才能让 pill 可点。 */
+[data-sonner-toast] {
+  pointer-events: auto;
+}

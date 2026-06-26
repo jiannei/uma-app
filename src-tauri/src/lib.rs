@@ -556,6 +556,7 @@ pub fn run() {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_positioner::init())
         .plugin(tauri_plugin_store::Builder::new().build())
         .manage(PendingStore(pending.clone()))
         .manage(SettingsStore(Arc::new(std::sync::Mutex::new(
@@ -626,7 +627,6 @@ pub fn run() {
             )
             .title("Uma Robot")
             .inner_size(144.0, 144.0)
-            .position(100.0, 100.0)
             .decorations(false)
             .always_on_top(true)
             .skip_taskbar(true)
@@ -637,13 +637,28 @@ pub fn run() {
             .transparent(true)
             .build()?;
 
+            // ADR-0013 决策 4：robot 初始位置用 tauri-plugin-positioner
+            // 的 Position.Center — 屏幕中央。后续用户可以拖到任意位置。
+            {
+                use tauri_plugin_positioner::{Position, WindowExt};
+                let _ = _robot_window.move_window(Position::Center);
+            }
+
             let _bubble_window = WebviewWindowBuilder::new(
                 app,
                 "permission-bubble",
                 WebviewUrl::App("permission-bubble.html".into()),
             )
             .title("Uma Permission")
-            .inner_size(360.0, 200.0)
+            // 固定 480×360：装下所有状态（pill / SideEffect / Elicitation /
+            // PlanReview）。Pill + SideEffect 顶部居中（剩下区域 click-through）；
+            // Elicitation/PlanReview 全填 + 内部 ScrollArea 滚动。**不**做
+            // 动态 resize — robot 同款：CSS `pointer-events: none` on body,
+            // 真正可点的元素加 `pointer-events: auto`，让 webview 自身做
+            // click-through，消除 setSize/setPosition race。
+            .inner_size(480.0, 360.0)
+            .min_inner_size(480.0, 360.0)
+            .max_inner_size(480.0, 360.0)
             .decorations(false)
             .always_on_top(true)
             .skip_taskbar(true)
@@ -652,6 +667,12 @@ pub fn run() {
             .visible(false)
             .transparent(true)
             .build()?;
+
+            // 固定 TopCenter 一次 — 不再 setPosition。
+            {
+                use tauri_plugin_positioner::{Position, WindowExt};
+                let _ = _bubble_window.move_window(Position::TopCenter);
+            }
 
             // Intercept main window close → hide instead of exit
             {
@@ -716,6 +737,13 @@ pub fn run() {
             if let Err(err) = tray::install_tray(app.handle(), settings_for_tray.clone()) {
                 eprintln!("[uma] failed to install tray: {err}");
             }
+
+            // ADR-0013 click-through: bubble 固定 480×360 + 屏幕顶部
+            // 中间（`move_window(Position::TopCenter)` 在窗口创建后立即
+            // 调一次）。body `pointer-events: none` + 内容元素
+            // `pointer-events: auto`（pill-shell / expanded-shell）做
+            // click-through — 跟 robot 窗口同款策略。完全消除了之前
+            // setSize/setPosition race + animate 动画叠加问题。
 
             eprintln!("[uma] hook server listening on http://127.0.0.1:{hook_port}");
             eprintln!("[uma] robot window: 144x144 transparent, hit-zone 144x144 centered");

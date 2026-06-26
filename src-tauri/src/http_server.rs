@@ -252,8 +252,31 @@ async fn handle_permission(
                 );
             }
 
-            hide_bubble_window(&state.app);
-            Err(StatusCode::NO_CONTENT)
+            // ADR-0013 决策 8: 超时自动 deny + 给 agent 响应 —
+            // 否则 agent 会 hang 等待 response，违反"必须响应"
+            // 契约。bubble webview 同时收到 permission-timeout
+            // event 显示"⏰ 已超时"反馈 1s。
+            let timeout_decision = crate::agent::PermissionDecision {
+                request_id: request_id.clone(),
+                behavior: crate::agent::DecisionBehavior::Deny,
+                message: Some("User did not respond within 5 minutes".into()),
+                interrupt: None,
+                updated_input: None,
+                updated_permissions: None,
+            };
+            let payload = adapter
+                .build_permission_response(&timeout_decision)
+                .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+            // Notify bubble so it can show "⏰ 已超时" feedback
+            if let Some(bubble_win) = state.app.get_webview_window("permission-bubble") {
+                let _ = bubble_win.emit(
+                    "permission-timeout",
+                    serde_json::json!({ "request_id": &request_id }),
+                );
+            }
+
+            Ok(Json(payload))
         }
     }
 }
