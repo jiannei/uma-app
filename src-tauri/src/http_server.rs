@@ -282,29 +282,17 @@ async fn handle_permission(
 }
 
 // ── Bubble window positioning ───────────────────────────────────
+//
+// Bubble position is **fixed once** at window creation
+// (`move_window(Position::TopCenter)` in lib.rs). Re-positioning on
+// every show fight with that anchor and produced a flaky TopCenter
+// (sometimes left/right corner depending on the user's stale
+// `bubble_position` setting). Per ADR-0013 决策 4 and the
+// BubbleApp.vue "click-through" comment: webview is permanently at
+// TopCenter, so we just `show` + `setFocus` here.
 
-pub fn show_bubble_window(app: &AppHandle, position: &str) -> Result<(), String> {
-    use tauri::PhysicalPosition;
+pub fn show_bubble_window(app: &AppHandle, _position: &str) -> Result<(), String> {
     if let Some(bubble) = app.get_webview_window("permission-bubble") {
-        if let Ok(Some(monitor)) = app.primary_monitor() {
-            let screen = monitor.size();
-            let scale = monitor.scale_factor();
-            let win_w = (360.0 * scale) as i32;
-            let win_h = (200.0 * scale) as i32;
-            let margin = (20.0 * scale) as i32;
-            let (x, y) = match position {
-                "bottom-left" => (margin, screen.height as i32 - win_h - margin),
-                "top-right" => (screen.width as i32 - win_w - margin, margin),
-                "top-left" => (margin, margin),
-                _ => (
-                    screen.width as i32 - win_w - margin,
-                    screen.height as i32 - win_h - margin,
-                ),
-            };
-            bubble
-                .set_position(PhysicalPosition::new(x, y))
-                .map_err(|e| e.to_string())?;
-        }
         bubble.show().map_err(|e| e.to_string())?;
         bubble.set_focus().map_err(|e| e.to_string())?;
     }
