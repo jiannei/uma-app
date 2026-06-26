@@ -69,8 +69,6 @@ struct AppState {
     pending: Arc<Mutex<HashMap<String, PendingEntry>>>,
     /// Internal request ID counter (per process).
     request_counter: Arc<Mutex<u64>>,
-    /// User-configured bubble position ("bottom-right" default).
-    bubble_position: Arc<std::sync::Mutex<String>>,
 }
 
 // ── Handlers ────────────────────────────────────────────────────
@@ -188,9 +186,9 @@ async fn handle_permission(
         }
     }
 
-    // Show bubble at the user-configured corner.
-    let position = state.bubble_position.lock().unwrap().clone();
-    if let Err(err) = show_bubble_window(&state.app, &position) {
+    // Show bubble at its fixed TopCenter position (set once at window
+    // creation — see lib.rs setup hook + ADR-0013 决策 4).
+    if let Err(err) = show_bubble_window(&state.app) {
         eprintln!("[http] failed to show bubble window: {err}");
     }
 
@@ -284,14 +282,11 @@ async fn handle_permission(
 // ── Bubble window positioning ───────────────────────────────────
 //
 // Bubble position is **fixed once** at window creation
-// (`move_window(Position::TopCenter)` in lib.rs). Re-positioning on
-// every show fight with that anchor and produced a flaky TopCenter
-// (sometimes left/right corner depending on the user's stale
-// `bubble_position` setting). Per ADR-0013 决策 4 and the
-// BubbleApp.vue "click-through" comment: webview is permanently at
-// TopCenter, so we just `show` + `setFocus` here.
+// (`move_window(Position::TopCenter)` in lib.rs). Per ADR-0013 决策 4
+// and the BubbleApp.vue "click-through" comment: webview is
+// permanently at TopCenter, so we just `show` + `setFocus` here.
 
-pub fn show_bubble_window(app: &AppHandle, _position: &str) -> Result<(), String> {
+pub fn show_bubble_window(app: &AppHandle) -> Result<(), String> {
     if let Some(bubble) = app.get_webview_window("permission-bubble") {
         bubble.show().map_err(|e| e.to_string())?;
         bubble.set_focus().map_err(|e| e.to_string())?;
@@ -310,13 +305,11 @@ fn hide_bubble_window(app: &AppHandle) {
 pub fn build_router(
     app: AppHandle,
     pending: Arc<Mutex<HashMap<String, PendingEntry>>>,
-    bubble_position: Arc<std::sync::Mutex<String>>,
 ) -> Router {
     let state = Arc::new(AppState {
         app,
         pending,
         request_counter: Arc::new(Mutex::new(0)),
-        bubble_position,
     });
     Router::new()
         .route("/health", get(health))
@@ -332,9 +325,8 @@ pub async fn run(
     app: AppHandle,
     pending: Arc<Mutex<HashMap<String, PendingEntry>>>,
     port: u16,
-    bubble_position: Arc<std::sync::Mutex<String>>,
 ) {
-    let router = build_router(app, pending, bubble_position);
+    let router = build_router(app, pending);
     let addr = std::net::SocketAddr::from(([127, 0, 0, 1], port));
 
     eprintln!("[http] starting hook server on http://{addr}");

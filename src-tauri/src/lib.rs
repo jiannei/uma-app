@@ -76,11 +76,6 @@ pub struct PendingStore(pub Arc<Mutex<HashMap<String, PendingEntry>>>);
 #[derive(Clone)]
 pub struct SettingsStore(pub Arc<std::sync::Mutex<Settings>>);
 
-/// Permission bubble display position, shared with the HTTP server so
-/// `show_bubble_window` can read the user's choice without a round-trip.
-#[derive(Clone)]
-pub struct BubblePositionStore(pub Arc<std::sync::Mutex<String>>);
-
 // ── Tauri commands ──
 
 #[tauri::command]
@@ -157,27 +152,6 @@ fn set_language(
     }
     app.emit("language-change", serde_json::json!({ "language": language }))
         .map_err(|e| e.to_string())?;
-    Ok(())
-}
-
-#[tauri::command]
-fn set_bubble_position(
-    app: AppHandle,
-    pos_store: State<'_, BubblePositionStore>,
-    position: String,
-) -> Result<(), String> {
-    // Validate against known positions
-    let valid = ["bottom-right", "bottom-left", "top-right", "top-left"];
-    if !valid.contains(&position.as_str()) {
-        return Err(format!("invalid position: {position}"));
-    }
-    eprintln!("[uma] set bubble position: {position}");
-    *pos_store.0.lock().unwrap() = position.clone();
-    // Persist to plugin-store
-    if let Ok(pstore) = app.store("settings.json") {
-        pstore.set("bubble_position", serde_json::json!(position));
-        let _ = pstore.save();
-    }
     Ok(())
 }
 
@@ -456,7 +430,7 @@ async fn devtools_fire_synthetic_permission(
     // The bubble window starts hidden. Make sure it's shown — the
     // HTTP path does this in handle_permission; the dev-tools
     // synthetic path bypasses HTTP, so we show it here.
-    if let Err(err) = crate::http_server::show_bubble_window(&app, "bottom-right") {
+    if let Err(err) = crate::http_server::show_bubble_window(&app) {
         eprintln!("[devtools] failed to show bubble window: {err}");
     }
     if let Some(bubble) = app.get_webview_window("permission-bubble") {
@@ -567,7 +541,6 @@ pub fn run() {
             set_theme,
             set_dnd,
             set_language,
-            set_bubble_position,
             respond_permission,
             list_agents,
             check_agent_installed,
@@ -586,18 +559,6 @@ pub fn run() {
             let app_handle = app.handle().clone();
             let pending_for_http = pending.clone();
             let port = hook_port;
-
-            // Load persisted bubble_position (default bottom-right)
-            let bubble_pos = if let Ok(pstore) = app.store("settings.json") {
-                pstore
-                    .get("bubble_position")
-                    .and_then(|v| v.as_str().map(String::from))
-                    .unwrap_or_else(|| "bottom-right".into())
-            } else {
-                "bottom-right".into()
-            };
-            let bubble_pos_store = Arc::new(std::sync::Mutex::new(bubble_pos));
-            app.manage(BubblePositionStore(bubble_pos_store.clone()));
 
             // Create the three runtime windows. Geometry + flags were
             // previously declared in tauri.conf.json; they live in Rust
@@ -690,7 +651,6 @@ pub fn run() {
                     app_handle,
                     pending_for_http,
                     port,
-                    bubble_pos_store,
                 )
                 .await;
             });

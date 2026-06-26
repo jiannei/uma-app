@@ -54,7 +54,6 @@ import {
   Volume2,
   BellOff,
   Power,
-  MessageSquare,
   Bot,
   Clock,
   Download,
@@ -76,7 +75,6 @@ interface Settings {
   mini_mode: boolean;
   sound_enabled: boolean;
   auto_start: boolean;
-  bubble_position: string;
   language: string;
 }
 
@@ -112,20 +110,12 @@ const settings = ref<Settings>({
   mini_mode: false,
   sound_enabled: true,
   auto_start: false,
-  bubble_position: "bottom-right",
   language: "zh",
 });
 
 const themes = [
   { id: "uma", label: "Uma" },
   { id: "calico", label: "Calico" },
-];
-
-const bubblePositions = [
-  { id: "top-left", label: "左上" },
-  { id: "top-right", label: "右上" },
-  { id: "bottom-left", label: "左下" },
-  { id: "bottom-right", label: "右下" },
 ];
 
 const LANGUAGES = [
@@ -135,7 +125,6 @@ const LANGUAGES = [
 
 const isLoading = ref(true);
 const status = ref("");
-const bubblePosition = ref("bottom-right");
 
 const agents = ref<AgentInfo[]>([]);
 const agentBusy = reactive<Record<string, boolean>>({});
@@ -150,9 +139,7 @@ async function loadSettings() {
     const mini_mode = (await store.get<boolean>("mini_mode")) ?? false;
     const sound_enabled = (await store.get<boolean>("sound_enabled")) ?? true;
     const auto_start = (await store.get<boolean>("auto_start")) ?? false;
-    const storedPos = (await store.get<string>("bubble_position")) || "bottom-right";
     const storedLang = (await store.get<string>("language")) || "zh";
-    bubblePosition.value = storedPos;
 
     settings.value = {
       theme,
@@ -160,7 +147,6 @@ async function loadSettings() {
       mini_mode,
       sound_enabled,
       auto_start,
-      bubble_position: storedPos,
       language: storedLang,
     };
 
@@ -241,20 +227,6 @@ async function toggleAutoStart(v: boolean) {
     await store.save();
   } catch (err) {
     console.warn("Failed to persist auto_start:", err);
-  }
-}
-
-async function setBubblePosition(position: string) {
-  try {
-    await invoke("set_bubble_position", { position });
-    const store = await load("settings.json", { autoSave: true, defaults: {} });
-    await store.set("bubble_position", position);
-    await store.save();
-    bubblePosition.value = position;
-    status.value = `Bubble: ${position}`;
-    setTimeout(() => { status.value = ""; }, 1500);
-  } catch (err) {
-    status.value = "Failed: " + err;
   }
 }
 
@@ -551,24 +523,6 @@ onMounted(async () => {
                           :model-value="settings.theme"
                           :options="themes"
                           @update:model-value="(v: string) => setTheme(v)"
-                        />
-                      </div>
-                    </div>
-                    <Separator />
-                    <!-- Bubble position -->
-                    <div class="flex items-center justify-between gap-4 py-3 px-4">
-                      <div class="flex-1 min-w-0 flex items-start gap-2.5">
-                        <MessageSquare class="w-4 h-4 mt-0.5 text-muted-foreground shrink-0" :width="16" :height="16" />
-                        <div>
-                          <Label class="text-[13px] font-medium text-foreground tracking-[-0.005em]">Bubble position</Label>
-                          <div class="text-[12px] text-muted-foreground mt-px leading-snug">Where the permission bubble appears.</div>
-                        </div>
-                      </div>
-                      <div class="shrink-0">
-                        <RadioGroupWithOptions
-                          :model-value="bubblePosition"
-                          :options="bubblePositions"
-                          @update:model-value="(v: string) => setBubblePosition(v)"
                         />
                       </div>
                     </div>
