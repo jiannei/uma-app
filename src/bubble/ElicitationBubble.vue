@@ -1,40 +1,28 @@
 <script setup lang="ts">
-// src/bubble/ElicitationBubble.vue — Elicitation (AskUserQuestion)
-// renderer.
+// src/bubble/ElicitationBubble.vue — Elicitation (AskUserQuestion) 展开态。
 //
-// Multi-step form: one question active at a time, with Back / Next
-// or Submit navigation. Each question has radio buttons (or
-// checkboxes for multiSelect) for the options provided by the
-// agent, plus a synthetic "Other" option with a free-text textarea.
-// On Submit, builds the canonical `updatedInput.answers` map
-// (keyed by `question.question` per CC's protocol) and dispatches
-// the decision via `respond_permission` with `behavior: "allow"`.
+// v5 + v6 轻改：
+// - 删 "Claude Code needs input" header + "1/2" tag
+// - 删底部 Submit/Deny 按钮（决策在 pill）
+// - 删 DATABASE h3 + bg-muted 包裹（v6 — pill 已有 DATABASE 标签 + 背景统一）
+// - 暴露 goNextOrSubmit 给父级
 
 import { ref, computed } from "vue";
-import { HelpCircle } from "@lucide/vue";
 import type {
   ElicitationQuestion,
   ElicitationRequest,
-  PermissionDecision,
 } from "../types/permission";
 import { bubbleText, type Lang } from "./strings";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
-import BubbleHeader from "@/components/bubble/BubbleHeader.vue";
 
-const lang: Lang = "en"; // v1.1: hardcoded; settings-driven in v1.2
+const lang: Lang = "en";
 
-// Sentinel index for the "Other" option appended to every question's
-// options list. We keep it outside the array bounds so it doesn't
-// collide with the agent-provided option indices.
 const OTHER = Symbol("other");
 
 interface AnswerState {
-  /** Indices into questions[i].options + `OTHER` for the synthetic
-   * "Other" option. For single-select, length is 0 or 1. */
   selected: (number | symbol)[];
-  /** Free-text input for the "Other" option. */
   otherText: string;
 }
 
@@ -43,14 +31,13 @@ const props = defineProps<{
 }>();
 
 const emit = defineEmits<{
-  decide: [decision: PermissionDecision];
+  submit: [updatedInput: unknown];
 }>();
 
 const questions = computed(() => props.request.questions);
 const activeIndex = ref(0);
 const answers = ref<AnswerState[]>([]);
 
-// Lazily initialize answer state for a question.
 function ensureAnswer(qIndex: number): AnswerState {
   if (!answers.value[qIndex]) {
     answers.value[qIndex] = { selected: [], otherText: "" };
@@ -58,11 +45,13 @@ function ensureAnswer(qIndex: number): AnswerState {
   return answers.value[qIndex];
 }
 
-const currentQ = computed<ElicitationQuestion | null>(() => {
-  return questions.value[activeIndex.value] ?? null;
-});
+const currentQ = computed<ElicitationQuestion | null>(
+  () => questions.value[activeIndex.value] ?? null,
+);
 
-const currentAnswer = computed<AnswerState>(() => ensureAnswer(activeIndex.value));
+const currentAnswer = computed<AnswerState>(() =>
+  ensureAnswer(activeIndex.value),
+);
 
 function setSelected(
   qIndex: number,
@@ -78,7 +67,6 @@ function setSelected(
       ans.selected = ans.selected.filter((k) => k !== optionKey);
     }
   } else {
-    // Single-select: replace (or clear if un-checking).
     if (checked) {
       ans.selected = [optionKey];
     } else if (ans.selected.length === 1 && ans.selected[0] === optionKey) {
@@ -98,9 +86,6 @@ function setOtherText(qIndex: number, text: string) {
   ans.otherText = text;
 }
 
-/** The answer text for one question, mirroring uma-pet's
- * `getElicitationAnswerText` (labels joined with ", ", or the
- * "Other" textarea if selected). Empty string when no answer. */
 function getAnswerText(qIndex: number): string {
   const ans = answers.value[qIndex];
   const q = questions.value[qIndex];
@@ -118,9 +103,9 @@ function getAnswerText(qIndex: number): string {
   return parts.join(", ");
 }
 
-const canProceed = computed<boolean>(() => {
-  return getAnswerText(activeIndex.value).length > 0;
-});
+const canProceed = computed<boolean>(
+  () => getAnswerText(activeIndex.value).length > 0,
+);
 
 const isLastQuestion = computed<boolean>(
   () => activeIndex.value >= questions.value.length - 1,
@@ -130,63 +115,38 @@ function back() {
   if (activeIndex.value > 0) activeIndex.value -= 1;
 }
 
-function next() {
-  if (!canProceed.value) return;
-  if (!isLastQuestion.value) activeIndex.value += 1;
-}
-
-const sending = ref(false);
-
-function submit() {
-  if (!canProceed.value || sending.value) return;
-  // Build answers map keyed by question.question (per CC protocol).
+function buildUpdatedInput(): unknown {
   const answersMap: Record<string, string> = {};
   for (let i = 0; i < questions.value.length; i++) {
     const text = getAnswerText(i);
     if (text) answersMap[questions.value[i].question] = text;
   }
-  // updatedInput replaces the entire tool_input per CC docs.
-  const updatedInput = {
+  return {
     ...(props.request.toolInput ?? {}),
     questions: questions.value,
     answers: answersMap,
   };
-  sending.value = true;
-  emit("decide", {
-    requestId: props.request.requestId,
-    behavior: "allow",
-    updatedInput,
-  });
 }
 
-function deny() {
-  if (sending.value) return;
-  sending.value = true;
-  emit("decide", {
-    requestId: props.request.requestId,
-    behavior: "deny",
-    message: "Elicitation answered in terminal",
-  });
+function goNextOrSubmit() {
+  if (!canProceed.value) return;
+  if (!isLastQuestion.value) {
+    activeIndex.value += 1;
+    return;
+  }
+  emit("submit", buildUpdatedInput());
 }
+
+defineExpose({ goNextOrSubmit });
 </script>
 
 <template>
-  <!--
-    Elicitation 全填 480×360（ADR-0013 固定 webview）。
-    header 顶 / 按钮底固定；问题 + 选项区 flex-1 + 内部滚动。
-  -->
-  <div v-if="currentQ" class="expanded-shell flex flex-col gap-2.5 p-3 text-[13px] select-none w-full h-full min-h-0">
-    <BubbleHeader
-      :icon="HelpCircle"
-      variant="accent"
-      :title="bubbleText(lang, 'needsInput', { agent: props.request.agentDisplayName })"
-      :tag="bubbleText(lang, 'questionProgress', { current: activeIndex + 1, total: questions.length })"
-    />
-
-    <div class="bg-muted rounded-md p-2.5 flex flex-col gap-1.5 flex-1 min-h-0 overflow-y-auto">
-      <h3 class="text-[10px] uppercase tracking-wider text-accent font-semibold m-0">
-        {{ currentQ.header }}
-      </h3>
+  <div
+    v-if="currentQ"
+    class="expanded-shell flex flex-col gap-2 p-3 text-[13px] select-none w-full"
+  >
+    <!-- v6 轻改：删 bg-muted + DATABASE h3（pill 已有 + 背景统一） -->
+    <div class="flex flex-col gap-1.5 overflow-y-auto">
       <p class="text-[13px] text-foreground leading-snug m-0">
         {{ currentQ.question }}
       </p>
@@ -198,14 +158,13 @@ function deny() {
         <Label
           v-for="(option, optIndex) in currentQ.options"
           :key="optIndex"
-          class="flex items-start gap-2 p-1.5 bg-background border border-border rounded cursor-pointer hover:bg-muted"
+          class="flex items-start gap-2 p-1.5 border border-border/40 rounded cursor-pointer hover:bg-muted/50"
         >
           <input
             :type="currentQ.multiSelect ? 'checkbox' : 'radio'"
             :name="`q-${activeIndex}`"
             :value="optIndex"
             :checked="isSelected(activeIndex, optIndex)"
-            :disabled="sending"
             class="mt-0.5 cursor-pointer"
             @change="
               setSelected(
@@ -217,23 +176,25 @@ function deny() {
           />
           <div class="flex-1 min-w-0">
             <div class="text-[12px] font-medium text-foreground">{{ option.label }}</div>
-            <div v-if="option.description" class="text-[11px] text-muted-foreground mt-0.5 leading-snug">
+            <div
+              v-if="option.description"
+              class="text-[11px] text-muted-foreground mt-0.5 leading-snug"
+            >
               {{ option.description }}
             </div>
-            <pre v-if="option.preview" class="font-mono text-[10px] text-muted-foreground bg-muted py-1 px-1.5 rounded mt-1 whitespace-pre-wrap max-h-[80px] overflow-auto m-0">
-              {{ option.preview }}
-            </pre>
+            <pre
+              v-if="option.preview"
+              class="font-mono text-[10px] text-muted-foreground bg-muted/30 py-1 px-1.5 rounded mt-1 whitespace-pre-wrap max-h-[80px] overflow-auto m-0"
+            >{{ option.preview }}</pre>
           </div>
         </Label>
 
-        <!-- Synthetic "Other" option. -->
-        <Label class="flex items-start gap-2 p-1.5 bg-background border border-border rounded cursor-pointer hover:bg-muted">
+        <Label class="flex items-start gap-2 p-1.5 border border-border/40 rounded cursor-pointer hover:bg-muted/50">
           <input
             :type="currentQ.multiSelect ? 'checkbox' : 'radio'"
             :name="`q-${activeIndex}`"
             :value="OTHER"
             :checked="isSelected(activeIndex, OTHER)"
-            :disabled="sending"
             class="mt-0.5 cursor-pointer"
             @change="
               setSelected(
@@ -250,7 +211,6 @@ function deny() {
               class="mt-1.5 text-[12px] min-h-[60px]"
               :placeholder="bubbleText(lang, 'otherPlaceholder')"
               :model-value="currentAnswer.otherText"
-              :disabled="sending"
               @update:model-value="(v: any) => setOtherText(activeIndex, String(v))"
             />
           </div>
@@ -258,41 +218,14 @@ function deny() {
       </div>
     </div>
 
-    <div class="flex gap-1.5 mt-auto flex-shrink-0">
+    <div v-if="activeIndex > 0" class="flex-shrink-0">
       <Button
-        v-if="activeIndex > 0"
-        variant="secondary"
-        class="flex-1"
-        :disabled="sending"
+        variant="ghost"
+        size="sm"
+        class="text-[11px] h-7 px-2 text-muted-foreground"
         @click="back"
       >
         {{ bubbleText(lang, "previousQuestion") }}
-      </Button>
-      <Button
-        v-if="!isLastQuestion"
-        variant="default"
-        class="flex-1"
-        :disabled="!canProceed || sending"
-        @click="next"
-      >
-        {{ bubbleText(lang, "nextQuestion") }}
-      </Button>
-      <Button
-        v-else
-        variant="default"
-        class="flex-1"
-        :disabled="!canProceed || sending"
-        @click="submit"
-      >
-        {{ bubbleText(lang, "submitAnswer") }}
-      </Button>
-      <Button
-        variant="destructive"
-        class="flex-1"
-        :disabled="sending"
-        @click="deny"
-      >
-        {{ bubbleText(lang, "deny") }}
       </Button>
     </div>
   </div>
