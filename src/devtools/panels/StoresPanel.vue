@@ -14,7 +14,7 @@ import type {
   PlanReviewRequest,
   SideEffectRequest,
 } from "../../types/permission";
-import { Badge } from "@/components/ui/badge";
+import Badge from "@/components/Badge.vue";
 
 interface PendingEntryView {
   requestId: string;
@@ -26,7 +26,7 @@ const props = defineProps<{
   pending: PendingEntryView[];
 }>();
 
-// Kind badge variant — maps to shadcn-vue Badge variants
+// Kind badge variant — maps to Badge component variants
 function kindVariant(kind: PermissionRequest["kind"]): "default" | "secondary" | "outline" {
   return kind === "SideEffect" ? "default" : kind === "Elicitation" ? "secondary" : "outline";
 }
@@ -54,37 +54,43 @@ function detail(req: PermissionRequest): string {
 </script>
 
 <template>
-  <section class="bg-card flex flex-col min-h-0 min-w-0">
-    <h2 class="text-[11px] font-semibold text-muted-foreground px-2.5 py-1.5 border-b border-border bg-secondary/30 tracking-wider uppercase">
+  <section class="bg-[var(--card)] flex flex-col min-h-0 min-w-0">
+    <h2 class="text-[11px] font-semibold text-[var(--muted-foreground)] px-2.5 py-1.5 border-b border-[var(--border)] bg-[var(--secondary)]/30 tracking-wider uppercase">
       Stores
     </h2>
     <div class="flex-1 overflow-auto p-2 text-[11px]">
       <div class="mb-3">
-        <h3 class="text-[10px] text-muted-foreground mb-1 tracking-wider uppercase flex items-center gap-1">
+        <h3 class="text-[10px] text-[var(--muted-foreground)] mb-1 tracking-wider uppercase flex items-center gap-1">
           Pending
-          <Badge variant="secondary" class="px-1.5 py-0 text-[10px] font-mono">
+          <Badge
+            variant="secondary"
+            class="px-1.5 py-0 text-[10px] font-mono"
+          >
             {{ props.pending.length }}
           </Badge>
         </h3>
-        <div v-if="props.pending.length === 0" class="text-muted-foreground italic py-0.5">
+        <div v-if="props.pending.length === 0" class="text-[var(--muted-foreground)] italic py-0.5">
           No pending requests.
         </div>
         <div
           v-for="entry in props.pending"
           :key="entry.requestId"
-          class="flex gap-1.5 py-0.5 font-mono text-[10px] text-foreground whitespace-nowrap overflow-hidden flex-wrap"
+          class="flex gap-1.5 py-0.5 font-mono text-[10px] text-[var(--foreground)] whitespace-nowrap overflow-hidden flex-wrap"
         >
-          <span class="text-muted-foreground">{{ entry.requestId }}</span>
-          <Badge :variant="kindVariant(entry.request.kind)" class="px-1 py-0 text-[9px] uppercase tracking-wider">
+          <span class="text-[var(--muted-foreground)]">{{ entry.requestId }}</span>
+          <Badge
+            :variant="kindVariant(entry.request.kind)"
+            class="px-1 py-0 text-[9px] uppercase tracking-wider"
+          >
             {{ entry.request.kind }}
           </Badge>
-          <span class="text-accent">
+          <span class="text-[var(--accent)]">
             {{ entry.request.agentDisplayName || entry.agentId }}
           </span>
-          <span class="text-primary">
+          <span class="text-[var(--primary)]">
             {{ detail(entry.request) }}
           </span>
-          <span class="text-muted-foreground">
+          <span class="text-[var(--muted-foreground)]">
             {{ entry.request.sessionId.slice(0, 8) }}
           </span>
         </div>

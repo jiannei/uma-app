@@ -1,53 +1,41 @@
-/* src/styles/bubble.css — permission bubble window styles.
+/* src/styles/bubble.css — bubble-specific tokens.
  *
- * Bubble components (ElicitationBubble, PlanReviewBubble, SideEffectBubble)
- * use shadcn-vue's `Button` and the warm-dark theme tokens for cards,
- * badges, foreground/background pairs — all of which live in shared.css.
+ * After ADR-0017 this file is:
+ *   1. Base import (shared tokens)
+ *   2. Bubble "floating island" token values (`--island-*`, `--allow`, `--deny`)
+ *   3. Sonner toast container override
  *
- * No bubble-specific rules yet. If bubble-only utilities or components
- * get added later, they go here so shared.css stays main+bubble common.
+ * Animation keyframes (`pill-pulse`, `toast-in`) live in each
+ * component's `<style scoped>` block.
  *
  * Imported by src/bubble/main.ts.
  */
 
 @import "./shared.css";
-@import "vue-sonner/style.css";
 
-/* 强制 bubble webview body 透明 — 防止 idle 状态时（没渲染任何
-   内容）Tauri 透明窗口在某些平台（Windows 7-era WebView2、Linux
-   Wayland）显示默认深色矩形。`transparent: true` 是 webview 之外
-   的窗口层 transparent；body transparent 是 webview 内部的 canvas
-   transparent。两层都设才能让"无内容时窗口真正不可见"。 */
-body {
-  background: transparent;
-  margin: 0;
+/* === Bubble "floating island" token values === */
+:root {
+  --shadow-island: 0 4px 16px rgba(0, 0, 0, 0.10);
+  --shadow-island-expanded: 0 4px 16px rgba(0, 0, 0, 0.16);
 }
-html, #app {
-  background: transparent;
-}
-
-/* ADR-0013 决策 12 / Y1: 展开态共享毛玻璃背景。
-   PillBubble / SideEffectBubble 各自的 scoped style 也有同名 class
-   （用于局部覆盖），这里的 unscoped 规则作为三个 SFC 的公共底。 */
-.expanded-shell {
-  background: rgba(24, 24, 28, 0.78);
-  border-radius: 16px;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
-  border: 1px solid rgba(255, 255, 255, 0.06);
-  backdrop-filter: blur(24px) saturate(180%);
-  -webkit-backdrop-filter: blur(24px) saturate(180%);
-  /* 480×360 固定 webview + body pointer-events-none — 展开态
-     需要 auto 才能接住点击。 */
-  pointer-events: auto;
-}
-@supports not (backdrop-filter: blur(24px)) {
-  .expanded-shell {
-    background: rgba(24, 24, 28, 0.97);
-  }
+.dark {
+  /* Light values intentionally omitted — bubble.html forces
+     `<html class="dark">`. Add a `:root` block here when/if light mode
+     is supported. */
+  --island: oklch(0.18 0.01 45 / 0.78);
+  --island-solid: oklch(0.18 0.01 45);
+  --divider-island: oklch(1 0 0 / 0.08);
+  --hover-island: oklch(1 0 0 / 0.08);
+  --ring-island: oklch(1 0 0 / 0.40);
+  --border-island: oklch(1 0 0 / 0.12);
+  --allow: oklch(0.78 0.20 145);
+  --deny: oklch(0.71 0.19 25);
+  --shadow-island: 0 4px 16px rgba(0, 0, 0, 0.32);
+  --shadow-island-expanded: 0 8px 32px rgba(0, 0, 0, 0.48);
 }
 
-/* Sonner toast 容器：body 是 pointer-events-none（robot 同款），
-   pill 在 sonner li 内部，li 自身要 auto 才能让 pill 可点。 */
+/* Sonner toast container: body is pointer-events-none (robot pattern),
+   pill in sonner li needs auto to be clickable. */
 [data-sonner-toast] {
   pointer-events: auto;
 }

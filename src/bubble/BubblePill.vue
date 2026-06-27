@@ -1,93 +1,90 @@
 <script setup lang="ts">
-// src/bubble/BubblePill.vue — bubble 顶部 pill。
+// src/bubble/BubblePill.vue — bubble 顶部 pill（ADR-0017 收敛版）。
 //
-// 永远在顶部，不被 dismiss。**v5 按 kind 渲染不同主操作**：
-// - SideEffect / PlanReview：✓（Check）+ ✗（X）—— 经典 allow/deny
-// - Elicitation：→（ArrowRight）+ ✗（X）—— next 触发 goNextOrSubmit
+// 永远在顶部，承载所有 kind 的主要操作。
+// 按 kind 切换主按钮图标/文字：
+//   - SideEffect  → ✓ Check + "Allow"
+//   - PlanReview  → ✓ Check + "Approve"
+//   - Elicitation → → ArrowRight + "Next" / "Submit" (BubbleApp 切换)
+//
+// ↗ chevron 仅在队列>1 且 kind !== Elicitation 时显示
+// （ask 内部一次 request = N 题，没有"跳到下一 request"概念）。
+//
+// emit:
+//   "body-click" → BubbleApp 切换 collapsed/expanded
+//   "action"     → BubbleApp 顶层 dispatch（kind-aware 决策）
+//   "cancel"     → BubbleApp 顶层 dispatch（kind-aware 决策）
+//   "skip"       → BubbleApp deny current + advance（FIFO）
 
 import { computed } from "vue";
-import {
-  Shield,
-  HelpCircle,
-  ClipboardList,
-  ArrowRight,
-  Check,
-  X,
-  type LucideIcon,
-} from "@lucide/vue";
-import type {
-  ElicitationRequest,
-  PermissionRequest,
-  PlanReviewRequest,
-  SideEffectRequest,
-} from "../types/permission";
-import { bubbleText, type Lang } from "./strings";
+import type { PermissionRequest } from "../types/permission";
+import { bubbleText } from "./strings";
 import { formatDetail } from "./format-detail";
+import { classifySideEffect } from "./format-side-effect";
 
 const props = defineProps<{
   request: PermissionRequest;
-  lang: Lang;
+  lang: "en" | "zh";
   expandable: boolean;
   expanded: boolean;
+  /** Pending requests behind current. Chevron shows when queueDepth > 1
+   *  AND kind !== Elicitation (ADR-0017 Q4). */
+  queueDepth: number;
 }>();
 
 const emit = defineEmits<{
   "body-click": [];
   action: [];
   cancel: [];
+  skip: [];
 }>();
 
-const kindIcon = computed<LucideIcon>(() => {
-  switch (props.request.kind) {
-    case "SideEffect": return Shield;
-    case "Elicitation": return HelpCircle;
-    case "PlanReview": return ClipboardList;
-  }
-});
-
-const sideEffectSummary = computed<string>(() => {
-  if (props.request.kind !== "SideEffect") return "";
-  const s = props.request as SideEffectRequest;
-  return formatDetail(s.toolName, s.toolInput, 50);
-});
-
-const kindLabel = computed<string>(() => {
+// Tool-aware icon: SideEffect varies by tool, Elicitation/PlanReview fixed.
+const toolIcon = computed<string>(() => {
   const r = props.request;
-  switch (r.kind) {
-    case "SideEffect": {
-      const s = r as SideEffectRequest;
-      return s.toolName ?? bubbleText(props.lang, "permissionRequest");
+  if (r.kind === "SideEffect") {
+    const render = classifySideEffect(r.toolName, r.toolInput);
+    switch (render.kind) {
+      case "bash": return "i-lucide-terminal";
+      case "edit": return "i-lucide-pencil";
+      case "write": return "i-lucide-file-pen";
+      case "read": return "i-lucide-eye";
+      case "json": return "i-lucide-info";
     }
-    case "Elicitation": {
-      const e = r as ElicitationRequest;
-      // v6: 显示当前题 header（不是第一个）；ElicitationBubble 通过冒泡事件更新
-      // 这里暂时用第一题 header，ElicitationBubble 可以通过 emit 通知更新
-      return e.questions[0]?.header ?? bubbleText(props.lang, "elicitation");
-    }
-    case "PlanReview":
-      return bubbleText(props.lang, "planReview");
+  }
+  if (r.kind === "Elicitation") return "i-lucide-help-circle";
+  return "i-lucide-clipboard-list";
+});
+
+const kindVariantClass = computed<string>(() => {
+  switch (props.request.kind) {
+    case "SideEffect": return "text-[var(--deny)]";
+    case "Elicitation": return "text-[var(--allow)]";
+    case "PlanReview": return "text-[var(--muted-foreground)]";
   }
 });
 
 const detail = computed<string>(() => {
-  if (props.request.kind === "SideEffect") return sideEffectSummary.value;
+  if (props.request.kind === "SideEffect") {
+    return formatDetail(props.request.toolName, props.request.toolInput, 50);
+  }
   if (props.request.kind === "Elicitation") {
-    const e = props.request as ElicitationRequest;
     return bubbleText(props.lang, "questionCount", {
       current: 1,
-      total: e.questions.length,
+      total: props.request.questions.length,
     });
   }
-  const p = props.request as PlanReviewRequest;
+  const p = props.request;
   const plan = p.planContent ?? (p.toolInput as { plan?: string } | null)?.plan;
   if (typeof plan !== "string") return "";
   return plan.length > 50 ? plan.slice(0, 49) + "…" : plan;
 });
 
-const primaryIcon = computed<LucideIcon>(() => {
-  if (props.request.kind === "Elicitation") return ArrowRight;
-  return Check;
+const primaryIcon = computed<string>(() => {
+  if (props.request.kind === "Elicitation") return "i-lucide-arrow-right";
+  return "i-lucide-check";
 });
+
 const primaryLabel = computed<string>(() => {
   switch (props.request.kind) {
     case "SideEffect": return bubbleText(props.lang, "allow");
@@ -95,166 +92,77 @@ const primaryLabel = computed<string>(() => {
     case "Elicitation": return bubbleText(props.lang, "next");
   }
 });
+
 const cancelLabel = computed<string>(() => {
   if (props.request.kind === "PlanReview") return bubbleText(props.lang, "reject");
   return bubbleText(props.lang, "deny");
 });
 
+// ADR-0017 Q4: Elicitation hides chevron — ask is one request with N questions,
+// no "next permission request" concept inside it.
+const showSkip = computed<boolean>(
+  () => props.queueDepth > 1 && props.request.kind !== "Elicitation",
+);
+
 function onBody() { if (props.expandable) emit("body-click"); }
 function onAction() { emit("action"); }
 function onCancel() { emit("cancel"); }
+function onSkip() { emit("skip"); }
 </script>
 
 <template>
   <div
-    class="pill-shell pointer-events-auto"
-    :class="{ 'pill-shell--expandable': expandable && !expanded }"
+    class="flex-none h-12 flex items-center gap-2 px-3 min-w-[280px] bg-transparent select-none pointer-events-auto"
     role="group"
     :aria-label="bubbleText(lang, 'permissionRequest')"
   >
     <button
       type="button"
-      class="pill-body"
-      :class="{ 'pill-body--clickable': expandable }"
+      :class="[
+        'flex items-center gap-2 flex-1 min-w-0 bg-transparent border-0 p-0 text-left cursor-default text-inherit',
+        expandable && 'cursor-pointer focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--island)] rounded-md',
+      ]"
       :aria-expanded="expandable ? expanded : undefined"
       :tabindex="expandable ? 0 : -1"
       @click="onBody"
     >
-      <span class="pill-icon">
-        <component :is="kindIcon" class="h-3.5 w-3.5" />
+      <span :class="['inline-flex items-center justify-center w-[22px] h-[22px] rounded-full bg-transparent border border-solid border-current flex-none', kindVariantClass]">
+        <div :class="[toolIcon, 'h-3.5 w-3.5']" />
       </span>
-      <span class="pill-text">
-        <span class="pill-label">{{ kindLabel }}</span>
-        <span v-if="detail" class="pill-summary">{{ detail }}</span>
+      <span class="flex flex-row items-center min-w-0 flex-1">
+        <span v-if="detail" class="text-[12px] font-medium font-mono whitespace-nowrap overflow-hidden text-ellipsis text-[var(--foreground)]">{{ detail }}</span>
       </span>
     </button>
 
-    <span class="pill-divider" aria-hidden="true" />
+    <span class="w-px self-stretch bg-[var(--divider-island)] my-2" aria-hidden="true" />
 
-    <div class="pill-actions">
+    <div class="flex items-center gap-1 flex-none">
       <button
         type="button"
-        class="pill-icon-btn pill-action"
+        class="inline-flex items-center justify-center w-7 h-7 rounded-full border-0 bg-transparent cursor-pointer transition-colors duration-[120ms] hover:bg-[var(--hover-island)] focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[color:var(--island)] text-[var(--allow)]"
         :aria-label="primaryLabel"
         @click.stop="onAction"
       >
-        <component :is="primaryIcon" class="h-4 w-4 stroke-[2.5]" />
+        <div :class="[primaryIcon, 'h-4 w-4 stroke-[2.5]']" />
       </button>
       <button
         type="button"
-        class="pill-icon-btn pill-cancel"
+        class="inline-flex items-center justify-center w-7 h-7 rounded-full border-0 bg-transparent cursor-pointer transition-colors duration-[120ms] hover:bg-[var(--hover-island)] focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[color:var(--island)] text-[var(--deny)]"
         :aria-label="cancelLabel"
         @click.stop="onCancel"
       >
-        <X class="h-3.5 w-3.5 stroke-[3]" />
+        <div class="i-lucide-x h-3.5 w-3.5 stroke-[3]" />
+      </button>
+      <button
+        v-if="showSkip"
+        type="button"
+        class="inline-flex items-center gap-0.5 px-1.5 py-1 ml-0.5 border-0 bg-transparent text-[var(--muted-foreground)] text-[12px] font-medium cursor-pointer rounded-md transition-[color,background,transform] duration-[150ms] hover:text-[var(--foreground)] hover:bg-[var(--hover-island)] focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[color:var(--island)]"
+        :aria-label="`Skip current and advance (${queueDepth} more)`"
+        @click.stop="onSkip"
+      >
+        <span class="text-[14px] leading-none font-normal">›</span>
+        <span class="tabular-nums text-[11px]">{{ queueDepth }}</span>
       </button>
     </div>
   </div>
 </template>
-
-<style scoped>
-.pill-shell {
-  flex: 0 0 80px;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 0 12px;
-  height: 80px;
-  min-width: 280px;
-  background: transparent;
-  user-select: none;
-  pointer-events: auto;
-}
-.pill-shell--expandable {
-  animation: pill-pulse 2.4s ease-in-out infinite;
-}
-@keyframes pill-pulse {
-  0%, 100% { opacity: 1; }
-  50%      { opacity: 0.6; }
-}
-@media (prefers-reduced-motion: reduce) {
-  .pill-shell--expandable { animation: none; }
-}
-.pill-body {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex: 1 1 auto;
-  min-width: 0;
-  background: transparent;
-  border: 0;
-  padding: 0;
-  text-align: left;
-  cursor: default;
-  color: inherit;
-}
-.pill-body--clickable { cursor: pointer; }
-.pill-body--clickable:focus-visible {
-  outline: 2px solid var(--bubble-focus, rgba(255, 255, 255, 0.4));
-  outline-offset: 2px;
-  border-radius: 6px;
-}
-.pill-icon {
-  width: 22px;
-  height: 22px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 9999px;
-  background: var(--bubble-btn-hover, rgba(255, 255, 255, 0.08));
-  flex: 0 0 auto;
-}
-.pill-text {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-  flex: 1 1 auto;
-}
-.pill-label {
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--bubble-text, #f5f5f7);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.pill-summary {
-  font-size: 10px;
-  color: var(--bubble-text-muted, rgba(235, 235, 245, 0.6));
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.pill-divider {
-  width: 1px;
-  align-self: stretch;
-  background: var(--bubble-divider, rgba(255, 255, 255, 0.08));
-  margin: 8px 0;
-}
-.pill-actions {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  flex: 0 0 auto;
-}
-.pill-icon-btn {
-  width: 28px;
-  height: 28px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 9999px;
-  border: 0;
-  background: transparent;
-  color: inherit;
-  cursor: pointer;
-  transition: background 120ms;
-}
-.pill-icon-btn:hover { background: var(--bubble-btn-hover, rgba(255, 255, 255, 0.08)); }
-.pill-icon-btn:focus-visible { outline: 2px solid var(--bubble-focus, rgba(255, 255, 255, 0.4)); outline-offset: 1px; }
-.pill-action { color: var(--bubble-allow, #4ade80); }
-.pill-action:hover { background: var(--bubble-allow-hover, rgba(74, 222, 128, 0.18)); }
-.pill-cancel  { color: var(--bubble-deny,  #f87171); }
-.pill-cancel:hover  { background: var(--bubble-deny-hover,  rgba(248, 113, 113, 0.18)); }
-</style>

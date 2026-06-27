@@ -9,7 +9,7 @@
 
 import { reactive } from "vue";
 import { emit as tauriEmit } from "@tauri-apps/api/event";
-import { Button } from "@/components/ui/button";
+import Button from "@/components/Btn.vue";
 
 interface DebugStyle {
   windowBg: string | null;
@@ -42,18 +42,18 @@ const DEFAULT_HITZONE = "#00ff0033"; // translucent green — see drag area
 </script>
 
 <template>
-  <section class="bg-card flex flex-col min-h-0 min-w-0">
-    <h2 class="text-[11px] font-semibold text-muted-foreground px-2.5 py-1.5 border-b border-border bg-secondary/30 tracking-wider uppercase">
+  <section class="bg-[var(--card)] flex flex-col min-h-0 min-w-0">
+    <h2 class="text-[11px] font-semibold text-[var(--muted-foreground)] px-2.5 py-1.5 border-b border-[var(--border)] bg-[var(--secondary)]/30 tracking-wider uppercase">
       Visual Debug
     </h2>
     <div class="flex-1 overflow-auto p-2 text-[11px] flex flex-col gap-1.5">
       <div class="flex items-center gap-1.5">
-        <label class="flex-1 text-[11px] text-foreground">Window BG</label>
+        <label class="flex-1 text-[11px] text-[var(--foreground)]">Window BG</label>
         <input
           type="color"
           v-model="style.windowBg"
           @change="broadcast"
-          class="w-8 h-6 border border-border rounded bg-transparent cursor-pointer p-0"
+          class="w-8 h-6 border border-[var(--border)] rounded bg-transparent cursor-pointer p-0"
         />
         <Button
           variant="secondary"
@@ -65,12 +65,12 @@ const DEFAULT_HITZONE = "#00ff0033"; // translucent green — see drag area
         </Button>
       </div>
       <div class="flex items-center gap-1.5">
-        <label class="flex-1 text-[11px] text-foreground">Sprite BG</label>
+        <label class="flex-1 text-[11px] text-[var(--foreground)]">Sprite BG</label>
         <input
           type="color"
           v-model="style.spriteBg"
           @change="broadcast"
-          class="w-8 h-6 border border-border rounded bg-transparent cursor-pointer p-0"
+          class="w-8 h-6 border border-[var(--border)] rounded bg-transparent cursor-pointer p-0"
         />
         <Button
           variant="secondary"
@@ -82,12 +82,12 @@ const DEFAULT_HITZONE = "#00ff0033"; // translucent green — see drag area
         </Button>
       </div>
       <div class="flex items-center gap-1.5">
-        <label class="flex-1 text-[11px] text-foreground">Hit-zone BG</label>
+        <label class="flex-1 text-[11px] text-[var(--foreground)]">Hit-zone BG</label>
         <input
           type="color"
           v-model="style.hitzoneBg"
           @change="broadcast"
-          class="w-8 h-6 border border-border rounded bg-transparent cursor-pointer p-0"
+          class="w-8 h-6 border border-[var(--border)] rounded bg-transparent cursor-pointer p-0"
         />
         <Button
           variant="secondary"
@@ -105,7 +105,7 @@ const DEFAULT_HITZONE = "#00ff0033"; // translucent green — see drag area
       >
         Clear All
       </Button>
-      <p class="text-[10px] text-muted-foreground mt-1 leading-snug">
+      <p class="text-[10px] text-[var(--muted-foreground)] mt-1 leading-snug">
         Colors apply to the robot window. Pick freely; this is in-memory
         only — restart the app to reset.
       </p>

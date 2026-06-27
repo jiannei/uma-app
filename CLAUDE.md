@@ -71,15 +71,15 @@ There is **no test suite** — no `cargo test` target, no Vitest config. Linting
 
 - **`lib.rs`** — Tauri entry point. Defines:
   - `Settings` struct (mirrors what's stored in plugin-store — does NOT include per-agent install state; read that from `list_agents` instead)
-  - `SettingsStore`, `BubblePositionStore`, `PendingStore`, `AlwaysAllowStore` shared state
-  - `#[tauri::command]` handlers: `get_settings`, `set_theme`, `set_dnd`, `set_bubble_position`, `respond_permission`, `list_agents`, `check_agent_installed`, `install_agent_hook`, `uninstall_agent_hook`, `clear_always_allow_session`
+  - `SettingsStore`, `BubblePositionStore`, `PendingStore` shared state
+  - `#[tauri::command]` handlers: `get_settings`, `set_theme`, `set_dnd`, `set_bubble_position`, `respond_permission`, `list_agents`, `check_agent_installed`, `install_agent_hook`, `uninstall_agent_hook`
   - `setup` hook: loads persisted settings, registers a `CloseRequested` interceptor on the main window (prevents exit), spawns the HTTP server, installs the tray.
 - **`agent.rs`** — defines the `Agent` trait (id / display_name / config_path / install / uninstall / parse_state_payload / parse_permission_payload / build_permission_response) and the `KNOWN_AGENTS` compile-time registry. State machine and HTTP server only deal with the canonical `HookEvent` / `PermissionRequest` types — they never touch agent-specific DTOs. See [CONTEXT.md](./CONTEXT.md) and [ADR-0002](./docs/adr/0002-in-process-agent-adapter.md).
 - **`adapters/`** — one module per supported agent. `adapters/claude_code.rs` holds all Claude-Code-specific DTOs (`ClaudeCodeHookPayload`, `ClaudeCodePermissionPayload`), validation, the `translate_event` function that maps Claude Code's event names to the canonical 8-event vocabulary, and the `Agent` trait impl. Adding a new agent = new file under `adapters/` + one line in `KNOWN_AGENTS`.
 - **`http_server.rs`** — axum router bound to `127.0.0.1:17373`. Routes:
   - `GET /health`
   - `POST /agents/{id}/state` — non-blocking; looks up the agent by `:id`, calls `adapter.parse_state_payload`, broadcasts `agent-hook-event` to all windows + emits to the `robot` window. Unknown agent id → 404.
-  - `POST /agents/{id}/permission` — blocking (up to 5 min); inserts a `oneshot::Sender` into `PendingStore`, emits `permission-request` (with the canonical `PermissionRequest` payload, including `agent` and `agent_display_name`) to the bubble window, awaits a response, then writes the agent-specific permission response (e.g. Claude Code's `{hookSpecificOutput.decision.behavior}`) back. The "always" decision adds the tool to the per-(agent, session) `AlwaysAllowStore`, drained automatically on `SessionEnd` (see [ADR-0003](./docs/adr/0003-always-allow-scope.md)).
+  - `POST /agents/{id}/permission` — blocking (up to 5 min); inserts a `oneshot::Sender` into `PendingStore`, emits `permission-request` (with the canonical `PermissionRequest` payload, including `agent` and `agent_display_name`) to the bubble window, awaits a response, then writes the agent-specific permission response (e.g. Claude Code's `{hookSpecificOutput.decision}`) back. The bubble UI's reply strategy is per-kind — see [ADR-0017](./docs/adr/0017-bubble-reply-strategy-by-hook-kind.md) for the full mapping.
   - Security: bound to loopback, no auth, length caps in each adapter's `validate()` method, `MAX_PENDING_REQUESTS = 50` to cap the pending map.
 - **`tray.rs`** — system tray with Theme submenu, DND / Sound check items, Mini / Settings / Quit items. Left click shows the menu; menu events mutate the shared `SettingsStore` and broadcast the corresponding Tauri event.
 
@@ -120,11 +120,11 @@ To add a new theme, create the directory + `assets/`, then register the state→
 
 Dev-only cross-webview events (devtools in `main` ↔ `robot`): `devtools-synthetic-event` / `devtools-reset` / `devtools-robot-debug-style` (DevToolsApp → robot); `devtools-pending-changed` / `theme-updated` (Rust → DevToolsApp). See [ADR-0012](./docs/adr/0012-devtools-in-main-window.md).
 
-JS → Rust: bubble calls `invoke('respond_permission', { decision: { request_id, decision, reason } })`. App.vue calls the `set_*` commands for user preferences and the `*_agent_hook` / `list_agents` commands for agent management. The robot window invokes `clear_always_allow_session` on `SessionEnd` to drain the in-memory allow set.
+JS → Rust: bubble calls `invoke('respond_permission', { decision: PermissionDecision })`. App.vue calls the `set_*` commands for user preferences and the `*_agent_hook` / `list_agents` commands for agent management.
 
-### "始终允许" 仅在 (agent, session) 范围内有效
+### "始终允许" 通过 `permission_suggestions` + `updatedPermissions` 实现
 
-权限气泡里的"始终允许"会把工具名加进 `AlwaysAllowStore`（内存的 `HashMap<(agent_id, session_id), HashSet<tool_name>>`）。同 agent 的同一 session 内重复调用同一工具会被自动放行；session 关闭时由 `robot.html` 监听 `SessionEnd` 调用 `clear_always_allow_session` 清空。**不会**持久化到 `settings.json`，应用重启后会清空。这是 MVP 范围内有意为之 —— 如果用户重启后又看到弹窗，或者关闭重开同一个 session 又被问，是预期行为，不是 bug。详见 [ADR-0003](./docs/adr/0003-always-allow-scope.md)。
+气泡里"始终允许"按钮（或 `permission_suggestions[i]` 渲染的按钮）会把对应 suggestion 原样回写到 `updatedPermissions`，由 Claude Code 自己写到 `localSettings` / `userSettings` / `session` 内存。uma-app 不维护独立的 always-allow 缓存（`AlwaysAllowStore` 已删除，详见 [ADR-0011](./docs/adr/0011-permission-kind-and-update-entries.md) SUPERSEDED 0003）。每种 kind 的 reply 策略不同，详见 [ADR-0017](./docs/adr/0017-bubble-reply-strategy-by-hook-kind.md)。
 
 ### `~/.claude/settings.json` ownership
 

@@ -1,55 +1,43 @@
 <script setup lang="ts">
-// src/bubble/BubbleApp.vue — 权限气泡顶层 dispatcher（v5 + v6 轻改）。
+// src/bubble/BubbleApp.vue — 权限气泡顶层 dispatcher（ADR-0017 收敛版）。
 //
-// **单容器**：整个 webview 是一个大圆角矩形，pill 永远在顶，expanded
-// 条件显示。**没有 1px 分隔线**（v4 修订）。
+// **Webview 自适应**：
+// - webview 280×600pt max，Rust 端 window 永远 max=600pt
+// - `.bubble-content` content-sized + 背景
+// - `motion-v` spring 动画高度（ADR-0015 决策 1 保留）
 //
-// **弹性高度**：
-// - Elicitation: min 200pt / max 500pt
-// - PlanReview: min 280pt / max 700pt
-// - SideEffect: 只 pill（不展开）
-//
-// **位置**：`Position::TopCenter` + 8pt y（Rust 端固定）。
-//
-// **决策**：pill 永远提供主操作（SideEffect/PlanReview = ✓+✗，Elicitation
-// = →+X）。Elicitation 子组件维护自己的状态，pill 决策时通过
-// `defineExpose` 读子组件状态构造 PermissionDecision。
+// **架构**：
+// - 3 个 kind 通过 `<component :is>` dispatch 到 ToolBubble / AskBubble / PlanBubble
+// - 每 kind 暴露不同的 emit 形状：
+//   - ToolBubble: "allow" + updatedPermissions? / "deny"
+//   - AskBubble:  "submit" + updatedInput / "deny"
+//   - PlanBubble: 不 emit（通过 expose canApprove / getFeedback / scrollToBottom）
+// - 5min timeout 静默 deny（ADR-0017 Q6），无 AlarmBanner 闪烁
 
-import { ref, onMounted, onUnmounted, computed, watch, nextTick, onBeforeUnmount } from "vue";
+import { ref, computed, watch, nextTick, onMounted, onUnmounted } from "vue";
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
+import { useResizeObserver, useThrottleFn } from "@vueuse/core";
 import type {
   PermissionDecision,
   PermissionRequest,
-  SideEffectRequest,
-  ElicitationRequest,
-  PlanReviewRequest,
+  PermissionUpdateEntry,
 } from "../types/permission";
 import { useBubbleLang } from "./lang";
 import BubblePill from "./BubblePill.vue";
-import SideEffectBubble from "./SideEffectBubble.vue";
-import ElicitationBubble from "./ElicitationBubble.vue";
-import PlanReviewBubble from "./PlanReviewBubble.vue";
-
-type View = "collapsed" | "expanded";
+import ToolBubble from "./ToolBubble.vue";
+import AskBubble from "./AskBubble.vue";
+import PlanBubble from "./PlanBubble.vue";
 
 const lang = useBubbleLang();
 
 const BUBBLE_WIDTH = 280;
-const PILL_HEIGHT = 80;
-const EXPANDED_BOUNDS: Record<string, [number, number]> = {
-  Elicitation: [200, 500],
-  PlanReview: [280, 700],
-};
+const PILL_HEIGHT = 48;
+const MIN_HEIGHT = 80;
+const MAX_HEIGHT = 600;
 
-async function setBubbleHeight(height: number) {
-  try {
-    await invoke("set_bubble_size", { width: BUBBLE_WIDTH, height });
-  } catch (err) {
-    console.error("[bubble] set_bubble_size failed:", err);
-  }
-}
+type View = "collapsed" | "expanded";
 
 const queue = ref<PermissionRequest[]>([]);
 const current = computed<PermissionRequest | null>(() => queue.value[0] ?? null);
@@ -57,29 +45,63 @@ const view = ref<View>("collapsed");
 let unlisten: UnlistenFn | undefined;
 let unlistenTimeout: UnlistenFn | undefined;
 
-const elicitationRef = ref<InstanceType<typeof ElicitationBubble> | null>(null);
-const planReviewRef = ref<InstanceType<typeof PlanReviewBubble> | null>(null);
-
-const elicitationRequest = computed<ElicitationRequest | null>(() => {
+// Dispatch: kind → component
+const expandedComponent = computed(() => {
   const r = current.value;
-  return r && r.kind === "Elicitation" ? (r as ElicitationRequest) : null;
-});
-const planReviewRequest = computed<PlanReviewRequest | null>(() => {
-  const r = current.value;
-  return r && r.kind === "PlanReview" ? (r as PlanReviewRequest) : null;
+  if (!r) return null;
+  switch (r.kind) {
+    case "Elicitation": return AskBubble;
+    case "PlanReview": return PlanBubble;
+    case "SideEffect": return ToolBubble;
+  }
 });
 
-const expandedEl = ref<HTMLElement | null>(null);
-let resizeObserver: ResizeObserver | null = null;
+type ExpandedMethods = {
+  // AskBubble
+  goNextOrSubmit?: () => void;
+  // PlanBubble
+  canApprove?: boolean;
+  getFeedback?: () => string;
+  scrollToBottom?: () => void;
+};
+
+const expandedRef = ref<ExpandedMethods | null>(null);
+
+const contentInnerEl = ref<HTMLElement | null>(null);
+const measuredHeight = ref(PILL_HEIGHT);
+
+useResizeObserver(contentInnerEl, (entries) => {
+  const h = entries[0]?.contentRect.height;
+  if (h && h > 0) measuredHeight.value = h;
+});
+
+const scheduleIpcResize = useThrottleFn(async () => {
+  if (!current.value) return;
+  const h = Math.max(MIN_HEIGHT, Math.min(MAX_HEIGHT, Math.round(measuredHeight.value)));
+  try {
+    await invoke("set_bubble_size", { width: BUBBLE_WIDTH, height: h });
+  } catch (err) {
+    console.error("[bubble] set_bubble_size failed:", err);
+  }
+}, 16);
 
 async function show() {
   try {
     await getCurrentWebviewWindow().show();
-    await getCurrentWebviewWindow().setFocus().catch(() => {});
+    await getCurrentWebviewWindow().setFocus();
   } catch (err) {
     console.error("[bubble] show failed:", err);
   }
 }
+
+async function onBubbleMouseDown() {
+  try {
+    await getCurrentWebviewWindow().setFocus();
+  } catch (err) {
+    console.error("[bubble] setFocus failed:", err);
+  }
+}
+
 async function hide() {
   try {
     await getCurrentWebviewWindow().hide();
@@ -88,46 +110,41 @@ async function hide() {
   }
 }
 
-function clampExpandedHeight(kind: string, contentH: number): number {
-  const bounds = EXPANDED_BOUNDS[kind];
-  if (!bounds) return contentH;
-  const [min, max] = bounds;
-  return Math.max(min, Math.min(max, contentH));
+const targetHeight = computed<number>(() => {
+  if (!current.value) return 0;
+  return Math.max(MIN_HEIGHT, Math.min(MAX_HEIGHT, measuredHeight.value));
+});
+
+// === Dispatch: pill 按钮 → kind-aware 决策 ===
+
+// ToolBubble emit "allow" + updatedPermissions?
+async function onToolAllow(updatedPermissions?: PermissionUpdateEntry[]) {
+  await submitDecision("allow", { updatedPermissions });
 }
 
-async function syncHeight() {
-  const r = current.value;
-  if (!r) {
-    await setBubbleHeight(PILL_HEIGHT);
-    return;
-  }
-  if (view.value === "collapsed") {
-    await setBubbleHeight(PILL_HEIGHT);
-    return;
-  }
-  await nextTick();
-  const el = expandedEl.value;
-  if (!el) {
-    await setBubbleHeight(PILL_HEIGHT);
-    return;
-  }
-  const contentH = el.scrollHeight;
-  const expandedH = clampExpandedHeight(r.kind, contentH);
-  await setBubbleHeight(PILL_HEIGHT + expandedH);
+// AskBubble emit "submit" + updatedInput
+async function onAskSubmit(updatedInput: unknown) {
+  await submitDecision("allow", { updatedInput });
 }
 
+// pill → 按 kind dispatch
 async function onAction() {
   const r = current.value;
   if (!r) return;
   if (r.kind === "Elicitation") {
-    elicitationRef.value?.goNextOrSubmit();
+    expandedRef.value?.goNextOrSubmit?.();
     return;
   }
   if (r.kind === "PlanReview") {
-    const message = planReviewRef.value?.getFeedback();
-    await submitDecision("allow", { message });
+    if (!expandedRef.value?.canApprove) {
+      expandedRef.value?.scrollToBottom?.();
+      return;
+    }
+    await submitDecision("allow", {});
     return;
   }
+  // SideEffect: pill → 等价于 "Allow once"。ToolBubble 内部用按钮列表让用户
+  // 选其他 suggestions；pill 上一键 Allow 是最快的"安全默认"。
   await submitDecision("allow", {});
 }
 
@@ -135,20 +152,20 @@ async function onCancel() {
   const r = current.value;
   if (!r) return;
   if (r.kind === "PlanReview") {
-    const message = planReviewRef.value?.getFeedback();
+    const message = expandedRef.value?.getFeedback?.() ?? "";
     await submitDecision("deny", { message });
     return;
   }
-  await submitDecision("deny", {});
+  await submitDecision("deny", { message: "User denied" });
 }
 
-async function onElicitationSubmit(updatedInput: unknown) {
-  await submitDecision("allow", { updatedInput });
+async function onSkip() {
+  await submitDecision("deny", { message: "Skipped" });
 }
 
 async function submitDecision(
   behavior: "allow" | "deny",
-  opts: { updatedInput?: unknown; message?: string } = {},
+  opts: { updatedInput?: unknown; updatedPermissions?: PermissionUpdateEntry[]; message?: string } = {},
 ) {
   const r = current.value;
   if (!r) return;
@@ -156,6 +173,7 @@ async function submitDecision(
     requestId: r.requestId,
     behavior,
     ...(opts.updatedInput !== undefined ? { updatedInput: opts.updatedInput } : {}),
+    ...(opts.updatedPermissions !== undefined ? { updatedPermissions: opts.updatedPermissions } : {}),
     ...(opts.message ? { message: opts.message } : {}),
   };
   try {
@@ -170,44 +188,54 @@ async function onPillBodyClick() {
   const r = current.value;
   if (!r) return;
   view.value = view.value === "collapsed" ? "expanded" : "collapsed";
-  await syncHeight();
 }
 
 watch(current, async (r) => {
   view.value = "collapsed";
-  await nextTick();
   if (!r) {
     await hide();
-    await setBubbleHeight(PILL_HEIGHT);
     return;
   }
   await show();
-  await syncHeight();
+});
+
+watch(view, async () => {
+  await nextTick();
+  scheduleIpcResize();
+});
+
+watch(measuredHeight, () => {
+  scheduleIpcResize();
 });
 
 onMounted(async () => {
-  resizeObserver = new ResizeObserver(() => {
-    if (view.value === "expanded") syncHeight();
-  });
-
   unlisten = await listen<PermissionRequest>("permission-request", async (e) => {
     queue.value.push(e.payload);
   });
 
+  // ADR-0017 Q6: 5min timeout = 静默 deny，无 alarm 闪烁。
   unlistenTimeout = await listen<{ request_id: string }>(
     "permission-timeout",
-    (e) => {
-      queue.value = queue.value.filter(
-        (r) => r.requestId !== e.payload.request_id,
-      );
+    async (e) => {
+      const reqId = e.payload.request_id;
+      // 静默：直接发 deny decision + 移除当前 request。
+      const r = queue.value.find((q) => q.requestId === reqId);
+      if (!r) return;
+      const decision: PermissionDecision = {
+        requestId: reqId,
+        behavior: "deny",
+        message: "Request timed out",
+      };
+      try {
+        await invoke("respond_permission", { decision });
+      } catch (err) {
+        console.error("[bubble] timeout respond_permission failed:", err);
+      }
+      queue.value = queue.value.filter((q) => q.requestId !== reqId);
     },
   );
 });
 
-onBeforeUnmount(() => {
-  resizeObserver?.disconnect();
-  resizeObserver = null;
-});
 onUnmounted(() => {
   unlisten?.();
   unlistenTimeout?.();
@@ -215,81 +243,46 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="bubble-root" :class="{ 'bubble-root--empty': !current }">
-    <BubblePill
-      v-if="current"
-      :request="current"
-      :lang="lang"
-      :expandable="true"
-      :expanded="view === 'expanded'"
-      @body-click="onPillBodyClick"
-      @action="onAction"
-      @cancel="onCancel"
-    />
+  <div class="w-full h-full bg-transparent pointer-events-none flex justify-center items-start overflow-hidden">
+    <div
+      :style="{ height: `${targetHeight}px` }"
+      class="w-[280pt] bg-[var(--island)] backdrop-blur-[20px] backdrop-saturate-[180%] rounded-[14px] shadow-island pointer-events-auto overflow-hidden text-[var(--foreground)] flex flex-col transition-[height] duration-[280ms] ease-[cubic-bezier(0.34,1.56,0.64,1)]"
+      @mousedown="onBubbleMouseDown"
+    >
+      <div ref="contentInnerEl" class="flex flex-col">
+        <BubblePill
+          v-if="current"
+          :request="current"
+          :lang="lang"
+          :expandable="true"
+          :expanded="view === 'expanded'"
+          :queue-depth="queue.length - 1"
+          @body-click="onPillBodyClick"
+          @action="onAction"
+          @cancel="onCancel"
+          @skip="onSkip"
+        />
 
-    <div
-      v-if="current && view === 'expanded' && current.kind === 'Elicitation' && elicitationRequest"
-      ref="expandedEl"
-      class="expanded-section"
-    >
-      <ElicitationBubble
-        ref="elicitationRef"
-        :request="elicitationRequest"
-        @submit="onElicitationSubmit"
-      />
-    </div>
-    <div
-      v-else-if="current && view === 'expanded' && current.kind === 'PlanReview' && planReviewRequest"
-      ref="expandedEl"
-      class="expanded-section"
-    >
-      <PlanReviewBubble ref="planReviewRef" :request="planReviewRequest" />
-    </div>
-    <div
-      v-else-if="current && view === 'expanded' && current.kind === 'SideEffect'"
-      ref="expandedEl"
-      class="expanded-section"
-    >
-      <SideEffectBubble :request="(current as SideEffectRequest)" />
-    </div>
-    <div
-      v-else-if="current && view === 'expanded' && current.kind === 'PlanReview' && planReviewRequest"
-      ref="expandedEl"
-      class="expanded-section"
-    >
-      <PlanReviewBubble ref="planReviewRef" :request="planReviewRequest" />
+        <div
+          v-if="expandedComponent && current && view === 'expanded'"
+          class="flex flex-col pointer-events-auto overflow-hidden border-t border-[var(--divider-island)]"
+        >
+          <component
+            :is="expandedComponent"
+            ref="expandedRef"
+            :request="(current as any)"
+            @allow="onToolAllow"
+            @deny="(msg: string) => submitDecision('deny', { message: msg })"
+            @submit="onAskSubmit"
+          />
+        </div>
+      </div>
     </div>
   </div>
 </template>
 
 <style scoped>
-.bubble-root {
-  display: flex;
-  flex-direction: column;
-  width: 100%;
-  height: 100%;
-  border-radius: 22pt;
-  background: var(--bubble-bg, rgba(28, 28, 30, 0.78));
-  -webkit-backdrop-filter: var(--bubble-backdrop, blur(20px) saturate(180%));
-  backdrop-filter: var(--bubble-backdrop, blur(20px) saturate(180%));
-  box-shadow: var(--bubble-shadow, 0 4px 16px rgba(0, 0, 0, 0.32));
-  pointer-events: none;
-  overflow: hidden;
-  color: var(--bubble-text, #f5f5f7);
-}
-.bubble-root--empty {
-  background: transparent;
-  box-shadow: none;
-  backdrop-filter: none;
-  -webkit-backdrop-filter: none;
-}
-.expanded-section {
-  flex: 1 1 auto;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-  pointer-events: auto;
-  overflow-y: auto;
-  overflow-x: hidden;
+.shadow-island {
+  box-shadow: var(--shadow-island);
 }
 </style>

@@ -28,7 +28,7 @@ export function truncate(s: string, max = DEFAULT_MAX): string {
 /** Return the first string-typed value in `input` whose key is in
  * `names`, trimmed. Used for explicit field-name fallbacks
  * (`description`, `file_path`, etc.). */
-function firstStringValue(
+export function firstStringValue(
   input: Record<string, unknown>,
   names: readonly string[],
 ): string {

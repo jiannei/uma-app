@@ -27,7 +27,7 @@ import { displayStateResolver } from "../robot/display-state-resolver";
 import { DEFAULT_THEME } from "../robot/display-state-constants";
 import type { HookEvent, ThemeManifest } from "../robot/display-state-types";
 import type { PermissionRequest } from "../types/permission";
-import { Button } from "@/components/ui/button";
+import Button from "@/components/Btn.vue";
 
 import StateMachinePanel from "./panels/StateMachinePanel.vue";
 import StoresPanel from "./panels/StoresPanel.vue";
@@ -203,15 +203,15 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="flex flex-col h-full bg-background text-foreground">
-    <header class="flex items-center justify-between px-3 py-1.5 bg-background border-b border-border">
-      <span class="font-semibold text-[12px] tracking-wider text-foreground">Uma DevTools</span>
+  <div class="flex flex-col h-full bg-[var(--background)] text-[var(--foreground)]">
+    <header class="flex items-center justify-between px-3 py-1.5 bg-[var(--background)] border-b border-[var(--border)]">
+      <span class="font-semibold text-[12px] tracking-wider text-[var(--foreground)]">Uma DevTools</span>
       <Button variant="destructive" size="sm" @click="resetAll">
         Reset
       </Button>
     </header>
-    <main class="flex-1 min-h-0 flex flex-wrap gap-px bg-border">
-      <StateMachinePanel :snapshot="snapshot" class="flex-1 min-w-[280px] bg-card overflow-auto" />
+    <main class="flex-1 min-h-0 flex flex-wrap gap-px bg-[var(--border)]">
+      <StateMachinePanel :snapshot="snapshot" class="flex-1 min-w-[280px] bg-[var(--card)] overflow-auto" />
       <VisualDebugPanel class="flex-1 min-w-[280px] overflow-auto" />
       <StoresPanel :pending="pending" class="flex-1 min-w-[280px] overflow-auto" />
       <SyntheticFirePanel :agents="agents" :fire-synthetic="fireSynthetic" class="flex-1 min-w-[280px] overflow-auto" />

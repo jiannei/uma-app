@@ -12,8 +12,8 @@ import type {
   SessionEntry,
   SessionKey,
 } from "../../robot/display-state-types";
-import { Badge } from "@/components/ui/badge";
-import type { BadgeVariants } from "@/components/ui/badge";
+import Badge from "@/components/Badge.vue";
+import type { BadgeVariant } from "@/components/Badge.vue";
 
 const props = defineProps<{ snapshot: Snapshot }>();
 
@@ -34,7 +34,7 @@ function sidFromKey(key: SessionKey): string {
 }
 
 // State → Badge variant mapping for color-coded session states.
-const stateVariant: Record<string, BadgeVariants["variant"]> = {
+const stateVariant: Record<string, BadgeVariant> = {
   error: "destructive",
   working: "default",
   thinking: "secondary",
@@ -42,7 +42,7 @@ const stateVariant: Record<string, BadgeVariants["variant"]> = {
   idle: "secondary",
 };
 
-function stateVariantFor(state: string): BadgeVariants["variant"] {
+function stateVariantFor(state: string): BadgeVariant {
   return stateVariant[state] ?? "outline";
 }
 
@@ -64,28 +64,31 @@ const sessionCount = computed(() => agentIds.value.length);
 </script>
 
 <template>
-  <section class="bg-card flex flex-col min-h-0 min-w-0">
-    <h2 class="text-[11px] font-semibold text-muted-foreground px-2.5 py-1.5 border-b border-border bg-secondary/30 tracking-wider uppercase flex justify-between items-center">
+  <section class="bg-[var(--card)] flex flex-col min-h-0 min-w-0">
+    <h2 class="text-[11px] font-semibold text-[var(--muted-foreground)] px-2.5 py-1.5 border-b border-[var(--border)] bg-[var(--secondary)]/30 tracking-wider uppercase flex justify-between items-center">
       <span>State Machine</span>
-      <span class="text-primary font-mono text-[11px] normal-case tracking-normal">
+      <span class="text-[var(--primary)] font-mono text-[11px] normal-case tracking-normal">
         {{ props.snapshot.displayState }}
       </span>
     </h2>
     <div class="flex-1 overflow-auto p-2 text-[11px]">
-      <div v-if="sessionCount === 0" class="text-muted-foreground italic">
+      <div v-if="sessionCount === 0" class="text-[var(--muted-foreground)] italic">
         No active sessions. Fire a synthetic SessionStart from Panel 5.
       </div>
       <div v-for="aid in agentIds" :key="aid" class="mb-2">
-        <div class="font-semibold text-foreground mb-1 font-mono">{{ aid }}</div>
-        <div v-for="[key, entry] in groupedByAgent[aid]" :key="key" class="flex gap-1.5 items-center py-0.5 pl-2 border-l-2 border-border font-mono text-[10px] text-muted-foreground whitespace-nowrap overflow-hidden">
-          <span class="text-muted-foreground">{{ sidFromKey(key).slice(0, 12) }}</span>
-          <Badge :variant="stateVariantFor(entry.state)" class="px-1 py-0 text-[9px] font-semibold">
+        <div class="font-semibold text-[var(--foreground)] mb-1 font-mono">{{ aid }}</div>
+        <div v-for="[key, entry] in groupedByAgent[aid]" :key="key" class="flex gap-1.5 items-center py-0.5 pl-2 border-l-2 border-[var(--border)] font-mono text-[10px] text-[var(--muted-foreground)] whitespace-nowrap overflow-hidden">
+          <span class="text-[var(--muted-foreground)]">{{ sidFromKey(key).slice(0, 12) }}</span>
+          <Badge
+            :variant="stateVariantFor(entry.state)"
+            class="px-1 py-0 text-[9px] font-semibold"
+          >
             {{ entry.state }}
           </Badge>
-          <span class="text-foreground">{{ entry.lastEvent }}</span>
-          <span v-if="entry.toolName" class="text-accent">{{ entry.toolName }}</span>
-          <span v-if="entry.subagentCount > 0" class="text-primary">+{{ entry.subagentCount }} sub</span>
-          <span class="text-muted-foreground ml-auto">{{ timeShort(entry.timestamp) }}</span>
+          <span class="text-[var(--foreground)]">{{ entry.lastEvent }}</span>
+          <span v-if="entry.toolName" class="text-[var(--accent)]">{{ entry.toolName }}</span>
+          <span v-if="entry.subagentCount > 0" class="text-[var(--primary)]">+{{ entry.subagentCount }} sub</span>
+          <span class="text-[var(--muted-foreground)] ml-auto">{{ timeShort(entry.timestamp) }}</span>
         </div>
       </div>
     </div>

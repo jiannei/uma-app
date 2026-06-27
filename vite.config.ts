@@ -1,14 +1,16 @@
 import { defineConfig } from "vite";
 import vue from "@vitejs/plugin-vue";
-import tailwindcss from "@tailwindcss/vite";
+import unocss from "@unocss/vite";
 import { fileURLToPath, URL } from "node:url";
 
-// @ts-expect-error process is a nodejs global
 const host = process.env.TAURI_DEV_HOST;
 
 // https://vite.dev/config/
+// PR-4: @tailwindcss/vite removed. UnoCSS is the sole CSS engine —
+// theme + tokens come from uno.config.ts + shared.css, utility classes
+// are emitted by the virtual:uno.css import in each entry.
 export default defineConfig(async () => ({
-  plugins: [vue(), tailwindcss()],
+  plugins: [vue(), unocss()],
 
   resolve: {
     alias: {
@@ -18,10 +20,17 @@ export default defineConfig(async () => ({
 
   build: {
     rollupOptions: {
+      onwarn(warning, warn) {
+        // Suppress @vueuse/core INVALID_ANNOTATION warnings (third-party library issue)
+        if (warning.code === 'INVALID_ANNOTATION' && warning.message?.includes('@vueuse/core')) {
+          return
+        }
+        warn(warning)
+      },
       input: {
         main: "index.html",
         robot: "robot.html",
-        "permission-bubble": "permission-bubble.html",
+        "bubble": "bubble.html",
         // Three entries: settings (main), robot sprite, permission bubble.
         // DevTools used to be a 4th entry (see ADR-0005) — it is now
         // embedded inside the main window as a sidebar nav item, gated

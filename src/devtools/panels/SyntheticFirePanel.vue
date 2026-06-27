@@ -19,8 +19,8 @@ import { ref } from "vue";
 import { invoke } from "@tauri-apps/api/core";
 import type { HookEvent } from "../../robot/display-state-types";
 import { CANONICAL_EVENTS } from "../../robot/display-state-constants";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import Button from "@/components/Btn.vue";
+import Input from "@/components/Input.vue";
 
 interface AgentInfo {
   id: string;
@@ -87,15 +87,15 @@ async function fireSyntheticPermission(kind: PermKind) {
 </script>
 
 <template>
-  <section class="bg-card flex flex-col min-h-0 min-w-0">
-    <h2 class="text-[11px] font-semibold text-muted-foreground px-2.5 py-1.5 border-b border-border bg-secondary/30 tracking-wider uppercase">
+  <section class="bg-[var(--card)] flex flex-col min-h-0 min-w-0">
+    <h2 class="text-[11px] font-semibold text-[var(--muted-foreground)] px-2.5 py-1.5 border-b border-[var(--border)] bg-[var(--secondary)]/30 tracking-wider uppercase">
       Fire Synthetic Event
     </h2>
     <div class="flex-1 overflow-auto p-2 text-[11px]">
       <form class="flex flex-col gap-1.5" @submit.prevent="fire">
         <div class="flex flex-col gap-0.5">
-          <label class="text-[10px] text-muted-foreground uppercase">agent</label>
-          <select v-model="agent" class="bg-secondary border border-border text-foreground rounded px-1.5 py-1 font-mono text-[11px] focus:border-ring focus:outline-none">
+          <label class="text-[10px] text-[var(--muted-foreground)] uppercase">agent</label>
+          <select v-model="agent" class="dev-select">
             <option v-for="a in props.agents" :key="a.id" :value="a.id">
               {{ a.display_name }} ({{ a.id }})
             </option>
@@ -103,29 +103,29 @@ async function fireSyntheticPermission(kind: PermKind) {
           </select>
         </div>
         <div class="flex flex-col gap-0.5">
-          <label class="text-[10px] text-muted-foreground uppercase">session_id</label>
+          <label class="text-[10px] text-[var(--muted-foreground)] uppercase">session_id</label>
           <Input v-model="sessionId" type="text" class="h-7 font-mono text-[11px]" />
         </div>
         <div class="flex flex-col gap-0.5">
-          <label class="text-[10px] text-muted-foreground uppercase">event_type</label>
-          <select v-model="eventType" class="bg-secondary border border-border text-foreground rounded px-1.5 py-1 font-mono text-[11px] focus:border-ring focus:outline-none">
+          <label class="text-[10px] text-[var(--muted-foreground)] uppercase">event_type</label>
+          <select v-model="eventType" class="dev-select">
             <option v-for="e in CANONICAL_EVENTS" :key="e" :value="e">{{ e }}</option>
           </select>
         </div>
         <div v-if="eventType === 'ToolCallStart' || eventType === 'ToolCallEnd' || eventType === 'UserPromptSubmit'" class="flex flex-col gap-0.5">
-          <label class="text-[10px] text-muted-foreground uppercase">tool_name</label>
+          <label class="text-[10px] text-[var(--muted-foreground)] uppercase">tool_name</label>
           <Input v-model="toolName" type="text" placeholder="e.g. Read, Bash, Task" class="h-7 font-mono text-[11px]" />
         </div>
         <div v-if="eventType === 'ToolCallEnd'" class="flex flex-col gap-0.5">
-          <label class="text-[10px] text-muted-foreground uppercase">success</label>
-          <select v-model="success" class="bg-secondary border border-border text-foreground rounded px-1.5 py-1 font-mono text-[11px] focus:border-ring focus:outline-none">
+          <label class="text-[10px] text-[var(--muted-foreground)] uppercase">success</label>
+          <select v-model="success" class="dev-select">
             <option value="">(n/a)</option>
             <option value="true">true</option>
             <option value="false">false</option>
           </select>
         </div>
         <div v-if="eventType === 'ToolCallStart' || eventType === 'ToolCallEnd'" class="flex items-center gap-1.5">
-          <label class="flex items-center gap-1.5 text-[10px] text-muted-foreground uppercase">
+          <label class="flex items-center gap-1.5 text-[10px] text-[var(--muted-foreground)] uppercase">
             <input v-model="subagent" type="checkbox" class="cursor-pointer" />
             subagent (ADR-0008 — drives juggling/groove/building)
           </label>
@@ -135,13 +135,13 @@ async function fireSyntheticPermission(kind: PermKind) {
         </Button>
       </form>
 
-      <div class="border-t border-border mt-3 pt-1">
-        <h3 class="text-[10px] text-muted-foreground mt-3 mb-1 tracking-wider uppercase">
+      <div class="border-t border-[var(--border)] mt-3 pt-1">
+        <h3 class="text-[10px] text-[var(--muted-foreground)] mt-3 mb-1 tracking-wider uppercase">
           Fire Synthetic Permission
         </h3>
-        <p class="text-[10px] text-muted-foreground leading-snug mb-1.5">
+        <p class="text-[10px] text-[var(--muted-foreground)] leading-snug mb-1.5">
           Inserts a synthetic request into PendingStore + emits
-          <code class="bg-secondary text-primary px-1 rounded text-[10px]">permission-request</code>
+          <code class="bg-[var(--secondary)] text-[var(--primary)] px-1 rounded text-[10px]">permission-request</code>
           so the bubble renders without a real CC session. Click Allow / Deny in the bubble to
           complete the flow.
         </p>
@@ -157,13 +157,22 @@ async function fireSyntheticPermission(kind: PermKind) {
             {{ firing === k ? "firing…" : k }}
           </Button>
         </div>
-        <p v-if="lastFiredId" class="text-[10px] text-primary mt-1.5">
-          ✓ last fired: <code class="font-mono text-accent">{{ lastFiredId }}</code>
+        <p v-if="lastFiredId" class="text-[10px] text-[var(--primary)] mt-1.5">
+          ✓ last fired: <code class="font-mono text-[var(--accent)]">{{ lastFiredId }}</code>
         </p>
-        <p v-if="lastError" class="text-[10px] text-destructive mt-1.5">
+        <p v-if="lastError" class="text-[10px] text-[var(--destructive)] mt-1.5">
           ✗ {{ lastError }}
         </p>
       </div>
     </div>
   </section>
 </template>
+
+<style scoped>
+.dev-select {
+  @apply bg-[var(--secondary)] border border-[var(--border)] text-[var(--foreground)] rounded px-1.5 py-1 font-mono text-[11px];
+}
+.dev-select:focus {
+  @apply border-[var(--ring)] outline-none;
+}
+</style>

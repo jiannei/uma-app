@@ -198,13 +198,16 @@ async fn respond_permission(
     Ok(())
 }
 
-/// Resize the permission-bubble webview to fit the current request kind.
-///
-/// Called by `BubbleApp.vue` on mount of an expanded kind (SideEffect /
-/// Elicitation / PlanReview) or on returning to the pill. The window
-/// stays anchored at `Position::TopCenter` (set once at window creation
-/// in `setup`) — `set_size` does not move it. ADR-0014 follow-up
-/// (2026-06-26)统一宽度 480pt，只变 height。
+// 浮岛形态（task #23）：webview 自适应内容高度。前端 ResizeObserver
+// 测 `.content-inner` 自然高度，debounce 调 `set_bubble_size` IPC，
+// Rust 把 webview resize 到 (280, h)。resize 后立刻调 `move_window(TopCenter)`
+// 重新锚定到屏幕顶部中央 —— grow 时顶部边不会下移。
+//
+// Content 用 CSS transition (cubic-bezier overshoot) 模拟 spring 视觉。
+
+/// Resize the bubble webview to fit content. Re-anchors to
+/// `Position::TopCenter` after resize so the bubble's top edge stays at
+/// the screen top as it grows downward.
 #[tauri::command]
 fn set_bubble_size(
     app: AppHandle,
@@ -212,10 +215,12 @@ fn set_bubble_size(
     height: f64,
 ) -> Result<(), String> {
     if let Some(bubble) = app.get_webview_window("permission-bubble") {
-        // Logical pixels; Tauri handles DPR conversion internally.
         bubble
             .set_size(tauri::LogicalSize::new(width, height))
             .map_err(|e| format!("set_bubble_size: {e}"))?;
+        // TopCenter 重新锚定：x 重新居中，y 保持 screen_position.y（屏幕顶部）。
+        use tauri_plugin_positioner::{Position, WindowExt};
+        let _ = bubble.move_window(Position::TopCenter);
     } else {
         return Err("permission-bubble window not found".into());
     }
@@ -460,7 +465,7 @@ async fn devtools_fire_synthetic_permission(
     if let Some(bubble) = app.get_webview_window("permission-bubble") {
         match bubble.emit("permission-request", payload.clone()) {
             Ok(()) => eprintln!(
-                "[devtools] synthetic emitted to permission-bubble webview (request_id={request_id})"
+                "[devtools] synthetic emitted to bubble webview (request_id={request_id})"
             ),
             Err(e) => eprintln!(
                 "[devtools] synthetic emit to bubble FAILED: {e}"
@@ -553,7 +558,6 @@ pub fn run() {
     let pending = Arc::new(Mutex::new(HashMap::<String, PendingEntry>::new()));
 
     let builder = tauri::Builder::default()
-        .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_positioner::init())
         .plugin(tauri_plugin_store::Builder::new().build());
 
@@ -641,18 +645,16 @@ pub fn run() {
             let _bubble_window = WebviewWindowBuilder::new(
                 app,
                 "permission-bubble",
-                WebviewUrl::App("permission-bubble.html".into()),
+                WebviewUrl::App("bubble.html".into()),
             )
             .title("Uma Permission")
-            // ADR-0014 follow-up (2026-06-26)：动态 resize 按 kind 设尺寸。
-            // 统一 width = 280pt（极简，iPhone 灵动岛 compact pill 风）。
-            // 初始 280×80（pill 态）。Pill → SideEffect (280×200) /
-            // Elicitation (280×360) / PlanReview (280×600) 由
-            // BubbleApp.vue 在 mount 时调 `set_bubble_size()`。
-            // CSS `pointer-events: none` on body + 可点元素加
-            // `pointer-events: auto`，让 webview 自身做 click-through。
+            // 浮岛形态（task #23）：webview 自适应内容高度。初始 = pill 高
+            // (280×80)，通过 JS ResizeObserver + `set_bubble_size` IPC
+            // resize 到内容实际高度（clamp 在 80-600 之间）。Rust 端在
+            // resize 后立刻 re-anchor TopCenter，保持顶部对齐。
             .inner_size(280.0, 80.0)
             .min_inner_size(280.0, 80.0)
+            .max_inner_size(280.0, 600.0)
             .decorations(false)
             .always_on_top(true)
             .skip_taskbar(true)

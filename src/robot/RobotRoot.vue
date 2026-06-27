@@ -17,6 +17,7 @@ import { getCurrentWindow, currentMonitor } from "@tauri-apps/api/window";
 import { LogicalSize, LogicalPosition } from "@tauri-apps/api/dpi";
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { useThrottleFn, useEventListener } from "@vueuse/core";
 import { displayStateResolver } from "./display-state-resolver";
 import { DEFAULT_THEME } from "./display-state-constants";
 import { ThemeManager } from "./theme-manager.js";
@@ -361,15 +362,10 @@ function setDisplayState(state: DisplayState) {
 // ── Sound playback (10s cooldown) ───────────────────────────────
 
 const settings = { sound_enabled: true };
-let lastSoundTime = 0;
-const SOUND_COOLDOWN_MS = 10000;
 const audioCache = new Map<string, HTMLAudioElement>();
 
-function playSound(name: string) {
+const playSound = useThrottleFn((name: string) => {
   if (!settings.sound_enabled) return;
-  const now = Date.now();
-  if (now - lastSoundTime < SOUND_COOLDOWN_MS) return;
-  lastSoundTime = now;
 
   let audio = audioCache.get(name);
   if (!audio) {
@@ -381,7 +377,7 @@ function playSound(name: string) {
   audio.play().catch((err) => {
     console.warn(`[robot] sound play failed: ${err}`);
   });
-}
+}, 10000);
 
 // ── Drag + mini mode (was inline in robot.html L500-649) ──────────
 
@@ -499,6 +495,10 @@ function onMouseMove(e: MouseEvent) {
   }
 }
 
+// ── DOM event listeners (useEventListener handles cleanup) ──────
+useEventListener(hitZone, "pointerdown", onHitZonePointerDown);
+useEventListener(document, "mousemove", onMouseMove);
+
 // ── Tauri event wiring ──────────────────────────────────────────
 
 const unsubscribers: UnlistenFn[] = [];
@@ -568,15 +568,10 @@ onMounted(async () => {
     await listen("agent-hook-event", (e) => {
       const payload = e.payload as HookEvent;
       send({ type: "AGENT_HOOK", event: payload });
-      // ADR-0003 cleanup: when a session ends, drop its always-allow set.
-      if (payload.event_type === "SessionEnd" && payload.session_id) {
-        invoke("clear_always_allow_session", {
-          agentId: payload.agent || "unknown",
-          sessionId: payload.session_id,
-        }).catch((err) =>
-          console.warn("[robot] clear_always_allow_session failed:", err),
-        );
-      }
+      // ADR-0011: AlwaysAllowStore removed — CC owns session-scoped
+      // rules via `destination: "session"` updatedPermissions and
+      // short-circuits subsequent hook calls itself. No robot-side
+      // cleanup needed on SessionEnd.
     }),
   );
 
@@ -586,17 +581,7 @@ onMounted(async () => {
       const ev = (e.payload as { event?: HookEvent })?.event;
       if (!ev) return;
       send({ type: "AGENT_HOOK", event: ev });
-      if (ev.event_type === "SessionEnd" && ev.session_id) {
-        invoke("clear_always_allow_session", {
-          agentId: ev.agent || "unknown",
-          sessionId: ev.session_id,
-        }).catch((err) =>
-          console.warn(
-            "[robot] clear_always_allow_session (synthetic) failed:",
-            err,
-          ),
-        );
-      }
+      // ADR-0011: no robot-side cleanup on SessionEnd (see above).
     }),
   );
 
@@ -630,22 +615,15 @@ onMounted(async () => {
     }),
   );
 
-  // Hit-zone drag start (DOM event).
-  if (hitZone.value) {
-    hitZone.value.addEventListener("pointerdown", onHitZonePointerDown);
-  }
+  // Hit-zone drag start (DOM event) — useEventListener handles cleanup.
+  // Mouse-move for peek-on-hover — useEventListener handles cleanup.
 
-  // Mouse-move for peek-on-hover.
-  document.addEventListener("mousemove", onMouseMove);
 });
 
 onUnmounted(() => {
   for (const u of unsubscribers) u();
   unsubscribers.length = 0;
-  if (hitZone.value) {
-    hitZone.value.removeEventListener("pointerdown", onHitZonePointerDown);
-  }
-  document.removeEventListener("mousemove", onMouseMove);
+  // useEventListener handles cleanup automatically.
 });
 </script>
 
