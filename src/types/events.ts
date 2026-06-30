@@ -5,7 +5,7 @@
 // mirrors it for Rust use. The anti-drift test in `events.test.ts`
 // reads the manifest and asserts equality with the constants below.
 //
-// ADR-0019: scope = 7 prod + 4 dev + 2 deprecated (dead emit, pending
+// ADR-0019: scope = 8 prod + 4 dev + 2 deprecated (dead emit, pending
 // remove). `tauri://move` is a Tauri built-in and is NOT in this
 // registry.
 
@@ -18,6 +18,7 @@ export const EVENTS = {
   THEME_UPDATED: 'theme-updated',
   DND_CHANGE: 'dnd-change',
   SOUND_CHANGE: 'sound-change',
+  AUTO_START_CHANGE: 'auto-start-change',
 
   // ── Half-dead channels ── Rust still emits, TS has no listener.
   // Kept here so the `@deprecated` JSDoc is visible at every emit/listen
@@ -51,6 +52,7 @@ export const PROD_EVENT_WIRE_STRINGS: readonly string[] = [
   EVENTS.THEME_UPDATED,
   EVENTS.DND_CHANGE,
   EVENTS.SOUND_CHANGE,
+  EVENTS.AUTO_START_CHANGE,
   EVENTS.LANGUAGE_CHANGE,
   EVENTS.TOGGLE_MINI,
 ];
