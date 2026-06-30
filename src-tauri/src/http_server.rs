@@ -35,14 +35,13 @@ use axum::{
     Json, Router,
 };
 use serde::Serialize;
-use std::collections::HashMap;
 use std::sync::Arc;
 use tauri::{AppHandle, Emitter, Manager};
 use tokio::sync::{oneshot, Mutex};
 
 use crate::agent::{self, PermissionDecision};
-use crate::events::{dev, prod};
-use crate::PendingEntry;
+use crate::events::prod;
+use crate::pending_store::{CapFull, PendingEntry, PendingStore};
 
 // ── Internal types ──────────────────────────────────────────────
 
@@ -55,19 +54,13 @@ pub struct HookResponse {
 
 // ── App state ───────────────────────────────────────────────────
 
-/// Maximum concurrent in-flight permission requests. New requests are
-/// rejected with 503 if the queue is full — prevents unbounded growth
-/// of the pending map if a misbehaving caller never responds.
-const MAX_PENDING_REQUESTS: usize = 50;
-
 #[derive(Clone)]
 struct AppState {
     app: AppHandle,
-    /// Pending permission requests, keyed by request_id. The
-    /// `PendingEntry` carries the oneshot sender AND the canonical
-    /// request payload (so the dev-tools panel can render pending
-    /// requests without re-fetching). Mirrors `lib.rs::PendingStore`.
-    pending: Arc<Mutex<HashMap<String, PendingEntry>>>,
+    /// Pending permission requests. `PendingStore` owns the map,
+    /// the cap check, and the devtools-emit invariant. The cap
+    /// itself lives in `pending_store::MAX_PENDING_REQUESTS`.
+    pending: PendingStore,
     /// Internal request ID counter (per process).
     request_counter: Arc<Mutex<u64>>,
 }
@@ -151,40 +144,18 @@ async fn handle_permission(
         canonical.kind(),
     );
 
-    // Cap pending queue.
+    // Cap pending queue + insert. The cap, the mutation, and the
+    // devtools `PENDING_CHANGED` emit all live inside
+    // `PendingStore::insert` — callers just match on `CapFull`.
     let (tx, rx) = oneshot::channel::<PermissionDecision>();
-    {
-        let mut pending = state.pending.lock().await;
-        if pending.len() >= MAX_PENDING_REQUESTS {
-            log::info!(
-                "[http] pending queue full ({}/{}), rejecting",
-                pending.len(),
-                MAX_PENDING_REQUESTS
-            );
-            return Err(StatusCode::SERVICE_UNAVAILABLE);
-        }
-        pending.insert(
-            request_id.clone(),
-            PendingEntry {
-                tx,
-                request: canonical.clone(),
-                agent_id: agent_id.clone(),
-            },
-        );
-
-        // Dev-tools panel watches PendingStore mutations.
-        #[cfg(debug_assertions)]
-        {
-            let _ = state.app.emit(
-                dev::PENDING_CHANGED,
-                serde_json::json!({
-                    "kind": "insert",
-                    "request_id": &request_id,
-                    "agent_id": &agent_id,
-                    "request": &canonical,
-                }),
-            );
-        }
+    let entry = PendingEntry {
+        tx,
+        request: canonical.clone(),
+        agent_id: agent_id.clone(),
+    };
+    if let Err(CapFull { current, max }) = state.pending.insert(request_id.clone(), entry).await {
+        log::info!("[http] pending queue full ({}/{}), rejecting", current, max);
+        return Err(StatusCode::SERVICE_UNAVAILABLE);
     }
 
     // Show bubble at its fixed TopCenter position (set once at window
@@ -236,20 +207,9 @@ async fn handle_permission(
         }
         Err(_) => {
             log::warn!("[http] permission timeout");
-            let mut pending = state.pending.lock().await;
-            pending.remove(&request_id);
-
-            // Dev-tools panel watches PendingStore mutations.
-            #[cfg(debug_assertions)]
-            {
-                let _ = state.app.emit(
-                    dev::PENDING_CHANGED,
-                    serde_json::json!({
-                        "kind": "remove",
-                        "request_id": &request_id,
-                    }),
-                );
-            }
+            // Remove the entry + emit devtools `PENDING_CHANGED`
+            // remove — both live inside `PendingStore::timeout`.
+            state.pending.timeout(&request_id).await;
 
             // ADR-0013 决策 8: 超时自动 deny + 给 agent 响应 —
             // 否则 agent 会 hang 等待 response，违反"必须响应"
@@ -305,7 +265,7 @@ fn hide_bubble_window(app: &AppHandle) {
 
 pub fn build_router(
     app: AppHandle,
-    pending: Arc<Mutex<HashMap<String, PendingEntry>>>,
+    pending: PendingStore,
 ) -> Router {
     let state = Arc::new(AppState {
         app,
@@ -324,7 +284,7 @@ pub fn build_router(
 
 pub async fn run(
     app: AppHandle,
-    pending: Arc<Mutex<HashMap<String, PendingEntry>>>,
+    pending: PendingStore,
     port: u16,
 ) {
     let router = build_router(app, pending);

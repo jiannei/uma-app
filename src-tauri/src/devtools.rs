@@ -40,21 +40,14 @@ use crate::events::prod;
 use crate::pending_store::{PendingEntry, PendingEntryView, PendingStore};
 
 /// Snapshot the in-memory permission store for the dev panel's
-/// initial render.
+/// initial render. `PendingStore::snapshot` returns the same
+/// `PendingEntryView` list the panel expects.
 #[cfg(debug_assertions)]
 #[tauri::command]
 pub async fn devtools_get_pending(
     store: State<'_, PendingStore>,
 ) -> Result<Vec<PendingEntryView>, String> {
-    let pending = store.0.lock().await;
-    Ok(pending
-        .iter()
-        .map(|(id, entry)| PendingEntryView {
-            request_id: id.clone(),
-            agent_id: entry.agent_id.clone(),
-            request: entry.request.clone(),
-        })
-        .collect())
+    Ok(store.snapshot().await)
 }
 
 /// Inject a synthetic permission request of the given `kind`. `kind`
@@ -194,18 +187,21 @@ pub async fn devtools_fire_synthetic_permission(
     // Insert into PendingStore with a oneshot. The rx is dropped
     // (no one listens) — that's fine, `respond_permission` removes
     // the entry from the store cleanly either way.
+    //
+    // Using `PendingStore::insert` (rather than opening the mutex
+    // directly) gives us the devtools `PENDING_CHANGED` emit for
+    // free — fixing the previous wart where the synthetic path
+    // bypassed the emit.
     let (tx, _rx) = tokio::sync::oneshot::channel::<agent::PermissionDecision>();
-    {
-        let mut pending = store.0.lock().await;
-        pending.insert(
-            request_id.clone(),
-            PendingEntry {
-                tx,
-                request: request.clone(),
-                agent_id: agent_id_str.clone(),
-            },
-        );
-    }
+    let entry = PendingEntry {
+        tx,
+        request: request.clone(),
+        agent_id: agent_id_str.clone(),
+    };
+    store
+        .insert(request_id.clone(), entry)
+        .await
+        .map_err(|_| "pending queue at capacity".to_string())?;
 
     let payload = serde_json::to_value(&request)
         .map_err(|e| format!("serialize synthetic request: {e}"))?;

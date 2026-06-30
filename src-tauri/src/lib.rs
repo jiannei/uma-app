@@ -36,10 +36,7 @@ mod windows;
 pub use pending_store::{PendingEntry, PendingEntryView, PendingStore};
 pub use settings_store::{Settings, SettingsStore};
 
-use std::collections::HashMap;
-use std::sync::Arc;
 use tauri::Manager;
-use tokio::sync::Mutex;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -47,8 +44,6 @@ pub fn run() {
         .ok()
         .and_then(|s| s.parse().ok())
         .unwrap_or(17373);
-
-    let pending = Arc::new(Mutex::new(HashMap::<String, PendingEntry>::new()));
 
     let builder = tauri::Builder::default()
         .plugin(tauri_plugin_positioner::init())
@@ -61,7 +56,6 @@ pub fn run() {
     let builder = builder.plugin(tauri_plugin_mcp_bridge::init());
 
     builder
-        .manage(PendingStore(pending.clone()))
         .invoke_handler(tauri::generate_handler![
             commands::get_settings,
             commands::set_theme,
@@ -89,7 +83,12 @@ pub fn run() {
         ])
         .setup(move |app| {
             let app_handle = app.handle().clone();
-            let pending_for_http = pending.clone();
+            // PendingStore owns the pending map AND the devtools
+            // emit invariant. Construct it once with the app
+            // handle; clone the handle cheaply for the http
+            // server's copy of the store.
+            let store = PendingStore::new(app_handle.clone());
+            let store_for_http = store.clone();
             let port = hook_port;
 
             // Build the three runtime windows. The geometry + flags
@@ -103,10 +102,14 @@ pub fn run() {
             // Intercept main window close → hide instead of exit.
             windows::install_close_interceptor(&main_window);
 
+            // Register PendingStore as Tauri state so commands
+            // can take `State<'_, PendingStore>`.
+            app.manage(store);
+
             tauri::async_runtime::spawn(async move {
                 http_server::run(
                     app_handle,
-                    pending_for_http,
+                    store_for_http,
                     port,
                 )
                 .await;

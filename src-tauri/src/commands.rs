@@ -24,11 +24,10 @@
 // private to this module — they're consumed only by the commands
 // here.
 
-use tauri::{AppHandle, Emitter, Manager, State};
+use tauri::{AppHandle, Manager, State};
 
 use crate::agent;
-use crate::events::dev;
-use crate::pending_store::{PendingEntryView, PendingStore};
+use crate::pending_store::PendingStore;
 use crate::settings_store::SettingsStore;
 
 // ── Settings commands (1-line proxies into SettingsStore) ────────
@@ -80,11 +79,10 @@ pub fn toggle_auto_start(store: State<'_, SettingsStore>) -> Result<bool, String
 
 // ── Permission commands ────────────────────────────────────────
 
-/// User responded to a permission request. Resolves the oneshot
-/// sender that the HTTP handler is awaiting; removes the entry
-/// from PendingStore; hides the bubble window. On debug builds,
-/// also emits `dev::PENDING_CHANGED` so the dev panel re-renders.
-#[cfg_attr(not(debug_assertions), allow(unused_variables))]
+/// User responded to a permission request. `PendingStore::resolve`
+/// removes the entry, delivers the decision via the oneshot, and
+/// emits `dev::PENDING_CHANGED` in debug builds — all in one call.
+/// This command then hides the bubble window.
 #[tauri::command]
 pub async fn respond_permission(
     app: AppHandle,
@@ -95,31 +93,15 @@ pub async fn respond_permission(
         "[uma] permission response: id={} behavior={:?}",
         decision.request_id, decision.behavior,
     );
-    // Extract the request_id before moving `decision` into the
-    // oneshot sender — both the dev-tools emit below and the
-    // "no pending" log on the else branch need it.
     let request_id = decision.request_id.clone();
-    let mut pending = store.0.lock().await;
-    if let Some(entry) = pending.remove(&request_id) {
-        let _ = entry.tx.send(decision);
+    if store.resolve(&request_id, decision).await {
         eprintln!("[uma] permission resolved");
-
-        // Dev-tools panel watches PendingStore mutations.
-        #[cfg(debug_assertions)]
-        {
-            let _ = app.emit(
-                dev::PENDING_CHANGED,
-                serde_json::json!({
-                    "kind": "remove",
-                    "request_id": &request_id,
-                }),
-            );
-        }
     } else {
         eprintln!("[uma] no pending request found for id={request_id}");
     }
 
-    // Hide bubble window after user responds
+    // Hide bubble window after user responds (or after a stale
+    // response — the hide is harmless either way).
     if let Some(bubble) = app.get_webview_window("permission-bubble") {
         let _ = bubble.hide();
     }
