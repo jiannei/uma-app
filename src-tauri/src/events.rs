@@ -29,8 +29,10 @@ pub mod prod {
     pub const DND_CHANGE: &str = "dnd-change";
     pub const SOUND_CHANGE: &str = "sound-change";
 
-    /// Half-dead: Rust emits, TS has no listener. Pending remove.
-    #[deprecated(note = "no listener in TS; pending remove")]
+    /// UI language changed. Rust emits; TS listens via
+    /// `useSettings.ts` (composable subscriber). Kept in the live
+    /// prod block — the deprecation flag was stale (see ADR-0019
+    /// Stage B).
     pub const LANGUAGE_CHANGE: &str = "language-change";
 
     /// Half-dead: Rust emits (tray mini menu), TS has no listener.

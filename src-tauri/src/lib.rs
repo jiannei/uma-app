@@ -1,502 +1,45 @@
-// src-tauri/src/lib.rs — Main application entry point
-// Manages settings, system tray, and Tauri commands
+// src-tauri/src/lib.rs — Main application entry point.
+//
+// This file is intentionally thin. After the lib.rs split (PR 5 +
+// PR 6), the actual logic lives in focused modules:
+//
+//   - settings_store  — persisted user settings
+//   - pending_store   — in-flight permission requests + oneshot
+//   - windows         — build_main / build_robot / build_bubble
+//                       + install_close_interceptor
+//   - theme_io        — public/themes/<id>/theme.json read/write
+//                       + 2 inline tests
+//   - http_server     — axum router + handler fns
+//   - commands        — Tauri command handlers (settings +
+//                       permission + agent + theme)
+//   - devtools        — dev-only Tauri commands (synthetic
+//                       permission fixture + pending snapshot)
+//   - agent / adapters — Agent trait + ClaudeCode impl
+//   - tray            — system tray + menu
+//   - events          — Tauri event channel constants
+//
+// `run()` is the only function in this file. It registers the
+// commands (with namespacing) and runs the setup closure.
 
 mod adapters;
 mod agent;
+mod commands;
+mod devtools;
 mod events;
 mod http_server;
+mod pending_store;
 mod settings_store;
+mod theme_io;
 mod tray;
+mod windows;
 
+pub use pending_store::{PendingEntry, PendingEntryView, PendingStore};
 pub use settings_store::{Settings, SettingsStore};
 
 use std::collections::HashMap;
 use std::sync::Arc;
-use tauri::{AppHandle, Emitter, Manager, State};
+use tauri::Manager;
 use tokio::sync::Mutex;
-
-// ── State wrappers ──
-
-/// One outstanding permission request. The oneshot sender is the
-/// user-decision transport (resolved by `respond_permission` or
-/// by the 5-min timeout in `http_server`). The `request` field
-/// carries the canonical `PermissionRequest` so the dev-tools panel
-/// can render it without re-fetching.
-///
-/// Note: not `Clone` because `oneshot::Sender` isn't. PendingStore
-/// itself is cheap to clone (it wraps `Arc<Mutex<...>>`).
-pub struct PendingEntry {
-    pub tx: tokio::sync::oneshot::Sender<agent::PermissionDecision>,
-    pub request: agent::PermissionRequest,
-    pub agent_id: String,
-}
-
-/// Serializable view of `PendingEntry` for the dev-tools panel
-/// (Tauri command return types must `Serialize`; `PendingEntry`
-/// can't derive it because `oneshot::Sender` isn't serializable).
-#[derive(serde::Serialize, Clone)]
-#[serde(rename_all = "camelCase")]
-pub struct PendingEntryView {
-    pub request_id: String,
-    pub agent_id: String,
-    pub request: agent::PermissionRequest,
-}
-
-#[derive(Clone)]
-pub struct PendingStore(pub Arc<Mutex<HashMap<String, PendingEntry>>>);
-
-// ── Tauri commands ──
-//
-// Settings mutators are one-line proxies into `SettingsStore`. The
-// real work (validate → write memory → persist → emit) lives in the
-// store; commands exist so the frontend can `invoke()` them by name.
-
-#[tauri::command]
-fn get_settings(store: State<'_, SettingsStore>) -> Settings {
-    store.get()
-}
-
-#[tauri::command]
-fn set_theme(store: State<'_, SettingsStore>, theme: String) -> Result<(), String> {
-    store.set_theme(theme)
-}
-
-#[tauri::command]
-fn set_dnd(store: State<'_, SettingsStore>, enabled: bool) -> Result<(), String> {
-    store.set_dnd(enabled)
-}
-
-#[tauri::command]
-fn set_sound(store: State<'_, SettingsStore>, enabled: bool) -> Result<(), String> {
-    store.set_sound(enabled)
-}
-
-#[tauri::command]
-fn set_language(store: State<'_, SettingsStore>, language: String) -> Result<(), String> {
-    store.set_language(language)
-}
-
-#[tauri::command]
-fn set_auto_start(store: State<'_, SettingsStore>, enabled: bool) -> Result<(), String> {
-    store.set_auto_start(enabled)
-}
-
-#[tauri::command]
-fn toggle_dnd(store: State<'_, SettingsStore>) -> Result<bool, String> {
-    store.toggle_dnd()
-}
-
-#[tauri::command]
-fn toggle_sound(store: State<'_, SettingsStore>) -> Result<bool, String> {
-    store.toggle_sound()
-}
-
-#[tauri::command]
-fn toggle_auto_start(store: State<'_, SettingsStore>) -> Result<bool, String> {
-    store.toggle_auto_start()
-}
-
-#[cfg_attr(not(debug_assertions), allow(unused_variables))]
-#[tauri::command]
-async fn respond_permission(
-    app: AppHandle,
-    store: State<'_, PendingStore>,
-    decision: agent::PermissionDecision,
-) -> Result<(), String> {
-    eprintln!(
-        "[uma] permission response: id={} behavior={:?}",
-        decision.request_id, decision.behavior,
-    );
-    // Extract the request_id before moving `decision` into the
-    // oneshot sender — both the dev-tools emit below and the
-    // "no pending" log on the else branch need it.
-    let request_id = decision.request_id.clone();
-    let mut pending = store.0.lock().await;
-    if let Some(entry) = pending.remove(&request_id) {
-        let _ = entry.tx.send(decision);
-        eprintln!("[uma] permission resolved");
-
-        // Dev-tools panel watches PendingStore mutations.
-        #[cfg(debug_assertions)]
-        {
-            let _ = app.emit(
-                "devtools-pending-changed",
-                serde_json::json!({
-                    "kind": "remove",
-                    "request_id": &request_id,
-                }),
-            );
-        }
-    } else {
-        eprintln!("[uma] no pending request found for id={request_id}");
-    }
-
-    // Hide bubble window after user responds
-    if let Some(bubble) = app.get_webview_window("permission-bubble") {
-        let _ = bubble.hide();
-    }
-
-    Ok(())
-}
-
-// 浮岛形态（task #23）：webview 自适应内容高度。前端 ResizeObserver
-// 测 `.content-inner` 自然高度，debounce 调 `set_bubble_size` IPC，
-// Rust 把 webview resize 到 (280, h)。resize 后立刻调 `move_window(TopCenter)`
-// 重新锚定到屏幕顶部中央 —— grow 时顶部边不会下移。
-//
-// Content 用 CSS transition (cubic-bezier overshoot) 模拟 spring 视觉。
-
-/// Resize the bubble webview to fit content. Re-anchors to
-/// `Position::TopCenter` after resize so the bubble's top edge stays at
-/// the screen top as it grows downward.
-#[tauri::command]
-fn set_bubble_size(
-    app: AppHandle,
-    width: f64,
-    height: f64,
-) -> Result<(), String> {
-    if let Some(bubble) = app.get_webview_window("permission-bubble") {
-        // Get current size to check if width changed (needs re-center)
-        let old_size = bubble.inner_size().unwrap_or(tauri::PhysicalSize::new(0u32, 0u32));
-        let width_changed = ((old_size.width as f64) - width).abs() > 1.0;
-
-        bubble
-            .set_size(tauri::LogicalSize::new(width, height))
-            .map_err(|e| format!("set_bubble_size: {e}"))?;
-
-        // Re-anchor to TopCenter only when width changes (pill ↔ panel).
-        // Height-only changes (compact ↔ expanded within same shell) keep
-        // the same x position and don't need re-centering.
-        if width_changed {
-            use tauri_plugin_positioner::{Position, WindowExt};
-            let _ = bubble.move_window(Position::TopCenter);
-        }
-    } else {
-        return Err("permission-bubble window not found".into());
-    }
-    Ok(())
-}
-
-// ── Agent Tauri commands ──
-
-/// Information about a registered agent, surfaced to the settings UI.
-#[derive(serde::Serialize)]
-struct AgentInfo {
-    id: String,
-    display_name: String,
-    config_path: String,
-    is_installed: bool,
-}
-
-/// Read the robot port the HTTP server binds to. Falls back to 17373.
-/// The frontend does NOT pass this in — the Rust side is the single
-/// source of truth for what port the server binds.
-fn pet_port() -> u16 {
-    std::env::var("UMA_PET_PORT")
-        .ok()
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(17373)
-}
-
-fn lookup_or_404(agent_id: &str) -> Result<&'static dyn agent::Agent, String> {
-    agent::lookup_agent(agent_id).ok_or_else(|| format!("unknown agent: {agent_id}"))
-}
-
-#[tauri::command]
-fn list_agents() -> Vec<AgentInfo> {
-    agent::KNOWN_AGENTS
-        .iter()
-        .map(|a| AgentInfo {
-            id: a.id().to_string(),
-            display_name: a.display_name().to_string(),
-            config_path: a.config_path().to_string_lossy().to_string(),
-            is_installed: a.is_installed().unwrap_or(false),
-        })
-        .collect()
-}
-
-#[tauri::command]
-fn check_agent_installed(agent_id: String) -> Result<bool, String> {
-    lookup_or_404(&agent_id)?.is_installed()
-}
-
-#[tauri::command]
-fn install_agent_hook(agent_id: String) -> Result<(), String> {
-    let adapter = lookup_or_404(&agent_id)?;
-    adapter.install(pet_port())
-}
-
-#[tauri::command]
-fn uninstall_agent_hook(agent_id: String) -> Result<(), String> {
-    lookup_or_404(&agent_id)?.uninstall()
-}
-
-// ── Dev-tools commands (dev-only; gated by `cfg(debug_assertions)`) ──
-//
-// Snapshot the in-memory permission store for the dev panel's initial
-// render. Live updates flow through `devtools-pending-changed` Tauri
-// events (emitted at every mutation point). The panel calls this on
-// mount, then subscribes to the events for incremental updates.
-
-#[cfg(debug_assertions)]
-#[tauri::command]
-async fn devtools_get_pending(
-    store: State<'_, PendingStore>,
-) -> Result<Vec<PendingEntryView>, String> {
-    let pending = store.0.lock().await;
-    Ok(pending
-        .iter()
-        .map(|(id, entry)| PendingEntryView {
-            request_id: id.clone(),
-            agent_id: entry.agent_id.clone(),
-            request: entry.request.clone(),
-        })
-        .collect())
-}
-
-/// Inject a synthetic permission request of the given `kind` into
-/// PendingStore + emit `permission-request` to the bubble. Lets the
-/// dev panel drive each of the 3 bubble renderers (SideEffect /
-/// Elicitation / PlanReview) without needing a real CC session +
-/// hook call. Clicking Allow / Deny in the bubble completes the
-/// flow through `respond_permission` (the oneshot sender we insert
-/// is dropped on the receive side, but `respond_permission` still
-/// removes the entry from the store cleanly).
-///
-/// `kind` is one of "SideEffect" / "Elicitation" / "PlanReview".
-/// All three are hardcoded payloads that exercise the bubble's
-/// per-kind render path.
-#[cfg(debug_assertions)]
-#[tauri::command]
-async fn devtools_fire_synthetic_permission(
-    app: AppHandle,
-    store: State<'_, PendingStore>,
-    kind: String,
-) -> Result<String, String> {
-    use crate::agent::{
-        Destination, ElicitationQuestion, PermissionBase, PermissionRequest,
-        PermissionUpdateEntry, RuleBehavior, RuleSpec,
-    };
-    use serde_json::json;
-
-    let request_id = format!(
-        "synth-perm-{}",
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_millis())
-            .unwrap_or(0)
-    );
-    let base = PermissionBase {
-        request_id: request_id.clone(),
-        session_id: "synth-session".into(),
-        agent: crate::agent::AgentId("claude-code".into()),
-        agent_display_name: "Claude Code".into(),
-        cwd: Some("/tmp".into()),
-    };
-
-    let request = match kind.as_str() {
-        "SideEffect" => PermissionRequest::SideEffect {
-            base,
-            tool_name: Some("Bash".into()),
-            tool_input: Some(json!({
-                "command": "rm -rf /tmp/synth-test",
-                "description": "Synthetic SideEffect (dev panel test)"
-            })),
-            permission_suggestions: vec![PermissionUpdateEntry::AddRules {
-                rules: vec![RuleSpec {
-                    tool_name: "Bash".into(),
-                    rule_content: Some("rm -rf /tmp/*".into()),
-                }],
-                behavior: RuleBehavior::Allow,
-                destination: Destination::Session,
-            }],
-        },
-        "Elicitation" => PermissionRequest::Elicitation {
-            base,
-            tool_name: "AskUserQuestion".into(),
-            tool_input: Some(json!({
-                "questions": [
-                    { "question": "Which database?", "header": "DATABASE",
-                      "multiSelect": false,
-                      "options": [
-                        { "label": "PostgreSQL", "description": "Relational, ACID, great for complex queries" },
-                        { "label": "SQLite",    "description": "File-based, zero-config, great for small apps" },
-                        { "label": "MongoDB",   "description": "Document store, flexible schema" }
-                      ]
-                    },
-                    { "question": "Set up migrations?", "header": "MIGRATIONS",
-                      "multiSelect": false,
-                      "options": [
-                        { "label": "Yes, use a migration tool", "description": "Add sqlx-cli or similar" },
-                        { "label": "No, manual schema only",    "description": "I'll write SQL by hand" }
-                      ]
-                    }
-                ]
-            })),
-            questions: vec![
-                ElicitationQuestion {
-                    question: "Which database?".into(),
-                    header: "DATABASE".into(),
-                    multi_select: false,
-                    options: vec![
-                        crate::agent::ElicitationOption {
-                            label: "PostgreSQL".into(),
-                            description: "Relational, ACID, great for complex queries".into(),
-                            preview: None,
-                        },
-                        crate::agent::ElicitationOption {
-                            label: "SQLite".into(),
-                            description: "File-based, zero-config, great for small apps".into(),
-                            preview: None,
-                        },
-                        crate::agent::ElicitationOption {
-                            label: "MongoDB".into(),
-                            description: "Document store, flexible schema".into(),
-                            preview: None,
-                        },
-                    ],
-                },
-                ElicitationQuestion {
-                    question: "Set up migrations?".into(),
-                    header: "MIGRATIONS".into(),
-                    multi_select: false,
-                    options: vec![
-                        crate::agent::ElicitationOption {
-                            label: "Yes, use a migration tool".into(),
-                            description: "Add sqlx-cli or similar".into(),
-                            preview: None,
-                        },
-                        crate::agent::ElicitationOption {
-                            label: "No, manual schema only".into(),
-                            description: "I'll write SQL by hand".into(),
-                            preview: None,
-                        },
-                    ],
-                },
-            ],
-        },
-        "PlanReview" => PermissionRequest::PlanReview {
-            base,
-            tool_name: "ExitPlanMode".into(),
-            tool_input: Some(json!({
-                "plan": "# Implementation Plan\n\n1. Add a database abstraction layer\n2. Wire up migrations\n3. Update connection pooling\n4. Add integration tests"
-            })),
-            plan_content: Some(
-                "# Implementation Plan\n\n1. Add a database abstraction layer\n2. Wire up migrations\n3. Update connection pooling\n4. Add integration tests".into(),
-            ),
-        },
-        other => return Err(format!("unknown kind: {other}")),
-    };
-
-    // Insert into PendingStore with a oneshot. The rx is dropped
-    // (no one listens) — that's fine, `respond_permission` removes
-    // the entry from the store cleanly either way.
-    let (tx, _rx) = tokio::sync::oneshot::channel::<crate::agent::PermissionDecision>();
-    {
-        let mut pending = store.0.lock().await;
-        pending.insert(
-            request_id.clone(),
-            PendingEntry {
-                tx,
-                request: request.clone(),
-                agent_id: "claude-code".into(),
-            },
-        );
-    }
-
-    let payload = serde_json::to_value(&request)
-        .map_err(|e| format!("serialize synthetic request: {e}"))?;
-    // The bubble window starts hidden. Make sure it's shown — the
-    // HTTP path does this in handle_permission; the dev-tools
-    // synthetic path bypasses HTTP, so we show it here.
-    if let Err(err) = crate::http_server::show_bubble_window(&app) {
-        eprintln!("[devtools] failed to show bubble window: {err}");
-    }
-    if let Some(bubble) = app.get_webview_window("permission-bubble") {
-        match bubble.emit("permission-request", payload.clone()) {
-            Ok(()) => eprintln!(
-                "[devtools] synthetic emitted to bubble webview (request_id={request_id})"
-            ),
-            Err(e) => eprintln!(
-                "[devtools] synthetic emit to bubble FAILED: {e}"
-            ),
-        }
-    } else {
-        eprintln!("[devtools] synthetic permission-bubble webview NOT FOUND");
-    }
-    match app.emit("permission-request", payload) {
-        Ok(()) => eprintln!(
-            "[devtools] synthetic emitted app-wide (request_id={request_id})"
-        ),
-        Err(e) => eprintln!("[devtools] synthetic app.emit FAILED: {e}"),
-    }
-    eprintln!(
-        "[devtools] synthetic permission fired: kind={kind} request_id={request_id}"
-    );
-    Ok(request_id)
-}
-
-// ── Theme editor IPC (dev-only; gated by `cfg(debug_assertions)`) ────
-//
-// Read / write public/themes/<id>/theme.json. Powers the dev panel's
-// visual sprite editor. Only compiled in debug builds (release
-// users don't have a UI to mutate themes — keep that gate as
-// one less moving part. After save, emits
-// `theme-updated` so the robot window re-reads and re-registers the
-// theme (no app restart needed for tweaks to take effect).
-//
-// Path resolution: from src-tauri/, the project root is `..`. Themes
-// live at `../public/themes/<id>/theme.json`. In production the
-// themes are bundled read-only, so this command will fail at
-// runtime; that's intentional — release users have no editor.
-
-#[cfg(debug_assertions)]
-fn theme_path(theme_id: &str) -> std::path::PathBuf {
-    // CARGO_MANIFEST_DIR is src-tauri/, so project root is parent.
-    let manifest = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
-    manifest
-        .parent()
-        .unwrap_or(manifest)
-        .join("public")
-        .join("themes")
-        .join(theme_id)
-        .join("theme.json")
-}
-
-#[cfg(debug_assertions)]
-#[tauri::command]
-fn theme_load(theme_id: String) -> Result<serde_json::Value, String> {
-    let path = theme_path(&theme_id);
-    let content = std::fs::read_to_string(&path)
-        .map_err(|e| format!("read {} failed: {e}", path.display()))?;
-    serde_json::from_str(&content).map_err(|e| format!("parse failed: {e}"))
-}
-
-#[cfg(debug_assertions)]
-#[tauri::command]
-fn theme_save(
-    app: AppHandle,
-    theme_id: String,
-    content: serde_json::Value,
-) -> Result<(), String> {
-    let path = theme_path(&theme_id);
-    // Best-effort backup of the previous file before overwriting. We
-    // do this so a dev session that thrashes the editor can be
-    // reverted with `git checkout` or by reading the .bak.
-    let backup = path.with_extension("json.bak");
-    if path.exists() {
-        std::fs::copy(&path, &backup).map_err(|e| format!("backup failed: {e}"))?;
-    }
-    let pretty = serde_json::to_string_pretty(&content)
-        .map_err(|e| format!("serialize failed: {e}"))?;
-    std::fs::write(&path, pretty).map_err(|e| format!("write failed: {e}"))?;
-    // Notify listeners (robot window, dev panel) to re-read the theme.
-    app.emit("theme-updated", serde_json::json!({ "theme": theme_id }))
-        .map_err(|e| format!("emit failed: {e}"))?;
-    Ok(())
-}
-
-// ── App entry ──
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -520,118 +63,45 @@ pub fn run() {
     builder
         .manage(PendingStore(pending.clone()))
         .invoke_handler(tauri::generate_handler![
-            get_settings,
-            set_theme,
-            set_dnd,
-            set_sound,
-            set_language,
-            set_auto_start,
-            toggle_dnd,
-            toggle_sound,
-            toggle_auto_start,
-            respond_permission,
-            set_bubble_size,
-            list_agents,
-            check_agent_installed,
-            install_agent_hook,
-            uninstall_agent_hook,
+            commands::get_settings,
+            commands::set_theme,
+            commands::set_dnd,
+            commands::set_sound,
+            commands::set_language,
+            commands::set_auto_start,
+            commands::toggle_dnd,
+            commands::toggle_sound,
+            commands::toggle_auto_start,
+            commands::respond_permission,
+            commands::set_bubble_size,
+            commands::list_agents,
+            commands::check_agent_installed,
+            commands::install_agent_hook,
+            commands::uninstall_agent_hook,
             #[cfg(debug_assertions)]
-            devtools_get_pending,
+            devtools::devtools_get_pending,
             #[cfg(debug_assertions)]
-            devtools_fire_synthetic_permission,
+            devtools::devtools_fire_synthetic_permission,
             #[cfg(debug_assertions)]
-            theme_load,
+            commands::theme_load,
             #[cfg(debug_assertions)]
-            theme_save,
+            commands::theme_save,
         ])
         .setup(move |app| {
             let app_handle = app.handle().clone();
             let pending_for_http = pending.clone();
             let port = hook_port;
 
-            // Create the three runtime windows. Geometry + flags were
-            // previously declared in tauri.conf.json; they live in Rust
-            // now so the source of truth for window size (e.g. the
-            // 144×144 robot sprite) is a single place.
-            use tauri::{WebviewUrl, WebviewWindowBuilder};
+            // Build the three runtime windows. The geometry + flags
+            // used to be in tauri.conf.json; they live in Rust now so
+            // the source of truth is one place. The builders live in
+            // `crate::windows`.
+            let main_window = windows::build_main(app)?;
+            let _robot_window = windows::build_robot(app)?;
+            let _bubble_window = windows::build_bubble(app)?;
 
-            let main_window = WebviewWindowBuilder::new(
-                app,
-                "main",
-                WebviewUrl::App("index.html".into()),
-            )
-            .title("")
-            .inner_size(800.0, 680.0)
-            .visible(false)
-            // macOS: extend the page's dark background into the title
-            // bar so the chrome doesn't read as a light bar floating
-            // over a dark card. Overlay also makes the whole window
-            // draggable (no need for a custom drag region).
-            .title_bar_style(tauri::TitleBarStyle::Visible)
-            .build()?;
-
-            let _robot_window = WebviewWindowBuilder::new(
-                app,
-                "robot",
-                WebviewUrl::App("robot.html".into()),
-            )
-            .title("Uma Robot")
-            .inner_size(144.0, 144.0)
-            .decorations(false)
-            .always_on_top(true)
-            .skip_taskbar(true)
-            .shadow(false)
-            .resizable(false)
-            .focused(false)
-            .visible(true)
-            .transparent(true)
-            .build()?;
-
-            // ADR-0013 决策 4：robot 初始位置用 tauri-plugin-positioner
-            // 的 Position.Center — 屏幕中央。后续用户可以拖到任意位置。
-            {
-                use tauri_plugin_positioner::{Position, WindowExt};
-                let _ = _robot_window.move_window(Position::Center);
-            }
-
-            let _bubble_window = WebviewWindowBuilder::new(
-                app,
-                "permission-bubble",
-                WebviewUrl::App("bubble.html".into()),
-            )
-            .title("Uma Permission")
-            // 浮岛形态（task #23）：webview 自适应内容高度。初始 = pill 高
-            // (280×80)，通过 JS ResizeObserver + `set_bubble_size` IPC
-            // resize 到内容实际高度（clamp 在 80-600 之间）。Rust 端在
-            // resize 后立刻 re-anchor TopCenter，保持顶部对齐。
-            .inner_size(280.0, 80.0)
-            .min_inner_size(280.0, 80.0)
-            .max_inner_size(280.0, 600.0)
-            .decorations(false)
-            .always_on_top(true)
-            .skip_taskbar(true)
-            .shadow(false)
-            .resizable(false)
-            .visible(false)
-            .transparent(true)
-            .build()?;
-
-            // 固定 TopCenter 一次 — 不再 setPosition。
-            {
-                use tauri_plugin_positioner::{Position, WindowExt};
-                let _ = _bubble_window.move_window(Position::TopCenter);
-            }
-
-            // Intercept main window close → hide instead of exit
-            {
-                let window = main_window.clone();
-                main_window.on_window_event(move |event| {
-                    if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-                        api.prevent_close();
-                        let _ = window.hide();
-                    }
-                });
-            }
+            // Intercept main window close → hide instead of exit.
+            windows::install_close_interceptor(&main_window);
 
             tauri::async_runtime::spawn(async move {
                 http_server::run(
@@ -655,93 +125,10 @@ pub fn run() {
                 eprintln!("[uma] failed to install tray: {err}");
             }
 
-            // ADR-0013 click-through: bubble 固定 480×360 + 屏幕顶部
-            // 中间（`move_window(Position::TopCenter)` 在窗口创建后立即
-            // 调一次）。body `pointer-events: none` + 内容元素
-            // `pointer-events: auto`（pill-shell / expanded-shell）做
-            // click-through — 跟 robot 窗口同款策略。完全消除了之前
-            // setSize/setPosition race + animate 动画叠加问题。
-
             eprintln!("[uma] hook server listening on http://127.0.0.1:{hook_port}");
             eprintln!("[uma] robot window: 144x144 transparent, hit-zone 144x144 centered");
             Ok(())
         })
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
-}
-
-// ── Tests ────────────────────────────────────────────────────────────
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::fs;
-
-    /// Round-trip a theme.json via theme_path → write → re-read.
-    /// Verifies the path resolution and the disk IO, not the Tauri
-    /// command wrapper. The Tauri command wrapper just forwards to
-    /// these functions.
-    #[test]
-    fn theme_io_roundtrip() {
-        let theme_id = "uma";
-        let path = theme_path(theme_id);
-
-        // Pre-condition: the real theme.json exists and is valid JSON.
-        let original = fs::read_to_string(&path).expect("read real theme.json");
-        let _: serde_json::Value =
-            serde_json::from_str(&original).expect("real theme.json is valid JSON");
-
-        // Write a known value
-        let new_content = serde_json::json!({
-            "name": "TestRoundtrip",
-            "objectScale": {
-                "widthRatio": 99.9,
-                "heightRatio": 88.8,
-                "offsetX": -11.1,
-                "offsetY": -22.2,
-            }
-        });
-        let pretty = serde_json::to_string_pretty(&new_content).unwrap();
-        fs::write(&path, &pretty).unwrap();
-
-        // Re-read and verify
-        let restored = fs::read_to_string(&path).unwrap();
-        let restored_json: serde_json::Value = serde_json::from_str(&restored).unwrap();
-        assert_eq!(
-            restored_json["objectScale"]["widthRatio"].as_f64().unwrap(),
-            99.9
-        );
-        assert_eq!(restored_json["name"].as_str().unwrap(), "TestRoundtrip");
-
-        // Restore original content so the test is non-destructive.
-        fs::write(&path, &original).unwrap();
-        let after_restore = fs::read_to_string(&path).unwrap();
-        assert_eq!(after_restore, original);
-    }
-
-    #[test]
-    fn theme_save_creates_backup() {
-        let theme_id = "uma";
-        let path = theme_path(theme_id);
-        let backup = path.with_extension("json.bak");
-
-        // Pre-condition: backup must not exist (or be from a prior run).
-        // If it does exist, just delete it so we can assert creation.
-        let _ = fs::remove_file(&backup);
-
-        let original = fs::read_to_string(&path).unwrap();
-        fs::write(&path, r#"{"name":"BackupTest"}"#).unwrap();
-
-        // The save function's backup step is inline in theme_save;
-        // simulate it here.
-        fs::copy(&path, &backup).unwrap();
-        assert!(backup.exists(), "backup file should be created");
-
-        let backup_content = fs::read_to_string(&backup).unwrap();
-        assert_eq!(backup_content, r#"{"name":"BackupTest"}"#);
-
-        // Restore
-        fs::write(&path, &original).unwrap();
-        fs::remove_file(&backup).unwrap();
-    }
 }

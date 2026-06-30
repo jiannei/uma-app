@@ -5,9 +5,14 @@
 // mirrors it for Rust use. The anti-drift test in `events.test.ts`
 // reads the manifest and asserts equality with the constants below.
 //
-// ADR-0019: scope = 8 prod + 4 dev + 2 deprecated (dead emit, pending
-// remove). `tauri://move` is a Tauri built-in and is NOT in this
-// registry.
+// ADR-0019: scope = 9 prod + 4 dev + 1 dead-but-kept. `tauri://move`
+// is a Tauri built-in and is NOT in this registry.
+//
+// Stage B execution note: LANGUAGE_CHANGE was previously marked
+// `@deprecated` based on a stale assumption (no TS listener). It's
+// actually live — useSettings.ts:74 subscribes to it. TOGGLE_MINI
+// remains in the "kept but no listener" bucket and is a candidate for
+// future removal.
 
 export const EVENTS = {
   // ── Prod channels ── always present in both build profiles
@@ -18,15 +23,12 @@ export const EVENTS = {
   THEME_UPDATED: 'theme-updated',
   DND_CHANGE: 'dnd-change',
   SOUND_CHANGE: 'sound-change',
+  LANGUAGE_CHANGE: 'language-change',
   AUTO_START_CHANGE: 'auto-start-change',
 
-  // ── Half-dead channels ── Rust still emits, TS has no listener.
-  // Kept here so the `@deprecated` JSDoc is visible at every emit/listen
-  // site. Stage B final PR removes both the constants and the dead Rust
-  // emit sites.
-  /** @deprecated no listener in TS; pending remove */
-  LANGUAGE_CHANGE: 'language-change',
-  /** @deprecated no listener in TS; pending remove */
+  // ── Dead-but-kept channel ── Rust emits, no TS listener. Kept here
+  // for visibility so future reviewers don't quietly drop the tray emit.
+  /** @deprecated no listener in TS; pending remove in a future follow-up */
   TOGGLE_MINI: 'toggle-mini',
 
   // ── Dev-only channels ── nested under DEV so a prod-side `listen()`
@@ -42,8 +44,8 @@ export const EVENTS = {
   },
 } as const;
 
-// Flat list of all prod wire strings (used by anti-drift test). Half-dead
-// channels are included so the test catches any drift there too.
+// Flat list of all prod wire strings (used by anti-drift test). The
+// dead-but-kept channel is included so the test catches any drift there too.
 export const PROD_EVENT_WIRE_STRINGS: readonly string[] = [
   EVENTS.AGENT_HOOK,
   EVENTS.PERMISSION_REQUEST,
@@ -52,9 +54,9 @@ export const PROD_EVENT_WIRE_STRINGS: readonly string[] = [
   EVENTS.THEME_UPDATED,
   EVENTS.DND_CHANGE,
   EVENTS.SOUND_CHANGE,
-  EVENTS.AUTO_START_CHANGE,
   EVENTS.LANGUAGE_CHANGE,
   EVENTS.TOGGLE_MINI,
+  EVENTS.AUTO_START_CHANGE,
 ];
 
 export const DEV_EVENT_WIRE_STRINGS: readonly string[] = [

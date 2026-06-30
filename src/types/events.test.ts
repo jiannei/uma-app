@@ -7,10 +7,16 @@
 // ADR-0019 Q2: this is the bidirectional anti-drift assertion. If a TS
 // constant disagrees with the manifest, this test fails — that's a
 // signal to update the manifest first, then propagate to TS and Rust.
+//
+// Plus a consumer audit test that scans `src/` for raw event-name
+// string literals at `listen()` / `emit()` call sites and ensures
+// every app-defined channel flows through `EVENTS.*`. The only
+// whitelisted raw string is `tauri://move` (a Tauri built-in, not an
+// app-defined channel — see the comment at the top of `events.ts`).
 
 import { describe, it, expect } from 'vitest';
-import { readFileSync } from 'node:fs';
-import { resolve, dirname } from 'node:path';
+import { readFileSync, readdirSync, statSync } from 'node:fs';
+import { resolve, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   EVENTS,
@@ -19,7 +25,7 @@ import {
 } from './events';
 
 interface Manifest {
-  prod: Record<string, { wire: string; deprecated?: string }>;
+  prod: Record<string, { wire: string; deprecated?: boolean }>;
   dev: Record<string, { wire: string }>;
 }
 
@@ -61,12 +67,16 @@ describe('EVENTS constants ↔ docs/events.manifest.json', () => {
     );
   });
 
-  it('deprecated markers present for half-dead channels', () => {
-    // language_change and toggle_mini are marked deprecated in the
-    // manifest and have JSDoc @deprecated annotations on the TS side.
-    // This test is a sanity guard for the annotation surface.
-    expect(manifest.prod.language_change.deprecated).toBeTruthy();
-    expect(manifest.prod.toggle_mini.deprecated).toBeTruthy();
+  it('LANGUAGE_CHANGE is live (no deprecated flag)', () => {
+    // useSettings.ts:74 subscribes to it. The old deprecation marker
+    // was stale — caught and fixed during the EVENTS seam Stage B
+    // execution (this PR).
+    expect(manifest.prod.languageChange.deprecated).toBeFalsy();
+  });
+
+  it('TOGGLE_MINI is the only dead-but-kept prod channel', () => {
+    expect(manifest.prod.toggleMini.deprecated).toBe(true);
+    expect(EVENTS.TOGGLE_MINI).toBe('toggle-mini');
   });
 });
 
@@ -88,4 +98,71 @@ describe('EVENTS constants structure', () => {
       expect(prodSet.has(wire)).toBe(false);
     }
   });
+});
+
+// ── Consumer audit ───────────────────────────────────────────────────
+//
+// Walk `src/` and find every `listen("...")` / `emit("...")` call that
+// uses a string literal. Every app-defined channel MUST flow through
+// `EVENTS.*`. The only whitelisted raw string is `tauri://move` (a
+// Tauri built-in, not an app-defined channel).
+//
+// This catches regressions where a future contributor writes
+// `await listen("some-new-event", ...)` with a raw literal instead of
+// `await listen(EVENTS.SOME_NEW_EVENT, ...)`.
+
+const TAURI_BUILTINS: readonly string[] = ['tauri://move'];
+
+function findFiles(
+  dir: string,
+  predicate: (name: string) => boolean,
+): string[] {
+  const out: string[] = [];
+  for (const entry of readdirSync(dir)) {
+    const full = join(dir, entry);
+    const st = statSync(full);
+    if (st.isDirectory()) {
+      out.push(...findFiles(full, predicate));
+    } else if (predicate(entry)) {
+      out.push(full);
+    }
+  }
+  return out;
+}
+
+describe('EVENTS consumer audit (no raw app-defined event strings in src/)', () => {
+  const srcDir = resolve(__dirname, '..');
+  const files = findFiles(srcDir, (n) => /\.(ts|vue)$/.test(n))
+    // Skip this test file itself — its body contains example strings
+    // in comments that would false-positive the audit. The audit's job
+    // is to constrain non-test production code.
+    .filter((f) => !f.endsWith('events.test.ts'));
+
+  // All wire strings from the manifest, plus the tauri://move builtin.
+  const allKnown = new Set<string>([
+    ...PROD_EVENT_WIRE_STRINGS,
+    ...DEV_EVENT_WIRE_STRINGS,
+    ...TAURI_BUILTINS,
+  ]);
+
+  for (const file of files) {
+    it(`${file.replace(srcDir + '/', '')} uses EVENTS.* (or whitelisted built-in)`, () => {
+      const src = readFileSync(file, 'utf-8');
+      // Match `listen("foo")` / `listen<...>("foo")` only — that's the
+      // Tauri consumer-side call. Vue's `emit("foo", ...)` is a
+      // component event, not a Tauri channel, so it isn't constrained
+      // by this audit. The Rust emit side has its own anti-drift test
+      // (see src-tauri/src/events.rs).
+      const re = /\blisten\s*(?:<[^>]*>)?\s*\(\s*["']([^"']+)["']/g;
+      let m: RegExpExecArray | null;
+      const offenders: string[] = [];
+      while ((m = re.exec(src)) !== null) {
+        const str = m[1];
+        if (!allKnown.has(str)) {
+          offenders.push(str);
+        }
+      }
+      expect(offenders).toEqual([]);
+    });
+  }
 });

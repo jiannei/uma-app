@@ -30,6 +30,7 @@ import type {
   SessionKey,
 } from "../robot/display-state-types";
 import type { PermissionRequest } from "../types/permission";
+import { EVENTS } from "@/types/events";
 import Button from "@/components/Btn.vue";
 
 import StateMachinePanel from "./panels/StateMachinePanel.vue";
@@ -149,7 +150,7 @@ onMounted(async () => {
   // Real events from HTTP server → feed local resolver (ground truth
   // state machine). Event log was removed — CLI output covers that.
   unsubscribers.push(
-    await listen("agent-hook-event", (e) => {
+    await listen(EVENTS.AGENT_HOOK, (e) => {
       const p = e.payload as HookEvent;
       sendEvent(p);
     })
@@ -157,14 +158,14 @@ onMounted(async () => {
 
   // Rust store mutations → re-fetch.
   unsubscribers.push(
-    await listen("devtools-pending-changed", () => {
+    await listen(EVENTS.DEV.PENDING_CHANGED, () => {
       refreshPending();
     })
   );
   // Reset broadcast (from any source — this panel, another dev
   // panel session, or a future trigger). Reset local resolver.
   unsubscribers.push(
-    await listen("devtools-reset", () => {
+    await listen(EVENTS.DEV.RESET, () => {
       resetLocal();
     })
   );

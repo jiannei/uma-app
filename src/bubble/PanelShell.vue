@@ -48,30 +48,14 @@ const planReview = computed<PlanReviewRequest | null>(() =>
   props.request.kind === "PlanReview" ? props.request : null,
 );
 
-// Semantic focusKey → DOM selector. The registry encodes the focusKey
-// (Elicitation: "submit", PlanReview: "approve"); this map turns that
-// semantic name into the actual selector the panel mounts with. Adding
-// a new kind adds one entry here; the registry's focusKey is the
-// single source of truth.
-const FOCUS_SELECTOR = {
-  submit: ".option-label",
-  approve: ".footer-button.reject",
-} as const;
-
-// Type predicate narrows `props.request.kind` so the registry access
-// below resolves to the Elicitation / PlanReview entry specifically
-// (not the union with SideEffect's "allow-once").
-function isElicitation(
-  r: ElicitationRequest | PlanReviewRequest,
-): r is ElicitationRequest {
-  return r.kind === "Elicitation";
-}
-
-const focusKey = computed(() =>
-  isElicitation(props.request)
-    ? permissionRegistry.Elicitation.presentation.focusKey
-    : permissionRegistry.PlanReview.presentation.focusKey,
-);
+// The registry owns the focus target directly (no consumer-side
+// FOCUS_SELECTOR map). Elicitation focuses the first option-label;
+// PlanReview focuses the approve footer button.
+const focusSelector = computed(() => {
+  return props.request.kind === "Elicitation"
+    ? permissionRegistry.Elicitation.presentation.focusSelector
+    : permissionRegistry.PlanReview.presentation.focusSelector;
+});
 
 function onAllow(updatedInput?: unknown) {
   emit("allow", updatedInput);
@@ -101,9 +85,7 @@ function onKeydown(e: KeyboardEvent) {
 
 onMounted(async () => {
   await nextTick();
-  const selector =
-    FOCUS_SELECTOR[focusKey.value as keyof typeof FOCUS_SELECTOR];
-  document.querySelector<HTMLElement>(selector)?.focus();
+  document.querySelector<HTMLElement>(focusSelector.value)?.focus();
   window.addEventListener("keydown", onKeydown);
 });
 

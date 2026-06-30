@@ -15,7 +15,6 @@
 import { ref, onMounted, onUnmounted, nextTick, computed } from "vue";
 import type { SideEffectRequest } from "../types/permission";
 import {
-  lookupSideEffectRender,
   permissionRegistry,
 } from "../permission/registry";
 import PillLayout from "./PillLayout.vue";
@@ -39,20 +38,14 @@ const allowButtonRef = ref<HTMLButtonElement | null>(null);
 // ADR-0018 Stage B: the kind-aware rendering (Bash command / Edit-Write-Read
 // file path / json fallback) used to be an inline switch on
 // classifySideEffect's result. It now goes through
-// registry.presentation.summary(req, render) so the kind-of-kind logic
-// lives in registry.ts.
-const render = computed(() => lookupSideEffectRender(props.request));
+// registry.presentation.{summary,title,content}(req) so the kind-of-kind
+// logic lives in registry.ts. The registry computes the
+// SideEffectRender internally — we never see the intermediate shape.
 const summary = computed<string>(() =>
-  permissionRegistry.SideEffect.presentation.summary(
-    props.request,
-    render.value,
-  ),
+  permissionRegistry.SideEffect.presentation.summary(props.request),
 );
 const expandedTitle = computed<string>(() =>
-  permissionRegistry.SideEffect.presentation.title(
-    props.request,
-    render.value,
-  ),
+  permissionRegistry.SideEffect.presentation.title(props.request),
 );
 
 function onExpand() {

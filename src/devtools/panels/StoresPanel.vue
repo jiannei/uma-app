@@ -14,7 +14,7 @@
 // is unit-tested there.
 
 import type { PermissionRequest } from "../../types/permission";
-import { permissionRegistry } from "../../permission/registry";
+import { permissionRegistry, detail } from "../../permission/registry";
 import Badge from "@/components/Badge.vue";
 
 interface PendingEntryView {
@@ -37,19 +37,6 @@ const BADGE_VARIANT_MAP = {
   success: "outline",
 } as const;
 
-// Each `presentation.detail` is parameterised by its kind's request
-// type. At runtime we have a `PermissionRequest` union and need to
-// route to the right entry — this thin switch is the dispatch site.
-function detailFor(req: PermissionRequest): string {
-  switch (req.kind) {
-    case "SideEffect":
-      return permissionRegistry.SideEffect.presentation.detail(req);
-    case "Elicitation":
-      return permissionRegistry.Elicitation.presentation.detail(req);
-    case "PlanReview":
-      return permissionRegistry.PlanReview.presentation.detail(req);
-  }
-}
 </script>
 
 <template>
@@ -87,7 +74,7 @@ function detailFor(req: PermissionRequest): string {
             {{ entry.request.agentDisplayName || entry.agentId }}
           </span>
           <span class="text-[var(--primary)]">
-            {{ detailFor(entry.request) }}
+            {{ detail(entry.request) }}
           </span>
           <span class="text-[var(--muted-foreground)]">
             {{ entry.request.sessionId.slice(0, 8) }}

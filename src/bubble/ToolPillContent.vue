@@ -16,7 +16,6 @@ import type {
   SideEffectRequest,
 } from "../types/permission";
 import {
-  lookupSideEffectRender,
   permissionRegistry,
 } from "../permission/registry";
 import { suggestionLabel } from "./suggestion-label";
@@ -39,16 +38,12 @@ const emit = defineEmits<{
   (e: "deny"): void;
 }>();
 
-// ADR-0018 Stage B: kind-aware preview formatting used to be an
-// inline 4-case switch on classifySideEffect's result. It now flows
-// through `permissionRegistry.SideEffect.presentation.content(req, render)`.
-const render = computed(() => lookupSideEffectRender(props.request));
-
+// ADR-0018 Stage B (refined in PR #5): kind-aware preview formatting
+// flows through `permissionRegistry.SideEffect.presentation.content(req)`.
+// The SideEffectRender is computed internally by the registry — we
+// never see the intermediate shape.
 const preview = computed<string>(() =>
-  permissionRegistry.SideEffect.presentation.content(
-    props.request,
-    render.value,
-  ),
+  permissionRegistry.SideEffect.presentation.content(props.request),
 );
 
 const suggestions = computed<PermissionUpdateEntry[]>(

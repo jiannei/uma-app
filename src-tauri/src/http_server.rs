@@ -41,6 +41,7 @@ use tauri::{AppHandle, Emitter, Manager};
 use tokio::sync::{oneshot, Mutex};
 
 use crate::agent::{self, PermissionDecision};
+use crate::events::{dev, prod};
 use crate::PendingEntry;
 
 // ── Internal types ──────────────────────────────────────────────
@@ -104,9 +105,9 @@ async fn handle_state(
     let json_payload = serde_json::to_value(&event)
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("serialize: {e}")))?;
     let app = state.app.clone();
-    let _ = app.emit("agent-hook-event", json_payload.clone());
+    let _ = app.emit(prod::AGENT_HOOK, json_payload.clone());
     if let Some(robot_win) = app.get_webview_window("robot") {
-        let _ = robot_win.emit("agent-hook-event", json_payload);
+        let _ = robot_win.emit(prod::AGENT_HOOK, json_payload);
     }
 
     Ok(Json(HookResponse {
@@ -175,7 +176,7 @@ async fn handle_permission(
         #[cfg(debug_assertions)]
         {
             let _ = state.app.emit(
-                "devtools-pending-changed",
+                dev::PENDING_CHANGED,
                 serde_json::json!({
                     "kind": "insert",
                     "request_id": &request_id,
@@ -199,14 +200,14 @@ async fn handle_permission(
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     let app = state.app.clone();
     if let Some(bubble_win) = app.get_webview_window("permission-bubble") {
-        match bubble_win.emit("permission-request", bubble_payload.clone()) {
+        match bubble_win.emit(prod::PERMISSION_REQUEST, bubble_payload.clone()) {
             Ok(()) => log::debug!("[http] emitted to permission-bubble webview"),
             Err(e) => log::warn!("[http] emit to bubble FAILED: {e}"),
         }
     } else {
         log::error!("[http] permission-bubble webview NOT FOUND");
     }
-    match app.emit("permission-request", bubble_payload) {
+    match app.emit(prod::PERMISSION_REQUEST, bubble_payload) {
         Ok(()) => log::debug!("[http] emitted app-wide"),
         Err(e) => log::warn!("[http] app.emit FAILED: {e}"),
     }
@@ -242,7 +243,7 @@ async fn handle_permission(
             #[cfg(debug_assertions)]
             {
                 let _ = state.app.emit(
-                    "devtools-pending-changed",
+                    dev::PENDING_CHANGED,
                     serde_json::json!({
                         "kind": "remove",
                         "request_id": &request_id,
@@ -269,7 +270,7 @@ async fn handle_permission(
             // Notify bubble so it can show "⏰ 已超时" feedback
             if let Some(bubble_win) = state.app.get_webview_window("permission-bubble") {
                 let _ = bubble_win.emit(
-                    "permission-timeout",
+                    prod::PERMISSION_TIMEOUT,
                     serde_json::json!({ "request_id": &request_id }),
                 );
             }

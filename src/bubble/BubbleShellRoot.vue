@@ -26,15 +26,16 @@ import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { useThrottleFn } from "@vueuse/core";
 import type {
   ElicitationRequest,
-  PermissionDecision,
   PermissionRequest,
   PlanReviewRequest,
   SideEffectRequest,
 } from "../types/permission";
 import {
-  permissionRegistry,
+  decideShellMode,
+  buildReply,
   type ReplyPick,
 } from "../permission/registry";
+import { EVENTS } from "@/types/events";
 import BubbleIdle from "./BubbleIdle.vue";
 import PillShell from "./PillShell.vue";
 import PanelShell from "./PanelShell.vue";
@@ -48,26 +49,10 @@ const isTransitioning = ref(false);
 
 type ShellMode = "idle" | "pill" | "panel";
 
-// Dispatch site for the kind-aware shell decision. Today all 3 kinds
-// map to a static pill/panel answer (registry's ADR-0018 Q1 noted that
-// a future enhancement may make this payload-dependent); the helper
-// keeps the dispatch in one place so that future payload-dependent
-// logic only needs to grow here.
-function shellModeFor(req: PermissionRequest): "pill" | "panel" {
-  switch (req.kind) {
-    case "SideEffect":
-      return permissionRegistry.SideEffect.presentation.decideShellMode(req);
-    case "Elicitation":
-      return permissionRegistry.Elicitation.presentation.decideShellMode(req);
-    case "PlanReview":
-      return permissionRegistry.PlanReview.presentation.decideShellMode(req);
-  }
-}
-
 const shellMode = computed<ShellMode>(() => {
   const r = current.value;
   if (!r) return "idle";
-  return shellModeFor(r);
+  return decideShellMode(r);
 });
 
 // Window resize: call set_bubble_size IPC based on shellMode.
@@ -104,22 +89,6 @@ watch(isPillExpanded, () => { nextTick(() => scheduleIpcResize()); });
 let unlistenRequest: UnlistenFn | undefined;
 let unlistenTimeout: UnlistenFn | undefined;
 
-// Dispatch site for the kind-aware reply assembly. Each kind encodes
-// its own PermissionDecision shape (SideEffect.allow with suggestion →
-// {updatedPermissions}; Elicitation.allow with answers → {updatedInput};
-// etc.). The shape used to be inlined in submitDecision + the timeout
-// handler; it now lives in `permissionRegistry[k].reply` (registry.ts).
-function replyFor(req: PermissionRequest, pick: ReplyPick): PermissionDecision {
-  switch (req.kind) {
-    case "SideEffect":
-      return permissionRegistry.SideEffect.reply(req, pick);
-    case "Elicitation":
-      return permissionRegistry.Elicitation.reply(req, pick);
-    case "PlanReview":
-      return permissionRegistry.PlanReview.reply(req, pick);
-  }
-}
-
 async function submitDecision(
   behavior: "allow" | "deny",
   pick: Omit<ReplyPick, "behavior"> = {},
@@ -127,7 +96,7 @@ async function submitDecision(
   const r = current.value;
   if (!r || isTransitioning.value) return;
   isTransitioning.value = true;
-  const decision = replyFor(r, { behavior, ...pick });
+  const decision = buildReply(r, { behavior, ...pick });
   try {
     await invoke("respond_permission", { decision });
   } catch (err) {
@@ -147,18 +116,18 @@ watch(current, async (r) => {
 });
 
 onMounted(async () => {
-  unlistenRequest = await listen<PermissionRequest>("permission-request", (e) => {
+  unlistenRequest = await listen<PermissionRequest>(EVENTS.PERMISSION_REQUEST, (e) => {
     queue.value.push(e.payload);
   });
 
   unlistenTimeout = await listen<{ request_id: string }>(
-    "permission-timeout",
+    EVENTS.PERMISSION_TIMEOUT,
     async (e) => {
       const reqId = e.payload.request_id;
       const r = queue.value.find((q) => q.requestId === reqId);
       if (!r || isTransitioning.value) return;
       isTransitioning.value = true;
-      const decision = replyFor(r, {
+      const decision = buildReply(r, {
         behavior: "deny",
         message: "Request timed out",
       });

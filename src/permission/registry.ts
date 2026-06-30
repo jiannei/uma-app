@@ -1,25 +1,32 @@
 // src/permission/registry.ts — Cross-kind dispatch for PermissionRequest.
 //
-// Single source of truth for how each `PermissionKind` is presented, how
-// the bubble assembles the user reply into a canonical
-// `PermissionDecision`, how the SideEffectRender sub-shape is
-// rendered (pill-shell summary, expanded title, expanded content), and
-// how a SideEffect toolName + toolInput payload is classified into a
-// SideEffectRender in the first place.
+// Single source of truth for how each `PermissionKind` is presented,
+// how the bubble assembles the user reply into a canonical
+// `PermissionDecision`, and how a SideEffect toolName + toolInput
+// payload is classified into a SideEffectRender.
+//
+// The registry exposes TWO surfaces:
+//
+//   1. Per-kind access: `permissionRegistry.SideEffect.presentation.*`
+//      — for kind-specific data (summary text, badge variant, etc.).
+//
+//   2. Cross-kind dispatch (this module's reason for existing):
+//      `decideShellMode(req)` / `buildReply(req, pick)` / `detail(req)`.
+//      These are 3 free functions that switch on req.kind and route
+//      to the right entry. Before this PR, callers hand-wrote the
+//      switch 3 times (BubbleShellRoot x2, StoresPanel x1). Now
+//      they all go through here.
 //
 // ADR-0018 vocabulary:
 //   - ShellMode → 'pill' | 'panel'
 //   - SideEffectRenderKind → 'bash' | 'edit' | 'write' | 'read' | 'json'
 //   - kind entry: { presentation, reply }
-//   - presentation is conditional on K: SideEffect adds summary/title/content
 //
-// ADR-0018 Stage B PR4: the `SideEffectRender` discriminated union and
-// the `classifySideEffect` function that used to live in
-// `src/bubble/format-side-effect.ts` moved here. The bubble-side file
-// had no other consumer after Stages PR1–PR3 migrated PillShell and
-// ToolPillContent to `lookupSideEffectRender`; the move is what lets
-// the registry own the full SideEffect sub-shape pipeline (classify →
-// present → reply) in one module.
+// Stage B of #5 (this PR's design): the `SideEffectRender`
+// discriminated union and the `classifySideEffect` function live
+// here; the `lookupSideEffectRender` export is gone — consumers
+// see only the opaque presentation methods (summary / title /
+// content) which compute the render internally.
 
 import type {
   ElicitationRequest,
@@ -31,10 +38,7 @@ import type {
   PermissionUpdateEntry,
 } from "../types/permission";
 
-// ── SideEffectRender + classifySideEffect (moved from
-// src/bubble/format-side-effect.ts; helper `firstStringValue` moved
-// from src/bubble/format-string.ts which had no other consumers after
-// PR4) ──
+// ── SideEffectRender + classifySideEffect (private) ──────────────
 
 export type SideEffectRender =
   | { kind: "bash"; command: string }
@@ -54,8 +58,7 @@ export type SideEffectRender =
   | { kind: "json"; toolName?: string; raw: unknown };
 
 /** Return the first string-typed value in `input` whose key is in
- * `names`, trimmed. Used for explicit field-name fallbacks
- * (`description`, `file_path`, etc.). */
+ * `names`, trimmed. */
 function firstStringValue(
   input: Record<string, unknown>,
   names: readonly string[],
@@ -69,11 +72,6 @@ function firstStringValue(
   return "";
 }
 
-/** Classify a SideEffect toolName + toolInput into a SideEffectRender
- * variant. The classifier is the only thing that knows which tool
- * names map to which render kind; consumers call
- * `lookupSideEffectRender(req)` and treat the result as an opaque
- * `SideEffectRender`. */
 function classifySideEffect(
   toolName: string | undefined,
   toolInput: unknown,
@@ -151,7 +149,7 @@ function classifySideEffect(
   return { kind: "json", toolName, raw: input };
 }
 
-// ── 公开类型 ──
+// ── Public types ────────────────────────────────────────────────
 
 export type ShellMode = "pill" | "panel";
 export type BadgeVariant = "warning" | "info" | "success";
@@ -173,28 +171,29 @@ export interface ReplyPick {
 
 /** Common fields every kind exposes. */
 interface BasePresentation<K extends PermissionKind> {
-  /** SideEffect → 'pill'; Elicitation / PlanReview → 'panel'. The
-   * ADR-0018 Q1 noted that a future enhancement may make this payload-
-   * dependent (e.g. long bash → panel). Stage A is intentionally
-   * kind-only to match the existing BubbleShellRoot.vue:44 logic. */
+  /** SideEffect → 'pill'; Elicitation / PlanReview → 'panel'. */
   decideShellMode(req: RequestByKind<K>): ShellMode;
-  /** First-focus element key. Consumer maps this to a DOM ref. */
-  focusKey: string;
+  /** CSS selector for the element to focus on mount. The registry
+   * owns the focus target entirely — consumers just call
+   * `document.querySelector(presentation.focusSelector)?.focus()`,
+   * no consumer-side translation map needed. */
+  focusSelector: string;
   /** StoresPanel badge color. */
   badgeVariant: BadgeVariant;
   /** StoresPanel icon identifier. */
   iconKey: string;
-  /** Per-kind detail string (used by StoresPanel; replaces the
-   * StoresPanel.vue:35-53 `detail()` switch). */
+  /** Per-kind detail string (used by StoresPanel). */
   detail(req: RequestByKind<K>): string;
 }
 
-/** SideEffect adds pill-shell summary/title (computed from the render
- * returned by lookupSideEffectRender) and expanded content preview. */
+/** SideEffect adds pill-shell summary/title and expanded content
+ * preview. Each method internally computes the SideEffectRender
+ * from req.toolName + req.toolInput — callers never see the
+ * intermediate render. */
 interface SideEffectPresentation extends BasePresentation<"SideEffect"> {
-  summary(req: SideEffectRequest, render: SideEffectRender): string;
-  title(req: SideEffectRequest, render: SideEffectRender): string;
-  content(req: SideEffectRequest, render: SideEffectRender): string;
+  summary(req: SideEffectRequest): string;
+  title(req: SideEffectRequest): string;
+  content(req: SideEffectRequest): string;
 }
 
 /** Elicitation / PlanReview only carry the common fields. */
@@ -208,7 +207,7 @@ export interface KindEntry<K extends PermissionKind> {
   reply(req: RequestByKind<K>, pick: ReplyPick): PermissionDecision;
 }
 
-// ── 私有辅助 ──
+// ── Private helpers ─────────────────────────────────────────────
 
 function baseDecision(
   requestId: string,
@@ -217,10 +216,8 @@ function baseDecision(
   return { requestId, behavior };
 }
 
-function sideEffectSummary(
-  req: SideEffectRequest,
-  r: SideEffectRender,
-): string {
+function sideEffectSummary(req: SideEffectRequest): string {
+  const r = classifySideEffect(req.toolName, req.toolInput);
   switch (r.kind) {
     case "bash":
       return r.command;
@@ -233,17 +230,12 @@ function sideEffectSummary(
   }
 }
 
-function sideEffectTitle(
-  req: SideEffectRequest,
-  _r: SideEffectRender,
-): string {
+function sideEffectTitle(req: SideEffectRequest): string {
   return req.toolName ?? "Tool call";
 }
 
-function sideEffectContent(
-  _req: SideEffectRequest,
-  r: SideEffectRender,
-): string {
+function sideEffectContent(req: SideEffectRequest): string {
+  const r = classifySideEffect(req.toolName, req.toolInput);
   if (r.kind === "bash") return r.command;
   if (r.kind === "edit" || r.kind === "write" || r.kind === "read") {
     return r.filePath;
@@ -267,12 +259,12 @@ function planReviewDetail(req: PlanReviewRequest): string {
   return `plan ${len > 0 ? `${len} chars` : "no content"}`;
 }
 
-// ── 三 kind 的 entry ──
+// ── Three kind entries ──────────────────────────────────────────
 
 const sideEffectEntry: KindEntry<"SideEffect"> = {
   presentation: {
     decideShellMode: () => "pill",
-    focusKey: "allow-once",
+    focusSelector: ".action-button.allow",
     badgeVariant: "warning",
     iconKey: "tool",
     detail: sideEffectDetail,
@@ -295,7 +287,7 @@ const sideEffectEntry: KindEntry<"SideEffect"> = {
 const elicitationEntry: KindEntry<"Elicitation"> = {
   presentation: {
     decideShellMode: () => "panel",
-    focusKey: "submit",
+    focusSelector: ".option-label",
     badgeVariant: "info",
     iconKey: "ask",
     detail: elicitationDetail,
@@ -315,7 +307,12 @@ const elicitationEntry: KindEntry<"Elicitation"> = {
 const planReviewEntry: KindEntry<"PlanReview"> = {
   presentation: {
     decideShellMode: () => "panel",
-    focusKey: "approve",
+    // Bug fix: this used to be `.footer-button.reject` while focusKey
+    // was "approve" — a semantic contradiction. The registry now owns
+    // the DOM selector directly, so the focus target matches the
+    // semantic key. The approve action is the conventional primary
+    // focus for PlanReview.
+    focusSelector: ".footer-button.approve",
     badgeVariant: "info",
     iconKey: "plan",
     detail: planReviewDetail,
@@ -329,7 +326,7 @@ const planReviewEntry: KindEntry<"PlanReview"> = {
   },
 };
 
-// ── 主注册表 ──
+// ── Main registry ──────────────────────────────────────────────
 
 /** Explicit per-kind entries (not a mapped type) so TypeScript narrows
  * `permissionRegistry.SideEffect.presentation` to `SideEffectPresentation`
@@ -342,18 +339,53 @@ export const permissionRegistry = {
   [K in PermissionKind]: KindEntry<K>;
 };
 
-/** Convenience helper: classify a SideEffect's payload into a
- * SideEffectRender (delegates to classifySideEffect). Consumers call
- * this once and pass the render to
- * `permissionRegistry.SideEffect.presentation.{summary,title,content}(req, render)`. */
-export function lookupSideEffectRender(
-  req: SideEffectRequest,
-): SideEffectRender {
-  return classifySideEffect(req.toolName, req.toolInput);
+// ── Cross-kind dispatch surface ─────────────────────────────────
+//
+// Three free functions that switch on req.kind and route to the
+// right entry. Before this PR, callers hand-wrote these switches
+// 3 times (BubbleShellRoot.vue x2, StoresPanel.vue x1). Now every
+// cross-kind call goes through here.
+
+/** Decide which shell (pill / panel) to render for this request. */
+export function decideShellMode(req: PermissionRequest): ShellMode {
+  switch (req.kind) {
+    case "SideEffect":
+      return permissionRegistry.SideEffect.presentation.decideShellMode(req);
+    case "Elicitation":
+      return permissionRegistry.Elicitation.presentation.decideShellMode(req);
+    case "PlanReview":
+      return permissionRegistry.PlanReview.presentation.decideShellMode(req);
+  }
 }
 
-// Re-export `ElicitationRequest` and `PlanReviewRequest` so consumers
-// can pull the request types from this module too.
+/** Build the canonical PermissionDecision from a user pick. */
+export function buildReply(
+  req: PermissionRequest,
+  pick: ReplyPick,
+): PermissionDecision {
+  switch (req.kind) {
+    case "SideEffect":
+      return permissionRegistry.SideEffect.reply(req, pick);
+    case "Elicitation":
+      return permissionRegistry.Elicitation.reply(req, pick);
+    case "PlanReview":
+      return permissionRegistry.PlanReview.reply(req, pick);
+  }
+}
+
+/** Per-kind detail string for the StoresPanel. */
+export function detail(req: PermissionRequest): string {
+  switch (req.kind) {
+    case "SideEffect":
+      return permissionRegistry.SideEffect.presentation.detail(req);
+    case "Elicitation":
+      return permissionRegistry.Elicitation.presentation.detail(req);
+    case "PlanReview":
+      return permissionRegistry.PlanReview.presentation.detail(req);
+  }
+}
+
+// Re-export request types so consumers can pull them from this module too.
 export type {
   SideEffectRequest,
   ElicitationRequest,
