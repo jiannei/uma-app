@@ -191,6 +191,14 @@ impl Agent for ClaudeCodeAdapter {
     }
 
     fn parse_state_payload(&self, raw: serde_json::Value) -> Result<HookEvent> {
+        // Debug-level full-payload dump (see ADR/plan: raw request
+        // logging for claude-code adapter). Borrowed before `from_value`
+        // moves it.
+        log::debug!(
+            "[claude-code] parse_state_payload raw:\n{}",
+            serde_json::to_string_pretty(&raw)
+                .unwrap_or_else(|e| format!("<serialize error: {e}>"))
+        );
         let payload: ClaudeCodeHookPayload = serde_json::from_value(raw)
             .map_err(|e| format!("invalid Claude Code hook payload: {e}"))?;
         payload.validate()?;
@@ -223,6 +231,14 @@ impl Agent for ClaudeCodeAdapter {
         raw: serde_json::Value,
         request_id: String,
     ) -> Result<PermissionRequest> {
+        // Debug-level full-payload dump (see ADR/plan: raw request
+        // logging for claude-code adapter). Borrowed before `from_value`
+        // moves it.
+        log::debug!(
+            "[claude-code] parse_permission_payload raw:\n{}",
+            serde_json::to_string_pretty(&raw)
+                .unwrap_or_else(|e| format!("<serialize error: {e}>"))
+        );
         let payload: ClaudeCodePermissionPayload = serde_json::from_value(raw)
             .map_err(|e| format!("invalid Claude Code permission payload: {e}"))?;
         payload.validate()?;
@@ -263,6 +279,14 @@ impl Agent for ClaudeCodeAdapter {
         &self,
         decision: &PermissionDecision,
     ) -> Result<serde_json::Value> {
+        // Debug-level input dump (see ADR/plan: response logging for
+        // claude-code adapter). Logs the canonical `PermissionDecision`
+        // before we translate it into CC's wire format.
+        log::debug!(
+            "[claude-code] build_permission_response decision (input):\n{}",
+            serde_json::to_string_pretty(decision)
+                .unwrap_or_else(|e| format!("<serialize error: {e}>"))
+        );
         // CC's `decision` shape is flat: `behavior` required, the rest
         // optional and only-valid-for-the-relevant-behavior (validated
         // at the HTTP server boundary). Serialize from the canonical
@@ -284,12 +308,20 @@ impl Agent for ClaudeCodeAdapter {
         if let Some(updated_permissions) = &decision.updated_permissions {
             wire["updatedPermissions"] = json!(updated_permissions);
         }
-        Ok(json!({
+        let output = json!({
             "hookSpecificOutput": {
                 "hookEventName": "PermissionRequest",
                 "decision": wire,
             }
-        }))
+        });
+        // Debug-level output dump: the actual JSON we hand back to
+        // Claude Code over the wire.
+        log::debug!(
+            "[claude-code] build_permission_response wire (output):\n{}",
+            serde_json::to_string_pretty(&output)
+                .unwrap_or_else(|e| format!("<serialize error: {e}>"))
+        );
+        Ok(output)
     }
 }
 

@@ -3,6 +3,7 @@
 
 mod adapters;
 mod agent;
+mod events;
 mod http_server;
 mod tray;
 
@@ -101,10 +102,8 @@ fn set_theme(
     }
     app.emit("theme-change", serde_json::json!({ "theme": &theme }))
         .map_err(|e| e.to_string())?;
-    if let Some(robot) = app.get_webview_window("robot") {
-        robot.emit("theme-change", serde_json::json!({ "theme": &theme }))
-            .map_err(|e| e.to_string())?;
-    }
+    // app.emit broadcasts to all webviews (robot window included);
+    // the previous robot.emit was a redundant second delivery.
     Ok(())
 }
 
@@ -125,6 +124,27 @@ fn set_dnd(
         let _ = pstore.save();
     }
     app.emit("dnd-change", serde_json::json!({ "dnd": enabled }))
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
+fn set_sound(
+    app: AppHandle,
+    store: State<'_, SettingsStore>,
+    enabled: bool,
+) -> Result<(), String> {
+    eprintln!("[uma] set sound: {enabled}");
+    {
+        let mut s = store.0.lock().unwrap();
+        s.sound_enabled = enabled;
+    }
+    // Persist to plugin-store
+    if let Ok(pstore) = app.store("settings.json") {
+        pstore.set("sound_enabled", serde_json::json!(enabled));
+        let _ = pstore.save();
+    }
+    app.emit("sound-change", serde_json::json!({ "sound_enabled": enabled }))
         .map_err(|e| e.to_string())?;
     Ok(())
 }
@@ -215,12 +235,21 @@ fn set_bubble_size(
     height: f64,
 ) -> Result<(), String> {
     if let Some(bubble) = app.get_webview_window("permission-bubble") {
+        // Get current size to check if width changed (needs re-center)
+        let old_size = bubble.inner_size().unwrap_or(tauri::PhysicalSize::new(0u32, 0u32));
+        let width_changed = ((old_size.width as f64) - width).abs() > 1.0;
+
         bubble
             .set_size(tauri::LogicalSize::new(width, height))
             .map_err(|e| format!("set_bubble_size: {e}"))?;
-        // TopCenter 重新锚定：x 重新居中，y 保持 screen_position.y（屏幕顶部）。
-        use tauri_plugin_positioner::{Position, WindowExt};
-        let _ = bubble.move_window(Position::TopCenter);
+
+        // Re-anchor to TopCenter only when width changes (pill ↔ panel).
+        // Height-only changes (compact ↔ expanded within same shell) keep
+        // the same x position and don't need re-centering.
+        if width_changed {
+            use tauri_plugin_positioner::{Position, WindowExt};
+            let _ = bubble.move_window(Position::TopCenter);
+        }
     } else {
         return Err("permission-bubble window not found".into());
     }
@@ -576,6 +605,7 @@ pub fn run() {
             get_settings,
             set_theme,
             set_dnd,
+            set_sound,
             set_language,
             respond_permission,
             set_bubble_size,

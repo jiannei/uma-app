@@ -92,7 +92,7 @@ async fn handle_state(
         .parse_state_payload(raw)
         .map_err(|e| (StatusCode::BAD_REQUEST, e))?;
 
-    eprintln!(
+    log::info!(
         "[http] state event: agent={} session={} event={} tool={:?} subagent={:?}",
         agent_id, event.session_id, event.event_type, event.tool_name, event.subagent
     );
@@ -142,7 +142,7 @@ async fn handle_permission(
 
     let tool_name = canonical.tool_name().unwrap_or("").to_string();
 
-    eprintln!(
+    log::info!(
         "[http] permission request: agent={} tool={} session={} kind={:?}",
         agent_id,
         tool_name,
@@ -155,7 +155,7 @@ async fn handle_permission(
     {
         let mut pending = state.pending.lock().await;
         if pending.len() >= MAX_PENDING_REQUESTS {
-            eprintln!(
+            log::info!(
                 "[http] pending queue full ({}/{}), rejecting",
                 pending.len(),
                 MAX_PENDING_REQUESTS
@@ -189,7 +189,7 @@ async fn handle_permission(
     // Show bubble at its fixed TopCenter position (set once at window
     // creation — see lib.rs setup hook + ADR-0013 决策 4).
     if let Err(err) = show_bubble_window(&state.app) {
-        eprintln!("[http] failed to show bubble window: {err}");
+        log::warn!("[http] failed to show bubble window: {err}");
     }
 
     // Emit to the bubble window. The canonical PermissionRequest
@@ -200,22 +200,22 @@ async fn handle_permission(
     let app = state.app.clone();
     if let Some(bubble_win) = app.get_webview_window("permission-bubble") {
         match bubble_win.emit("permission-request", bubble_payload.clone()) {
-            Ok(()) => eprintln!("[http] emitted to permission-bubble webview"),
-            Err(e) => eprintln!("[http] emit to bubble FAILED: {e}"),
+            Ok(()) => log::debug!("[http] emitted to permission-bubble webview"),
+            Err(e) => log::warn!("[http] emit to bubble FAILED: {e}"),
         }
     } else {
-        eprintln!("[http] permission-bubble webview NOT FOUND");
+        log::error!("[http] permission-bubble webview NOT FOUND");
     }
     match app.emit("permission-request", bubble_payload) {
-        Ok(()) => eprintln!("[http] emitted app-wide"),
-        Err(e) => eprintln!("[http] app.emit FAILED: {e}"),
+        Ok(()) => log::debug!("[http] emitted app-wide"),
+        Err(e) => log::warn!("[http] app.emit FAILED: {e}"),
     }
 
     // Block until user response or timeout.
     let timeout = tokio::time::Duration::from_secs(300);
     match tokio::time::timeout(timeout, rx).await {
         Ok(Ok(decision)) => {
-            eprintln!(
+            log::info!(
                 "[http] permission response: request_id={} behavior={:?}",
                 decision.request_id, decision.behavior,
             );
@@ -229,12 +229,12 @@ async fn handle_permission(
             Ok(Json(payload))
         }
         Ok(Err(_)) => {
-            eprintln!("[http] permission sender dropped");
+            log::warn!("[http] permission sender dropped");
             hide_bubble_window(&state.app);
             Err(StatusCode::INTERNAL_SERVER_ERROR)
         }
         Err(_) => {
-            eprintln!("[http] permission timeout");
+            log::warn!("[http] permission timeout");
             let mut pending = state.pending.lock().await;
             pending.remove(&request_id);
 
@@ -329,17 +329,17 @@ pub async fn run(
     let router = build_router(app, pending);
     let addr = std::net::SocketAddr::from(([127, 0, 0, 1], port));
 
-    eprintln!("[http] starting hook server on http://{addr}");
+    log::info!("[http] starting hook server on http://{addr}");
 
     let listener = match tokio::net::TcpListener::bind(addr).await {
         Ok(l) => l,
         Err(err) => {
-            eprintln!("[http] failed to bind to {addr}: {err}");
+            log::error!("[http] failed to bind to {addr}: {err}");
             return;
         }
     };
 
     if let Err(err) = axum::serve(listener, router).await {
-        eprintln!("[http] server error: {err}");
+        log::error!("[http] server error: {err}");
     }
 }

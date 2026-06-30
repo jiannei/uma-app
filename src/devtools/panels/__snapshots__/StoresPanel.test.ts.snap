@@ -1,0 +1,28 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`StoresPanel > renders the empty state when no pending requests 1`] = `
+"<section class="bg-[var(--card)] flex flex-col min-h-0 min-w-0">
+  <h2 class="text-[11px] font-semibold text-[var(--muted-foreground)] px-2.5 py-1.5 border-b border-[var(--border)] bg-[var(--secondary)]/30 tracking-wider uppercase"> Stores </h2>
+  <div class="flex-1 overflow-auto p-2 text-[11px]">
+    <div class="mb-3">
+      <h3 class="text-[10px] text-[var(--muted-foreground)] mb-1 tracking-wider uppercase flex items-center gap-1"> Pending <span data-v-0d3d5e64="" data-slot="badge" data-variant="secondary" class="badge px-1.5 py-0 text-[10px] font-mono">0</span></h3>
+      <div class="text-[var(--muted-foreground)] italic py-0.5"> No pending requests. </div>
+    </div>
+  </div>
+</section>"
+`;
+
+exports[`StoresPanel > renders three pending entries (one per kind) 1`] = `
+"<section class="bg-[var(--card)] flex flex-col min-h-0 min-w-0">
+  <h2 class="text-[11px] font-semibold text-[var(--muted-foreground)] px-2.5 py-1.5 border-b border-[var(--border)] bg-[var(--secondary)]/30 tracking-wider uppercase"> Stores </h2>
+  <div class="flex-1 overflow-auto p-2 text-[11px]">
+    <div class="mb-3">
+      <h3 class="text-[10px] text-[var(--muted-foreground)] mb-1 tracking-wider uppercase flex items-center gap-1"> Pending <span data-v-0d3d5e64="" data-slot="badge" data-variant="secondary" class="badge px-1.5 py-0 text-[10px] font-mono">3</span></h3>
+      <!--v-if-->
+      <div class="flex gap-1.5 py-0.5 font-mono text-[10px] text-[var(--foreground)] whitespace-nowrap overflow-hidden flex-wrap"><span class="text-[var(--muted-foreground)]">perm-001</span><span data-v-0d3d5e64="" data-slot="badge" data-variant="default" class="badge px-1 py-0 text-[9px] uppercase tracking-wider">SideEffect</span><span class="text-[var(--accent)]">Claude Code</span><span class="text-[var(--primary)]">Bash</span><span class="text-[var(--muted-foreground)]">s-1</span></div>
+      <div class="flex gap-1.5 py-0.5 font-mono text-[10px] text-[var(--foreground)] whitespace-nowrap overflow-hidden flex-wrap"><span class="text-[var(--muted-foreground)]">perm-002</span><span data-v-0d3d5e64="" data-slot="badge" data-variant="secondary" class="badge px-1 py-0 text-[9px] uppercase tracking-wider">Elicitation</span><span class="text-[var(--accent)]">Claude Code</span><span class="text-[var(--primary)]">1 question</span><span class="text-[var(--muted-foreground)]">s-1</span></div>
+      <div class="flex gap-1.5 py-0.5 font-mono text-[10px] text-[var(--foreground)] whitespace-nowrap overflow-hidden flex-wrap"><span class="text-[var(--muted-foreground)]">perm-003</span><span data-v-0d3d5e64="" data-slot="badge" data-variant="secondary" class="badge px-1 py-0 text-[9px] uppercase tracking-wider">PlanReview</span><span class="text-[var(--accent)]">Claude Code</span><span class="text-[var(--primary)]">plan 38 chars</span><span class="text-[var(--muted-foreground)]">s-1</span></div>
+    </div>
+  </div>
+</section>"
+`;

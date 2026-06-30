@@ -116,18 +116,6 @@ export interface MachineSnapshot {
 
 // ── Permission wire shape (Rust mirror; consumed by StoresPanel) ─
 
-export interface PermissionRequest {
-  request_id: string;
-  session_id: string;
-  tool_name: string;
-  tool_input: unknown;
-  /** Rust side serializes `Option<String>` as `string | null`
-   *  (present in payload, value is null when absent). */
-  cwd: string | null;
-  agent: string;
-  agent_display_name: string;
-}
-
 // ── State-change event payload (renderer listener) ──────────────
 // Matches the previous StateChangeEvent shape so `robot.html`'s
 // `({ display }) => setDisplayState(display)` listener continues to

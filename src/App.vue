@@ -199,11 +199,16 @@ async function toggleDnd(v: boolean) {
 async function toggleSound(v: boolean) {
   settings.value.sound_enabled = v;
   try {
-    const store = await load("settings.json", { autoSave: true, defaults: {} });
-    await store.set("sound_enabled", v);
-    await store.save();
+    // Route through the Rust set_sound command (mirrors set_dnd's
+    // pattern). Rust persists to plugin-store AND emits sound-change
+    // so any future consumers (tray checkmark refresh, dev panel
+    // inspector) stay in sync. Previously this function wrote
+    // plugin-store directly — tray flips would silently drift until
+    // next launch because no event was broadcast.
+    await invoke("set_sound", { enabled: v });
   } catch (err) {
-    console.warn("Failed to persist sound_enabled:", err);
+    console.warn("Failed to set sound:", err);
+    status.value = "Failed: " + err;
   }
 }
 

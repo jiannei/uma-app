@@ -7,13 +7,14 @@
 // D8.
 //
 // AlwaysAllowStore was removed in ADR-0011 — that section is gone.
+//
+// ADR-0018 Stage B: kind-dispatch (variant + detail) is sourced from
+// `permissionRegistry[req.kind].presentation` (registry.ts). The
+// per-kind switch that used to live here now lives in registry.ts and
+// is unit-tested there.
 
-import type {
-  ElicitationRequest,
-  PermissionRequest,
-  PlanReviewRequest,
-  SideEffectRequest,
-} from "../../types/permission";
+import type { PermissionRequest } from "../../types/permission";
+import { permissionRegistry } from "../../permission/registry";
 import Badge from "@/components/Badge.vue";
 
 interface PendingEntryView {
@@ -26,29 +27,27 @@ const props = defineProps<{
   pending: PendingEntryView[];
 }>();
 
-// Kind badge variant — maps to Badge component variants
-function kindVariant(kind: PermissionRequest["kind"]): "default" | "secondary" | "outline" {
-  return kind === "SideEffect" ? "default" : kind === "Elicitation" ? "secondary" : "outline";
-}
+// Map registry's presentation.badgeVariant ('warning' | 'info' |
+// 'success') → Badge.vue's `variant` prop ('default' | 'secondary' |
+// 'outline'). SideEffect uses the more prominent 'default' so a
+// pending SideEffect stands out in the dev panel.
+const BADGE_VARIANT_MAP = {
+  warning: "default",
+  info: "secondary",
+  success: "outline",
+} as const;
 
-// Per-kind detail string for the panel row.
-function detail(req: PermissionRequest): string {
+// Each `presentation.detail` is parameterised by its kind's request
+// type. At runtime we have a `PermissionRequest` union and need to
+// route to the right entry — this thin switch is the dispatch site.
+function detailFor(req: PermissionRequest): string {
   switch (req.kind) {
-    case "SideEffect": {
-      const r = req as SideEffectRequest;
-      const sug = r.permissionSuggestions.length;
-      const sugSuffix = sug ? ` · ${sug} suggestion${sug === 1 ? "" : "s"}` : "";
-      return `${r.toolName ?? "—"}${sugSuffix}`;
-    }
-    case "Elicitation": {
-      const r = req as ElicitationRequest;
-      return `${r.questions.length} question${r.questions.length === 1 ? "" : "s"}`;
-    }
-    case "PlanReview": {
-      const r = req as PlanReviewRequest;
-      const len = r.planContent?.length ?? 0;
-      return `plan ${len > 0 ? `${len} chars` : "no content"}`;
-    }
+    case "SideEffect":
+      return permissionRegistry.SideEffect.presentation.detail(req);
+    case "Elicitation":
+      return permissionRegistry.Elicitation.presentation.detail(req);
+    case "PlanReview":
+      return permissionRegistry.PlanReview.presentation.detail(req);
   }
 }
 </script>
@@ -79,7 +78,7 @@ function detail(req: PermissionRequest): string {
         >
           <span class="text-[var(--muted-foreground)]">{{ entry.requestId }}</span>
           <Badge
-            :variant="kindVariant(entry.request.kind)"
+            :variant="BADGE_VARIANT_MAP[permissionRegistry[entry.request.kind].presentation.badgeVariant]"
             class="px-1 py-0 text-[9px] uppercase tracking-wider"
           >
             {{ entry.request.kind }}
@@ -88,7 +87,7 @@ function detail(req: PermissionRequest): string {
             {{ entry.request.agentDisplayName || entry.agentId }}
           </span>
           <span class="text-[var(--primary)]">
-            {{ detail(entry.request) }}
+            {{ detailFor(entry.request) }}
           </span>
           <span class="text-[var(--muted-foreground)]">
             {{ entry.request.sessionId.slice(0, 8) }}

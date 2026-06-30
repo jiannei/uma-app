@@ -1,4 +1,7 @@
-// src/robot/display-state-resolver.ts — DisplayStateResolver as an XState v5 machine.
+// src/robot/display-state-resolver/machine.ts — DisplayStateResolver as
+// an XState v5 machine. Pure helpers (subagentStateFor,
+// recomputeDisplayState, etc.) live in pure.ts; this file consumes them
+// via the `actions:` and `guards:` keys inside `setup({...})`.
 //
 // Implements ADR-0006 (adopt-xstate-for-display-state-resolver):
 //   - delays read from context.theme.timings (evaluated at state-entry;
@@ -15,15 +18,19 @@
 // for the domain vocabulary; see the ADR for design trade-offs.
 
 import { setup, assign } from 'xstate';
-import { UNKNOWN_AGENT } from './display-state-constants';
+import {
+  computeIngestUpdate,
+  recomputeDisplayState,
+  sessionKeyOf,
+  subagentStateFor,
+} from './pure';
 import type {
-  CanonicalEventName,
   DisplayState,
-  HookEvent,
   SessionEntry,
   SessionKey,
   ThemeManifest,
-} from './display-state-types';
+} from '../display-state-types';
+import type { HookEvent } from '../display-state-types';
 
 // ── Input (initial context) ─────────────────────────────────────
 
@@ -49,93 +56,31 @@ type ResolverEvent =
   | { type: 'RESET' }
   | { type: 'THEME_CHANGED'; theme: ThemeManifest };
 
-// ── Helpers ─────────────────────────────────────────────────────
-
-function sessionKeyOf(event: HookEvent): SessionKey {
-  const aid = event.agent || UNKNOWN_AGENT;
-  return `${aid}:${event.session_id}`;
-}
-
-/** Priority-ordered state walk; first hit wins. */
-const STATE_PRIORITY_ORDER: DisplayState[] = [
-  'error',
-  'notification',
-  'attention',
-  'juggling',
-  'subagent-groove',
-  'building',
-  'thinking',
-  'working',
-  'carrying',
-];
-
-function recomputeDisplayState(
-  sessions: Record<SessionKey, SessionEntry>,
-): DisplayState {
-  const seen = new Set<DisplayState>();
-  for (const entry of Object.values(sessions)) seen.add(entry.state);
-  for (const s of STATE_PRIORITY_ORDER) {
-    if (seen.has(s)) return s;
-  }
-  return 'idle';
-}
+// ── Machine ─────────────────────────────────────────────────────
 
 /**
- * Pure derivation: given current context and an AGENT_HOOK event, compute
- * the updated sessions map and subagent counts. Returns null for non-hook
- * events. Shared by ingestEvent (which also recomputes displayState) and
- * ingestEventSilent (which preserves the current display).
+ * Helper for the three arm*OneShot action bodies. Each one-shot
+ * (attention / error / notification) sets `activeOneShot` with a wall-
+ * clock expiry and pins `displayState` for the duration. The helper
+ * lives outside `setup()` because XState v5's `assign()` type inference
+ * is parameterised by the surrounding `setup({types:{...}})` block;
+ * a factory wrapping `assign` would lose that context. The three
+ * `arm*OneShot` action bodies below are therefore inlined rather than
+ * generated. Action names are preserved so every transition site
+ * (actions: ['ingestEvent', 'armErrorOneShot']) is unchanged.
  */
-function computeIngestUpdate(
-  context: ResolverContext,
-  event: ResolverEvent,
-): { sessions: Record<SessionKey, SessionEntry>; activeSubagents: Record<SessionKey, number> } | null {
-  if (event.type !== 'AGENT_HOOK') return null;
-  const key = sessionKeyOf(event.event);
-  const toolName = event.event.tool_name;
-  // `subagent` is the agent-specific decision made by the adapter; the
-  // canonical layer never inspects the tool name. See ADR-0008.
-  const isSubagent = event.event.subagent === true;
-
-  // Subagent counter delta
-  let subagentCount = context.activeSubagents[key] ?? 0;
-  if (isSubagent && event.event.event_type === 'ToolCallStart') {
-    subagentCount = subagentCount + 1;
-  } else if (
-    isSubagent &&
-    event.event.event_type === 'ToolCallEnd' &&
-    subagentCount > 0
-  ) {
-    subagentCount = subagentCount - 1;
-  }
-
-  // Session state: error overrides; subagent count shapes; else by event.
-  let sessionState: DisplayState = 'idle';
-  if (event.event.event_type === 'ToolCallEnd' && event.event.success === false) {
-    sessionState = 'error';
-  } else if (isSubagent && event.event.event_type === 'ToolCallStart') {
-    sessionState = subagentCount >= 2 ? 'juggling' : subagentCount === 1 ? 'subagent-groove' : 'building';
-  } else if (isSubagent && event.event.event_type === 'ToolCallEnd') {
-    sessionState = subagentCount >= 1 ? 'building' : 'working';
-  } else {
-    sessionState = deriveStateFromEvent(event.event.event_type as CanonicalEventName);
-  }
-
-  const entry: SessionEntry = {
-    state: sessionState,
-    lastEvent: event.event.event_type as CanonicalEventName,
-    toolName,
-    subagentCount,
-    timestamp: Date.now(),
-    success: event.event.event_type === 'ToolCallEnd' ? event.event.success : undefined,
-  };
-
-  const sessions = { ...context.sessions, [key]: entry };
-  const activeSubagents = { ...context.activeSubagents, [key]: subagentCount };
-  return { sessions, activeSubagents };
-}
-
-// ── Machine ─────────────────────────────────────────────────────
+const armOneShotBody = (state: DisplayState, fallbackMs: number) =>
+  ({ context }: { context: ResolverContext }) => ({
+    activeOneShot: {
+      state,
+      expiresAt:
+        Date.now() +
+        (context.theme.timings.autoReturn[
+          state as 'attention' | 'error' | 'notification'
+        ] ?? fallbackMs),
+    },
+    displayState: state,
+  });
 
 export const displayStateResolver = setup({
   types: {
@@ -144,8 +89,8 @@ export const displayStateResolver = setup({
     input: {} as DisplayStateResolverInput,
   },
   guards: {
-    sessionEnded: ({ event }) =>
-      event.type === 'AGENT_HOOK' && event.event.event_type === 'SessionEnd',
+    sessionEnded: (({ event }: { event: ResolverEvent }) =>
+      event.type === 'AGENT_HOOK' && event.event.event_type === 'SessionEnd'),
     /**
      * True when the incoming SessionEnd is also the last active session
      * — after clearing, `sessions` would be empty, so the resolver has
@@ -155,55 +100,61 @@ export const displayStateResolver = setup({
      * clears the entry without leaving the current state. See CONTEXT.md
      * (SleepSequence) and ADR-0009 / follow-up (idleToSleepDelay).
      */
-    sessionEndedAndIsLast: ({ context, event }) => {
+    sessionEndedAndIsLast: (({ context, event }: { context: ResolverContext; event: ResolverEvent }) => {
       if (event.type !== 'AGENT_HOOK') return false;
       if (event.event.event_type !== 'SessionEnd') return false;
       return Object.keys(context.sessions).length === 1;
-    },
-    toolFailed: ({ event }) =>
+    }),
+    toolFailed: (({ event }: { event: ResolverEvent }) =>
       event.type === 'AGENT_HOOK' &&
       event.event.event_type === 'ToolCallEnd' &&
-      event.event.success === false,
-    isNotification: ({ event }) =>
+      event.event.success === false),
+    isNotification: (({ event }: { event: ResolverEvent }) =>
       event.type === 'AGENT_HOOK' &&
       (event.event.event_type === 'Notification' ||
-        event.event.event_type === 'PermissionRequest'),
-    isUserPrompt: ({ event }) =>
+        event.event.event_type === 'PermissionRequest')),
+    isUserPrompt: (({ event }: { event: ResolverEvent }) =>
       event.type === 'AGENT_HOOK' &&
-      event.event.event_type === 'UserPromptSubmit',
-    isSubagentToolStart: ({ event }) =>
+      event.event.event_type === 'UserPromptSubmit'),
+    isSubagentToolStart: (({ event }: { event: ResolverEvent }) =>
       event.type === 'AGENT_HOOK' &&
       event.event.event_type === 'ToolCallStart' &&
-      event.event.subagent === true,
-    isSubagentToolEnd: ({ event }) =>
+      event.event.subagent === true),
+    isSubagentToolEnd: (({ event }: { event: ResolverEvent }) =>
       event.type === 'AGENT_HOOK' &&
       event.event.event_type === 'ToolCallEnd' &&
-      event.event.subagent === true,
+      event.event.subagent === true),
     /**
      * Subagent count guards. Both only fire on `ToolCallStart` events
      * with `subagent: true` — that's the only event type where the
      * resolver would increment the subagent counter. ToolCallEnd and
      * other events fall through to the catch-all `ingestEvent` action,
      * which recomputes the display state from the updated `sessions`
-     * map. This avoids the previous bug where a ToolCallEnd at
-     * `currentCount == 2` would erroneously match `hasTwoOrMoreSubs`
-     * (the +1 only applied to starts) and bounce to `juggling` after
-     * the count had already been decremented to 1.
+     * map. The previous bug where a ToolCallEnd at `currentCount == 2`
+     * would erroneously match `hasTwoOrMoreSubs` (the +1 only applied
+     * to starts) is now structurally prevented: the count → state rule
+     * lives in subagentStateFor, shared by both the action and the
+     * guards, so a count change cannot drift between them.
      */
-    hasTwoOrMoreSubs: ({ context, event }) =>
-      event.type === 'AGENT_HOOK' &&
-      event.event.event_type === 'ToolCallStart' &&
-      event.event.subagent === true &&
-      (context.activeSubagents[sessionKeyOf(event.event)] ?? 0) + 1 >= 2,
-    hasExactlyOneSub: ({ context, event }) =>
-      event.type === 'AGENT_HOOK' &&
-      event.event.event_type === 'ToolCallStart' &&
-      event.event.subagent === true &&
-      (context.activeSubagents[sessionKeyOf(event.event)] ?? 0) + 1 === 1,
+    hasTwoOrMoreSubs: (({ context, event }: { context: ResolverContext; event: ResolverEvent }) => {
+      if (event.type !== 'AGENT_HOOK') return false;
+      if (event.event.event_type !== 'ToolCallStart') return false;
+      if (event.event.subagent !== true) return false;
+      const current = context.activeSubagents[sessionKeyOf(event.event)] ?? 0;
+      return subagentStateFor(current + 1) === 'juggling';
+    }),
+    hasExactlyOneSub: (({ context, event }: { context: ResolverContext; event: ResolverEvent }) => {
+      if (event.type !== 'AGENT_HOOK') return false;
+      if (event.event.event_type !== 'ToolCallStart') return false;
+      if (event.event.subagent !== true) return false;
+      const current = context.activeSubagents[sessionKeyOf(event.event)] ?? 0;
+      return subagentStateFor(current + 1) === 'subagent-groove';
+    }),
   },
   actions: {
-    ingestEvent: assign(({ context, event }) => {
-      const update = computeIngestUpdate(context, event);
+    ingestEvent: assign(({ context, event }: { context: ResolverContext; event: ResolverEvent }) => {
+      if (event.type !== 'AGENT_HOOK') return {};
+      const update = computeIngestUpdate(context.sessions, context.activeSubagents, event);
       if (!update) return {};
       return { ...update, displayState: recomputeDisplayState(update.sessions) };
     }),
@@ -211,15 +162,16 @@ export const displayStateResolver = setup({
      * OneShot 期间使用:更新 sessions/activeSubagents 但不动 displayState/activeOneShot,
      * 让当前 one-shot 显示继续。SessionEnd 例外——见 oneShot.* 状态里的转移。
      */
-    ingestEventSilent: assign(({ context, event }) => {
-      const update = computeIngestUpdate(context, event);
+    ingestEventSilent: assign(({ context, event }: { context: ResolverContext; event: ResolverEvent }) => {
+      if (event.type !== 'AGENT_HOOK') return {};
+      const update = computeIngestUpdate(context.sessions, context.activeSubagents, event);
       return update ?? {};
     }),
     /** 在 one-shot 退出或外部显式刷新时,把 displayState 同步到当前 sessions 的聚合结果。 */
-    recomputeDisplay: assign(({ context }) => ({
+    recomputeDisplay: assign(({ context }: { context: ResolverContext }) => ({
       displayState: recomputeDisplayState(context.sessions),
     })),
-    clearSession: assign(({ context, event }) => {
+    clearSession: assign(({ context, event }: { context: ResolverContext; event: ResolverEvent }) => {
       if (event.type !== 'AGENT_HOOK') return {};
       const key = sessionKeyOf(event.event);
       if (!(key in context.sessions)) return {};
@@ -233,32 +185,12 @@ export const displayStateResolver = setup({
       activeOneShot: null,
       displayState: 'idle' as DisplayState,
     })),
-    swapTheme: assign(({ event }) =>
+    swapTheme: assign(({ event }: { event: ResolverEvent }) =>
       event.type === 'THEME_CHANGED' ? { theme: event.theme } : {},
     ),
-    armAttentionOneShot: assign(({ context }) => ({
-      activeOneShot: {
-        state: 'attention' as DisplayState,
-        expiresAt:
-          Date.now() + (context.theme.timings.autoReturn.attention ?? 4000),
-      },
-      displayState: 'attention' as DisplayState,
-    })),
-    armErrorOneShot: assign(({ context }) => ({
-      activeOneShot: {
-        state: 'error' as DisplayState,
-        expiresAt: Date.now() + (context.theme.timings.autoReturn.error ?? 5000),
-      },
-      displayState: 'error' as DisplayState,
-    })),
-    armNotificationOneShot: assign(({ context }) => ({
-      activeOneShot: {
-        state: 'notification' as DisplayState,
-        expiresAt:
-          Date.now() + (context.theme.timings.autoReturn.notification ?? 5000),
-      },
-      displayState: 'notification' as DisplayState,
-    })),
+    armAttentionOneShot: assign(armOneShotBody('attention', 4000)),
+    armErrorOneShot: assign(armOneShotBody('error', 5000)),
+    armNotificationOneShot: assign(armOneShotBody('notification', 5000)),
     clearOneShot: assign(() => ({
       activeOneShot: null,
     })),
@@ -513,28 +445,3 @@ export const displayStateResolver = setup({
     },
   },
 });
-
-// ── Helpers exported for the panels & renderer ─────────────────
-
-export { recomputeDisplayState, sessionKeyOf };
-
-function deriveStateFromEvent(event: CanonicalEventName): DisplayState {
-  switch (event) {
-    case 'SessionStart':
-      return 'idle';
-    case 'SessionEnd':
-      return 'sleeping';
-    case 'UserPromptSubmit':
-      return 'thinking';
-    case 'ToolCallStart':
-      return 'working';
-    case 'ToolCallEnd':
-      return 'working';
-    case 'AgentTurnEnd':
-      return 'idle';
-    case 'Notification':
-      return 'notification';
-    case 'PermissionRequest':
-      return 'notification';
-  }
-}

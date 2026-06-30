@@ -26,9 +26,9 @@ import type { DisplayState, HookEvent, ThemeManifest } from "./display-state-typ
 // ── Theme registration (copied verbatim from robot.html L114-254) ──
 //
 // viewBox / hitBox / fileHitBox / wide + sleeping file lists /
-// objectScale are byte-equivalent to upstream uma-pet. Asset files
-// are also byte-equivalent (md5 verified). Keys translated w→width,
-// h→height. See ADR-0004.
+// objectScale are byte-equivalent to the upstream theme spec. Asset
+// files are also byte-equivalent (md5 verified). Keys translated
+// w→width, h→height. See ADR-0004.
 
 const themeManager = new ThemeManager();
 
@@ -217,6 +217,73 @@ function applyTheme(theme: ThemeManifest) {
   send({ type: "THEME_CHANGED", theme });
 }
 
+/**
+ * Handler for theme-change (tray menu / settings UI). Fetches the
+ * full theme.json (including timings — required by applyTheme → XState
+ * machine) from the Vite-served publicDir. Works in both dev and
+ * release builds: Vite copies public/themes/<id>/theme.json to
+ * dist/themes/<id>/theme.json, and the Tauri webview serves dist/ at
+ * root.
+ *
+ * History: a previous version called invoke("theme_load", ...) — but
+ * `theme_load` is `#[cfg(debug_assertions)]` so it's only registered
+ * in dev builds. The call swallowed its own error in release, leaving
+ * the robot on stale timings after a tray click. Switching to fetch
+ * sidesteps the cfg gate (Vite's publicDir mechanism works uniformly
+ * in dev and release). theme_load IPC remains for the dev panel Save
+ * path below — that flow is dev-only by design (the dev panel itself
+ * is import.meta.env.DEV-gated).
+ */
+async function onThemeChanged(themeId: string | undefined) {
+  if (!themeId) return;
+  try {
+    const res = await fetch(`/themes/${themeId}/theme.json`);
+    if (!res.ok) {
+      console.warn(
+        `[robot] theme.json fetch failed: ${res.status} ${res.statusText}`,
+      );
+      return;
+    }
+    const manifest = (await res.json()) as ThemeManifest;
+    // reloadTheme re-registers the manifest so subsequent setTheme
+    // picks up the fresh data (including timings — the inlined boot
+    // literal lacks them). reloadTheme's notify only fires when
+    // currentThemeId already matches the incoming id; for a real
+    // switch (Uma → Calico) it skips the onChange → refreshSprite
+    // path. So we explicitly call setTheme here to drive the sprite
+    // refresh + hit-zone update.
+    themeManager.reloadTheme(themeId, manifest);
+    themeManager.setTheme(themeId);
+    applyTheme(manifest);
+  } catch (err) {
+    console.warn("[robot] theme change failed:", err);
+  }
+}
+
+/**
+ * Handler for theme-updated (dev panel Save). Dev-only path: re-reads
+ * the manifest from disk because the dev panel just wrote a new
+ * theme.json via theme_save. theme_load itself is
+ * `#[cfg(debug_assertions)]` so this only runs successfully in dev
+ * builds — that's the intended scope (the dev panel is
+ * import.meta.env.DEV-gated in App.vue). Kept separate from
+ * onThemeChanged because the two events have different timing
+ * contracts: theme-updated is emitted by Rust AFTER the disk write
+ * completes, while theme-change only needs the cached publicDir copy.
+ */
+async function onThemeUpdated(themeId: string | undefined) {
+  if (!themeId) return;
+  try {
+    const manifest = await invoke<ThemeManifest>("theme_load", {
+      themeId,
+    });
+    themeManager.reloadTheme(themeId, manifest);
+    applyTheme(manifest);
+  } catch (err) {
+    console.warn("[robot] theme reload failed:", err);
+  }
+}
+
 // ── Dual-element rendering (ADR-0004 §Rendering paths) ───────────
 
 function setActiveElement(type: string) {
@@ -263,7 +330,7 @@ themeManager.onChange(() => {
 // written to `spriteStyle` (a Vue ref bound to :style on both <img>
 // and <object>), so the active element picks it up automatically.
 //
-// Positioning is **bottom-anchored** (matching uma-pet's renderer.js):
+// Positioning is **bottom-anchored** (see ADR-0004 for the derivation):
 //   bottom = objBottom (or derived from offsetY + heightRatio) + fileOffset.y + viewportOffsetY
 // This keeps the sprite standing on the container bottom regardless of
 // how tall the sprite's CSS box is. The uma theme's default:
@@ -296,7 +363,7 @@ function applyStyle() {
 
   // Bottom-anchored positioning. Theme can override objBottom/imgBottom
   // directly; otherwise derive from offsetY + heightRatio (same formula
-  // as uma-pet's renderer.js L58).
+  // as derived in ADR-0004).
   const objBottom =
     os.objBottom != null
       ? os.objBottom
@@ -530,25 +597,17 @@ onMounted(async () => {
   }
 
   // Theme change broadcasts → swap theme in ThemeManager AND XState.
+// theme-change (tray menu / settings UI) fetches theme.json from
+// Vite's publicDir (works in dev and release). theme-updated (dev
+// panel Save) reloads from disk via theme_load (cfg-gated dev-only).
   unsubscribers.push(
-    await listen("theme-change", async (e) => {
-      const themeId = (e.payload as { theme?: string })?.theme;
-      if (themeId) themeManager.setTheme(themeId);
+    await listen("theme-change", (e) => {
+      void onThemeChanged((e.payload as { theme?: string })?.theme);
     }),
   );
   unsubscribers.push(
-    await listen("theme-updated", async (e) => {
-      const themeId = (e.payload as { theme?: string })?.theme;
-      if (!themeId) return;
-      try {
-        const manifest = await invoke<ThemeManifest>("theme_load", {
-          themeId,
-        });
-        themeManager.reloadTheme(themeId, manifest);
-        applyTheme(manifest);
-      } catch (err) {
-        console.warn("[robot] theme reload failed:", err);
-      }
+    await listen("theme-updated", (e) => {
+      void onThemeUpdated((e.payload as { theme?: string })?.theme);
     }),
   );
 

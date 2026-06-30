@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "vue-tsc --noEmit && vite build",
+    "test": "vitest run",
     "preview": "vite preview",
     "tauri": "tauri"
   },
@@ -29,9 +30,12 @@
     "@unocss/transformer-variant-group": "^66.7.3",
     "@unocss/vite": "^66.7.3",
     "@vitejs/plugin-vue": "^6.0.7",
+    "@vue/test-utils": "^2.4.11",
+    "happy-dom": "^20.10.6",
     "typescript": "~6.0.3",
     "unocss": "^66.7.3",
     "vite": "^8.1.0",
+    "vitest": "^2",
     "vue-tsc": "^3.3.5"
   }
 }

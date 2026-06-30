@@ -99,15 +99,15 @@ class ThemeManager {
    * viewBox coords) for the asset currently bound to that state. Used by the
    * robot window to compute the actual screen-space drag rectangle.
    *
-   * Override order (matches ADR-0004 / uma-pet):
+   * Override order (matches ADR-0004):
    *   fileHitBoxes[file] > hitBoxes.sleeping (if file ∈ sleepingHitboxFiles)
    *                    > hitBoxes.wide (if file ∈ wideHitboxFiles)
    *                    > hitBoxes.default
    *
    * viewBox: fileViewBoxes[file] || theme.viewBox
    *
-   * Returns null when state is unknown OR hitBoxes.default is missing (uma-pet
-   * semantics — no fallback to full viewBox; caller treats null as no drag area).
+   * Returns null when state is unknown OR hitBoxes.default is missing —
+   * no fallback to full viewBox; caller treats null as no drag area.
    */
   getHitBoxDataForState(state) {
     if (!this.currentTheme) return null;
@@ -165,9 +165,9 @@ class ThemeManager {
 
   /**
    * Resolve objectScale config for the current theme. The renderer uses
-   * this to size + position the sprite (uma-pet semantics — see
-   * uma-pet/src/renderer.js applyObjectScaleStyle and uma-pet/src/styles.css
-   * #clawd). Returns null when the theme has no objectScale block.
+   * this to size + position the sprite (see ADR-0004 §Rendering paths
+   * for the original formula). Returns null when the theme has no
+   * objectScale block.
    */
   getObjectScale() {
     if (!this.currentTheme || !this.currentTheme.manifest) return null;

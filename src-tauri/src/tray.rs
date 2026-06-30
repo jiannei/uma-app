@@ -106,60 +106,32 @@ fn handle_menu_event<R: Runtime>(
         "theme_uma" => {
             let mut s = settings.lock().unwrap();
             s.theme = "uma".into();
+            // app.emit broadcasts to all webviews; the robot window is
+            // a webview, so the second robot.emit was redundant (and
+            // made the robot's listener fire twice). One emit is enough.
             let _ = app.emit("theme-change", serde_json::json!({ "theme": "uma" }));
-            if let Some(robot) = app.get_webview_window("robot") {
-                let _ = robot.emit(
-                    "theme-change",
-                    serde_json::json!({ "theme": "uma" }),
-                );
-            }
         }
         "theme_calico" => {
             let mut s = settings.lock().unwrap();
             s.theme = "calico".into();
             let _ = app.emit("theme-change", serde_json::json!({ "theme": "calico" }));
-            if let Some(robot) = app.get_webview_window("robot") {
-                let _ = robot.emit(
-                    "theme-change",
-                    serde_json::json!({ "theme": "calico" }),
-                );
-            }
         }
-        "dnd" => {
-            let new_val = {
-                let mut s = settings.lock().unwrap();
-                s.dnd = !s.dnd;
-                s.dnd
-            };
-            // Sync to global SettingsStore
-            if let Some(state) = app.try_state::<SettingsStore>() {
-                let mut s = state.0.lock().unwrap();
-                s.dnd = new_val;
-            }
-            // Persist to plugin-store
-            if let Ok(pstore) = app.store("settings.json") {
-                pstore.set("dnd", serde_json::json!(new_val));
-                let _ = pstore.save();
-            }
-            let _ = app.emit("dnd-change", serde_json::json!({ "dnd": new_val }));
-        }
-        "sound" => {
-            let new_val = {
-                let mut s = settings.lock().unwrap();
-                s.sound_enabled = !s.sound_enabled;
-                s.sound_enabled
-            };
-            // Sync to global SettingsStore
-            if let Some(state) = app.try_state::<SettingsStore>() {
-                let mut s = state.0.lock().unwrap();
-                s.sound_enabled = new_val;
-            }
-            // Persist to plugin-store
-            if let Ok(pstore) = app.store("settings.json") {
-                pstore.set("sound_enabled", serde_json::json!(new_val));
-                let _ = pstore.save();
-            }
-        }
+        "dnd" => toggle_bool_setting(
+            app,
+            settings,
+            "dnd",
+            "dnd",
+            "dnd-change",
+            |s| &mut s.dnd,
+        ),
+        "sound" => toggle_bool_setting(
+            app,
+            settings,
+            "sound_enabled",
+            "sound_enabled",
+            "sound-change",
+            |s| &mut s.sound_enabled,
+        ),
         "mini" => {
             // Emit a "toggle-mini" event that the robot window handles
             let _ = app.emit("toggle-mini", ());
@@ -178,4 +150,50 @@ fn handle_menu_event<R: Runtime>(
             eprintln!("[tray] unhandled menu event: {id}");
         }
     }
+}
+
+/// Toggle a single bool field on Settings: lock → flip → mirror to
+/// global SettingsStore → persist to plugin-store → broadcast event.
+///
+/// Shared between the tray "dnd" and "sound" arms, and structurally
+/// identical to the body of the `set_dnd` / `set_sound` Tauri commands
+/// in lib.rs (those set an explicit value rather than toggling).
+/// `store_key` and `payload_key` happen to be the same in current
+/// usage (both "dnd" or both "sound_enabled") but are kept as separate
+/// parameters to allow future divergence (e.g. a plugin-store key with
+/// a different casing from the event payload key).
+fn toggle_bool_setting<R: Runtime>(
+    app: &AppHandle<R>,
+    settings: &Arc<std::sync::Mutex<Settings>>,
+    store_key: &str,
+    payload_key: &str,
+    event_name: &str,
+    flip: impl FnOnce(&mut Settings) -> &mut bool,
+) {
+    use tauri::Emitter;
+    let new_val = {
+        let mut s = settings.lock().unwrap();
+        let target = flip(&mut s);
+        *target = !*target;
+        *target
+    };
+    // Mirror to global SettingsStore
+    if let Some(state) = app.try_state::<SettingsStore>() {
+        let mut s = state.0.lock().unwrap();
+        // map key → field. 2-key map avoids bringing a third parameter
+        // (the field itself) into the signature.
+        match payload_key {
+            "dnd" => s.dnd = new_val,
+            "sound_enabled" => s.sound_enabled = new_val,
+            _ => {}
+        }
+    }
+    // Persist to plugin-store
+    if let Ok(pstore) = app.store("settings.json") {
+        pstore.set(store_key, serde_json::json!(new_val));
+        let _ = pstore.save();
+    }
+    // Broadcast — previously the sound arm did not emit, leaving App.vue's
+    // sound_enabled toggle stale until next launch.
+    let _ = app.emit(event_name, serde_json::json!({ payload_key: new_val }));
 }

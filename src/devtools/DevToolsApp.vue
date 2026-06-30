@@ -1,31 +1,34 @@
 <script setup lang="ts">
 // src/devtools/DevToolsApp.vue — DevTools parent SFC.
 //
-// INDEPENDENT of the robot window. The dev panel has its own XState
-// DisplayStateResolver instance (via `useMachine`) and processes raw
-// events directly (no round-trip through robot). The robot window is
-// reduced to "animation source" — it still runs its own resolver to
-// drive the sprite, but the dev panel no longer reads its state.
+// The dev panel no longer runs a parallel XState actor. Instead it
+// calls pure.computeIngestUpdate / pure.recomputeDisplayState directly
+// on local refs, sharing literally the same code path as the robot
+// window. The dev panel is still the GROUND TRUTH reference: any bug
+// in the pure helpers shows up here before the robot reacts.
 //
-// This makes the dev panel the GROUND TRUTH reference. If you want
-// to verify that the robot's resolver is working correctly, you can
-// compare its sprite (animation) against the dev panel's computed
-// state visually. If they diverge, the bug is in the robot.
+// Why drop the parallel XState actor:
+//   - Previously: useMachine(displayStateResolver) ran a second actor
+//     instance with the same machine definition. Two actors diverging
+//     on event ordering = phantom ground truth.
+//   - Now: one pure module. The robot calls it via XState actions;
+//     this panel calls it via sendEvent(). Same function, same result.
 //
-// Per ADR-0006 §Decision, both instances use `useMachine(displayStateResolver,
-// { input: { theme } })` — same machine definition, same Vue
-// composable → behavior equivalence guarantee.
-//
-// See docs/adr/0005-dev-tools.md D11 for the broader dev-tools
-// architecture.
+// See CONTEXT.md (DisplayStateResolver) for the domain vocabulary.
 
-import { ref, watch, onMounted, onUnmounted } from "vue";
+import { computed, ref, onMounted, onUnmounted } from "vue";
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn, emit as tauriEmit } from "@tauri-apps/api/event";
-import { useMachine } from "@xstate/vue";
-import { displayStateResolver } from "../robot/display-state-resolver";
-import { DEFAULT_THEME } from "../robot/display-state-constants";
-import type { HookEvent, ThemeManifest } from "../robot/display-state-types";
+import {
+  computeIngestUpdate,
+  recomputeDisplayState,
+} from "../robot/display-state-resolver";
+import type {
+  HookEvent,
+  MachineSnapshot as Snapshot,
+  SessionEntry,
+  SessionKey,
+} from "../robot/display-state-types";
 import type { PermissionRequest } from "../types/permission";
 import Button from "@/components/Btn.vue";
 
@@ -35,25 +38,43 @@ import SyntheticFirePanel from "./panels/SyntheticFirePanel.vue";
 import VisualDebugPanel from "./panels/VisualDebugPanel.vue";
 import ThemeEditorPanel from "./panels/ThemeEditorPanel.vue";
 
-// ── Local DisplayStateResolver (ground truth for dev panel) ───────
+// ── Local DisplayStateResolver state (pure-driven) ───────────────
 //
-// Initializes with DEFAULT_THEME; on mount we fetch the real theme
-// and send THEME_CHANGED so timings match the robot window.
+// We hold the four MachineSnapshot fields as refs and update them
+// via pure.computeIngestUpdate on each event. The snapshot the panels
+// render is a `computed` derived from these refs.
 
-const { snapshot: smSnapshot, send } = useMachine(displayStateResolver, {
-  input: { theme: DEFAULT_THEME as unknown as ThemeManifest },
-});
+const sessions = ref<Record<SessionKey, SessionEntry>>({});
+const activeSubagents = ref<Record<SessionKey, number>>({});
+const activeOneShot = ref<{ state: import("../robot/display-state-types").DisplayState; expiresAt: number } | null>(null);
 
-// `smSnapshot.value.context` is the live MachineSnapshot. Panel 1
-// renders from this ref via a thin wrapper ref for type clarity.
-const snapshot = ref(smSnapshot.value.context);
-watch(
-  smSnapshot,
-  (s) => {
-    snapshot.value = s.context;
-  },
-  { deep: false },
-);
+const displayState = computed(() => recomputeDisplayState(sessions.value));
+
+const snapshot = computed<Snapshot>(() => ({
+  sessions: sessions.value,
+  activeSubagents: activeSubagents.value,
+  activeOneShot: activeOneShot.value,
+  displayState: displayState.value,
+}));
+
+/** Apply an AGENT_HOOK event to local refs via the pure helper. */
+function sendEvent(event: HookEvent) {
+  const update = computeIngestUpdate(sessions.value, activeSubagents.value, {
+    type: "AGENT_HOOK",
+    event,
+  });
+  if (!update) return;
+  sessions.value = update.sessions;
+  activeSubagents.value = update.activeSubagents;
+}
+
+/** Clear all per-session state. activeOneShot stays; the resolver
+ *  would re-arm it from a real one-shot event. */
+function resetLocal() {
+  sessions.value = {};
+  activeSubagents.value = {};
+  activeOneShot.value = null;
+}
 
 // ── Rust store snapshots (live) ─────────────────────────────────
 //
@@ -95,7 +116,7 @@ const agents = ref<AgentInfo[]>([]);
 // round trip), and ALSO emit `devtools-synthetic-event` so the robot
 // window's sprite reacts.
 async function fireSynthetic(event: HookEvent) {
-  send({ type: "AGENT_HOOK", event });
+  sendEvent(event);
   await tauriEmit("devtools-synthetic-event", {
     event,
     synthetic: true,
@@ -106,7 +127,7 @@ async function fireSynthetic(event: HookEvent) {
 // ── Reset (local resolver + broadcast to robot) ───────────────────
 
 async function resetAll() {
-  send({ type: "RESET" });
+  resetLocal();
   await tauriEmit("devtools-reset", {});
 }
 
@@ -125,59 +146,12 @@ onMounted(async () => {
   // Initial Rust store snapshots.
   await refreshPending();
 
-  // Fetch the active theme manifest so timings match the robot window.
-  // `get_settings` returns the current theme id; `theme_load` reads
-  // the manifest from disk on the Rust side.
-  try {
-    const settings = await invoke<{ theme_id?: string }>("get_settings");
-    if (settings?.theme_id) {
-      const theme = await invoke<ThemeManifest>("theme_load", {
-        themeId: settings.theme_id,
-      });
-      send({ type: "THEME_CHANGED", theme });
-    }
-  } catch (err) {
-    console.warn("[devtools] initial theme load failed:", err);
-  }
-
-  // Theme-change broadcasts from the robot window / settings → swap
-  // local theme so timing-sensitive operations (sleep sequence,
-  // auto-return) match.
-  unsubscribers.push(
-    await listen("theme-change", async (e) => {
-      const themeId = (e.payload as { theme_id?: string })?.theme_id;
-      if (!themeId) return;
-      try {
-        const theme = await invoke<ThemeManifest>("theme_load", {
-          themeId,
-        });
-        send({ type: "THEME_CHANGED", theme });
-      } catch (err) {
-        console.warn("[devtools] theme_load on theme-change failed:", err);
-      }
-    }),
-  );
-  unsubscribers.push(
-    await listen("theme-updated", async (e) => {
-      const themeId = (e.payload as { theme?: string })?.theme;
-      if (!themeId) return;
-      try {
-        const theme = await invoke<ThemeManifest>("theme_load", {
-          themeId,
-        });
-        send({ type: "THEME_CHANGED", theme });
-      } catch (err) {
-        console.warn("[devtools] theme_load on theme-updated failed:", err);
-      }
-    }),
-  );
-
   // Real events from HTTP server → feed local resolver (ground truth
   // state machine). Event log was removed — CLI output covers that.
   unsubscribers.push(
     await listen("agent-hook-event", (e) => {
       const p = e.payload as HookEvent;
-      send({ type: "AGENT_HOOK", event: p });
+      sendEvent(p);
     })
   );
 
@@ -191,7 +165,7 @@ onMounted(async () => {
   // panel session, or a future trigger). Reset local resolver.
   unsubscribers.push(
     await listen("devtools-reset", () => {
-      send({ type: "RESET" });
+      resetLocal();
     })
   );
 });

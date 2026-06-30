@@ -1,5 +1,4 @@
-// src/bubble/suggestion-label.ts — port of uma-pet's
-// `getSuggestionLabel`. Renders a one-line human label for a
+// src/bubble/suggestion-label.ts — renders a one-line human label for a
 // Claude Code `permission_suggestions[]` entry. Each entry is a
 // `PermissionUpdateEntry` discriminated union (addRules / setMode
 // / etc.); we surface the operation in user-facing language and
@@ -22,10 +21,9 @@ function extractDir(ruleContent: string | undefined): string | null {
   return segments.length ? segments[segments.length - 1] : null;
 }
 
-/** A shortened rule for `Always allow `<rule>`` display. Per
- * uma-pet, we truncate to 30 chars; we only do this when
- * `extractDir` doesn't recognise the rule as a directory
- * pattern. */
+/** A shortened rule for `Always allow `<rule>`` display. We truncate
+ * to 30 chars; we only do this when `extractDir` doesn't recognise
+ * the rule as a directory pattern. */
 function shortRule(ruleContent: string): string {
   return ruleContent.length > 30
     ? ruleContent.slice(0, 29) + "…"

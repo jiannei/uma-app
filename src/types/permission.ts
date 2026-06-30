@@ -114,23 +114,7 @@ export type PermissionRequest =
   | ElicitationRequest
   | PlanReviewRequest;
 
-// Discriminated-union narrowing predicates（C 段收尾）。
-// 用 `r is X` 让调用方拿到 narrowed 类型，不再需要 `as X` 强转。
-export function isSideEffect(
-  r: PermissionRequest,
-): r is SideEffectRequest {
-  return r.kind === "SideEffect";
-}
-export function isElicitation(
-  r: PermissionRequest,
-): r is ElicitationRequest {
-  return r.kind === "Elicitation";
-}
-export function isPlanReview(
-  r: PermissionRequest,
-): r is PlanReviewRequest {
-  return r.kind === "PlanReview";
-}
+export type PermissionKind = PermissionRequest["kind"];
 
 export type DecisionBehavior = "allow" | "deny";
 

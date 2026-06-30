@@ -21,6 +21,15 @@ tauri-build = { version = "2", features = [] }
 tauri = { version = "2", features = ["macos-private-api", "tray-icon"] }
 tauri-plugin-positioner = { version = "2", features = ["tray-icon"] }
 tauri-plugin-store = "2"
+# Prevent duplicate processes: when the user (or a stale dev launch)
+# triggers a second instance, this plugin closes the newcomer and
+# hands its argv + cwd to the original process via a callback.
+tauri-plugin-single-instance = "2"
+# Unified Rust/frontend logger. Stdout for live dev tail, LogDir for
+# production post-mortem (file in app's logs/ dir).
+tauri-plugin-log = { version = "2", features = ["colored"] }
+# log macros used by app code (Info/Warn/Error); consumed by tauri-plugin-log
+log = "0.4"
 # Dev-only: enables `mcp___hypothesi_tauri-mcp-server__*` tools
 # (screenshots, DOM snapshots, IPC captures) for the running app.
 # Auto-disabled in release builds via cfg(debug_assertions) on the

@@ -51,7 +51,11 @@ cd src-tauri && cargo clippy
 
 Override the hook server port by setting `UMA_PET_PORT` before launching Tauri (read by both `lib.rs` and `adapters/claude_code.rs`; the installer uses this to write the correct URL into `~/.claude/settings.json`).
 
-There is **no test suite** — no `cargo test` target, no Vitest config. Linting is `cargo clippy` for Rust and `vue-tsc --noEmit` (already part of `bun run build`) for TypeScript.
+Frontend has a small vitest suite (`vitest.config.ts`, `bun run test`) covering only
+`src/robot/display-state-resolver/pure.ts` — ~22 tests for `deriveStateFromEvent`,
+`recomputeDisplayState`, `subagentStateFor`, `computeIngestUpdate`, `sessionKeyOf`.
+Rust side has no `cargo test` target. Linting is `cargo clippy` for Rust and
+`vue-tsc --noEmit` (already part of `bun run build`) for TypeScript.
 
 ## Architecture
 

@@ -11,6 +11,7 @@
  * Imported by src/bubble/main.ts.
  */
 
+@import "./bubble-tokens.css";
 @import "./shared.css";
 
 /* === Bubble "floating island" token values === */
@@ -38,4 +39,13 @@
    pill in sonner li needs auto to be clickable. */
 [data-sonner-toast] {
   pointer-events: auto;
+}
+
+/* === Override shared.css dark background === */
+/* bubble.html body uses UnoCSS [background:var(--debug-window-bg,transparent)]
+   but shared.css .dark { --background: oklch(0.12 ...) } cascades after.
+   Force transparent on the bubble window so the floating island
+   shows its backdrop-blur against the desktop, not a black rect. */
+html, body {
+  background: transparent !important;
 }
