@@ -14,6 +14,11 @@
 //   - one-shots: attention / error / notification auto-return via
 //     theme.timings.autoReturn[state]
 //
+// RESET and THEME_CHANGED are handled at the machine root (inherited
+// by every state). Per-state configs focus on AGENT_HOOK via the
+// `transitionsFor(role)` factory (6 active roles) and `oneShotState`
+// factory (3 oneShot sub-states).
+//
 // See CONTEXT.md (DisplayStateResolver, SleepSequence, OneShotState)
 // for the domain vocabulary; see the ADR for design trade-offs.
 
@@ -81,6 +86,111 @@ const armOneShotBody = (state: DisplayState, fallbackMs: number) =>
     },
     displayState: state,
   });
+
+// ── Active-role transition factory ──────────────────────────────
+//
+// The six "active" states (idle, thinking, working, building,
+// subagentGroove, juggling) each carry an AGENT_HOOK transition
+// array whose first 4 entries and last entry are identical across
+// all six — only the role-specific middle entries differ. The
+// factory centralises the common transitions and lets each state
+// declare just its role-specific part.
+//
+// Order matters: XState tries guards top-down, first match wins.
+// The common transitions (sessionEndedAndIsLast, sessionEnded,
+// toolFailed, isNotification) must come first; role-specific
+// transitions follow; the catch-all `ingestEvent` comes last.
+
+type ActiveRole =
+  | 'idle'
+  | 'thinking'
+  | 'working'
+  | 'building'
+  | 'subagentGroove'
+  | 'juggling';
+
+const COMMON_AGENT_HOOK_TRANSITIONS = [
+  { guard: 'sessionEndedAndIsLast', target: 'sleeping', actions: 'clearSession' },
+  { guard: 'sessionEnded', actions: 'clearSession' },
+  { guard: 'toolFailed', target: 'oneShot.error', actions: ['ingestEvent', 'armErrorOneShot'] },
+  { guard: 'isNotification', target: 'oneShot.notification', actions: ['ingestEvent', 'armNotificationOneShot'] },
+] as const;
+
+const ROLE_SPECIFIC_TRANSITIONS = {
+  idle: [
+    { guard: 'hasTwoOrMoreSubs', target: 'juggling', actions: 'ingestEvent' },
+    { guard: 'hasExactlyOneSub', target: 'subagentGroove', actions: 'ingestEvent' },
+    { guard: 'isUserPrompt', target: 'thinking', actions: 'ingestEvent' },
+  ],
+  thinking: [
+    { guard: 'isSubagentToolStart', target: 'subagentGroove', actions: 'ingestEvent' },
+  ],
+  working: [
+    { guard: 'isSubagentToolStart', target: 'subagentGroove', actions: 'ingestEvent' },
+    { guard: 'isUserPrompt', target: 'thinking', actions: 'ingestEvent' },
+  ],
+  building: [
+    { guard: 'isSubagentToolStart', target: 'subagentGroove', actions: 'ingestEvent' },
+  ],
+  subagentGroove: [
+    { guard: 'hasTwoOrMoreSubs', target: 'juggling', actions: 'ingestEvent' },
+    { guard: 'isSubagentToolEnd', target: 'building', actions: 'ingestEvent' },
+  ],
+  juggling: [
+    { guard: 'isSubagentToolEnd', target: 'subagentGroove', actions: 'ingestEvent' },
+  ],
+} as const;
+
+const CATCH_ALL_TRANSITION = { actions: 'ingestEvent' } as const;
+
+function transitionsFor(role: ActiveRole) {
+  // `as any` bypasses XState's strict guard/action-name type check at
+  // the factory boundary. The names are checked by virtue of being
+  // defined in ROLE_SPECIFIC_TRANSITIONS (all literals from setup()'s
+  // guards/actions tables); the factory just loses the narrow literal
+  // types when spreading. Behaviorally equivalent to the inline form.
+  return [
+    ...COMMON_AGENT_HOOK_TRANSITIONS,
+    ...ROLE_SPECIFIC_TRANSITIONS[role],
+    CATCH_ALL_TRANSITION,
+  ] as any;
+}
+
+// ── One-shot state factory ──────────────────────────────────────
+//
+// The three oneShot sub-states (attention, error, notification)
+// are structurally identical: each waits for a per-state auto-
+// return delay, then returns to idle. While waiting, SessionEnd
+// clears the session (and exits to sleeping if it was the last);
+// other events ingest silently so the one-shot display persists.
+
+function oneShotState(delayName: string): any {
+  // Return type is `any` because:
+  //   - `after:` uses a computed delay name (`[delayName]`), which
+  //     XState's strict type system rejects (it expects a literal
+  //     delay name from setup()'s delays table).
+  //   - `on.AGENT_HOOK` has the same guard/action-name widening as
+  //     transitionsFor (see comment there).
+  // All names below are defined in setup()'s tables; the factory
+  // just loses the narrow literal types through extraction.
+  return {
+    after: {
+      [delayName]: {
+        target: '#robot.idle',
+        actions: ['clearOneShot', 'recomputeDisplay'],
+      },
+    },
+    on: {
+      AGENT_HOOK: [
+        // SessionEnd 在 one-shot 期间能正确收尾:跳 sleeping,清 session。
+        { guard: 'sessionEndedAndIsLast', target: '#robot.sleeping', actions: ['clearSession', 'clearOneShot'] },
+        { guard: 'sessionEnded', actions: 'clearSession' },
+        // 其它事件:静默 ingest,one-shot 显示保持,计时器继续。
+        { actions: 'ingestEventSilent' },
+      ],
+    },
+  };
+}
 
 export const displayStateResolver = setup({
   types: {
@@ -221,226 +331,59 @@ export const displayStateResolver = setup({
     displayState: 'idle',
   }),
   initial: 'idle',
+  // RESET + THEME_CHANGED are handled uniformly across every state
+  // (sleep sequence, active roles, and oneShot). Hoisting to the
+  // machine root removes ~24 lines of per-state duplication; any
+  // future state that needs different behaviour for these events
+  // can override at the state level.
+  on: {
+    RESET: { target: 'idle', actions: 'clearAll' },
+    THEME_CHANGED: { actions: 'swapTheme' },
+  },
   states: {
-    idle: {
-      on: {
-        AGENT_HOOK: [
-          {
-            guard: 'sessionEndedAndIsLast',
-            target: 'sleeping',
-            actions: 'clearSession',
-          },
-          {
-            guard: 'sessionEnded',
-            actions: 'clearSession',
-          },
-          {
-            guard: 'toolFailed',
-            target: 'oneShot.error',
-            actions: ['ingestEvent', 'armErrorOneShot'],
-          },
-          {
-            guard: 'isNotification',
-            target: 'oneShot.notification',
-            actions: ['ingestEvent', 'armNotificationOneShot'],
-          },
-          {
-            guard: 'hasTwoOrMoreSubs',
-            target: 'juggling',
-            actions: 'ingestEvent',
-          },
-          {
-            guard: 'hasExactlyOneSub',
-            target: 'subagentGroove',
-            actions: 'ingestEvent',
-          },
-          {
-            guard: 'isUserPrompt',
-            target: 'thinking',
-            actions: 'ingestEvent',
-          },
-          { actions: 'ingestEvent' },
-        ],
-        RESET: { target: 'idle', actions: 'clearAll' },
-        THEME_CHANGED: { actions: 'swapTheme' },
-      },
-    },
-    thinking: {
-      on: {
-        AGENT_HOOK: [
-          { guard: 'sessionEndedAndIsLast', target: 'sleeping', actions: 'clearSession' },
-          { guard: 'sessionEnded', actions: 'clearSession' },
-          { guard: 'toolFailed', target: 'oneShot.error', actions: ['ingestEvent', 'armErrorOneShot'] },
-          { guard: 'isNotification', target: 'oneShot.notification', actions: ['ingestEvent', 'armNotificationOneShot'] },
-          { guard: 'isSubagentToolStart', target: 'subagentGroove', actions: 'ingestEvent' },
-          { actions: 'ingestEvent' },
-        ],
-        RESET: { target: 'idle', actions: 'clearAll' },
-        THEME_CHANGED: { actions: 'swapTheme' },
-      },
-    },
-    working: {
-      on: {
-        AGENT_HOOK: [
-          { guard: 'sessionEndedAndIsLast', target: 'sleeping', actions: 'clearSession' },
-          { guard: 'sessionEnded', actions: 'clearSession' },
-          { guard: 'toolFailed', target: 'oneShot.error', actions: ['ingestEvent', 'armErrorOneShot'] },
-          { guard: 'isNotification', target: 'oneShot.notification', actions: ['ingestEvent', 'armNotificationOneShot'] },
-          { guard: 'isSubagentToolStart', target: 'subagentGroove', actions: 'ingestEvent' },
-          { guard: 'isUserPrompt', target: 'thinking', actions: 'ingestEvent' },
-          { actions: 'ingestEvent' },
-        ],
-        RESET: { target: 'idle', actions: 'clearAll' },
-        THEME_CHANGED: { actions: 'swapTheme' },
-      },
-    },
-    building: {
-      on: {
-        AGENT_HOOK: [
-          { guard: 'sessionEndedAndIsLast', target: 'sleeping', actions: 'clearSession' },
-          { guard: 'sessionEnded', actions: 'clearSession' },
-          { guard: 'toolFailed', target: 'oneShot.error', actions: ['ingestEvent', 'armErrorOneShot'] },
-          { guard: 'isNotification', target: 'oneShot.notification', actions: ['ingestEvent', 'armNotificationOneShot'] },
-          { guard: 'isSubagentToolStart', target: 'subagentGroove', actions: 'ingestEvent' },
-          { actions: 'ingestEvent' },
-        ],
-        RESET: { target: 'idle', actions: 'clearAll' },
-        THEME_CHANGED: { actions: 'swapTheme' },
-      },
-    },
-    subagentGroove: {
-      on: {
-        AGENT_HOOK: [
-          { guard: 'sessionEndedAndIsLast', target: 'sleeping', actions: 'clearSession' },
-          { guard: 'sessionEnded', actions: 'clearSession' },
-          { guard: 'toolFailed', target: 'oneShot.error', actions: ['ingestEvent', 'armErrorOneShot'] },
-          { guard: 'isNotification', target: 'oneShot.notification', actions: ['ingestEvent', 'armNotificationOneShot'] },
-          { guard: 'hasTwoOrMoreSubs', target: 'juggling', actions: 'ingestEvent' },
-          { guard: 'isSubagentToolEnd', target: 'building', actions: 'ingestEvent' },
-          { actions: 'ingestEvent' },
-        ],
-        RESET: { target: 'idle', actions: 'clearAll' },
-        THEME_CHANGED: { actions: 'swapTheme' },
-      },
-    },
-    juggling: {
-      on: {
-        AGENT_HOOK: [
-          { guard: 'sessionEndedAndIsLast', target: 'sleeping', actions: 'clearSession' },
-          { guard: 'sessionEnded', actions: 'clearSession' },
-          { guard: 'toolFailed', target: 'oneShot.error', actions: ['ingestEvent', 'armErrorOneShot'] },
-          { guard: 'isNotification', target: 'oneShot.notification', actions: ['ingestEvent', 'armNotificationOneShot'] },
-          { guard: 'isSubagentToolEnd', target: 'subagentGroove', actions: 'ingestEvent' },
-          { actions: 'ingestEvent' },
-        ],
-        RESET: { target: 'idle', actions: 'clearAll' },
-        THEME_CHANGED: { actions: 'swapTheme' },
-      },
-    },
-    // ── Sleep sequence (CONTEXT.md → SleepSequence) ──────────
+    // ── Active roles ────────────────────────────────────────────
+    // Each state declares only its role-specific AGENT_HOOK
+    // transitions via `transitionsFor(role)`. The 4 common
+    // transitions (sessionEndedAndIsLast, sessionEnded, toolFailed,
+    // isNotification) and the catch-all `ingestEvent` are provided
+    // by the factory. RESET/THEME_CHANGED inherited from root.
+    idle:            { on: { AGENT_HOOK: transitionsFor('idle') } },
+    thinking:        { on: { AGENT_HOOK: transitionsFor('thinking') } },
+    working:         { on: { AGENT_HOOK: transitionsFor('working') } },
+    building:        { on: { AGENT_HOOK: transitionsFor('building') } },
+    subagentGroove:  { on: { AGENT_HOOK: transitionsFor('subagentGroove') } },
+    juggling:        { on: { AGENT_HOOK: transitionsFor('juggling') } },
+
+    // ── Sleep sequence (CONTEXT.md → SleepSequence) ─────────────
     yawning: {
-      after: {
-        yawnDuration: 'dozing',
-      },
-      on: {
-        AGENT_HOOK: { target: 'waking', actions: 'ingestEvent' },
-        RESET: { target: 'idle', actions: 'clearAll' },
-        THEME_CHANGED: { actions: 'swapTheme' },
-      },
+      after: { yawnDuration: 'dozing' },
+      on: { AGENT_HOOK: { target: 'waking', actions: 'ingestEvent' } },
     },
     dozing: {
-      after: {
-        deepSleepTimeout: 'collapsing',
-      },
-      on: {
-        AGENT_HOOK: { target: 'waking', actions: 'ingestEvent' },
-        RESET: { target: 'idle', actions: 'clearAll' },
-        THEME_CHANGED: { actions: 'swapTheme' },
-      },
+      after: { deepSleepTimeout: 'collapsing' },
+      on: { AGENT_HOOK: { target: 'waking', actions: 'ingestEvent' } },
     },
     collapsing: {
-      after: {
-        collapseDuration: 'sleeping',
-      },
-      on: {
-        AGENT_HOOK: { target: 'waking', actions: 'ingestEvent' },
-        RESET: { target: 'idle', actions: 'clearAll' },
-        THEME_CHANGED: { actions: 'swapTheme' },
-      },
+      after: { collapseDuration: 'sleeping' },
+      on: { AGENT_HOOK: { target: 'waking', actions: 'ingestEvent' } },
     },
     sleeping: {
-      on: {
-        AGENT_HOOK: { target: 'waking', actions: 'ingestEvent' },
-        RESET: { target: 'idle', actions: 'clearAll' },
-        THEME_CHANGED: { actions: 'swapTheme' },
-      },
+      on: { AGENT_HOOK: { target: 'waking', actions: 'ingestEvent' } },
     },
     waking: {
-      after: {
-        wakeDuration: 'idle',
-      },
-      on: {
-        RESET: { target: 'idle', actions: 'clearAll' },
-        THEME_CHANGED: { actions: 'swapTheme' },
-      },
+      after: { wakeDuration: 'idle' },
     },
-    // ── One-shot composite (CONTEXT.md → OneShotState, ADR-0007) ──
+
+    // ── One-shot composite (CONTEXT.md → OneShotState, ADR-0007) ─
+    // Three structurally-identical sub-states, parameterised by
+    // the auto-return delay name. RESET/THEME_CHANGED inherited
+    // from root.
     oneShot: {
       initial: 'attention',
       states: {
-        attention: {
-          after: {
-            attentionAutoReturn: {
-              target: '#robot.idle',
-              actions: ['clearOneShot', 'recomputeDisplay'],
-            },
-          },
-          on: {
-            AGENT_HOOK: [
-              // SessionEnd 在 one-shot 期间能正确收尾:跳 sleeping,清 session。
-              { guard: 'sessionEndedAndIsLast', target: '#robot.sleeping', actions: ['clearSession', 'clearOneShot'] },
-              { guard: 'sessionEnded', actions: 'clearSession' },
-              // 其它事件:静默 ingest,one-shot 显示保持,计时器继续。
-              { actions: 'ingestEventSilent' },
-            ],
-            RESET: { target: '#robot.idle', actions: 'clearAll' },
-            THEME_CHANGED: { actions: 'swapTheme' },
-          },
-        },
-        error: {
-          after: {
-            errorAutoReturn: {
-              target: '#robot.idle',
-              actions: ['clearOneShot', 'recomputeDisplay'],
-            },
-          },
-          on: {
-            AGENT_HOOK: [
-              { guard: 'sessionEndedAndIsLast', target: '#robot.sleeping', actions: ['clearSession', 'clearOneShot'] },
-              { guard: 'sessionEnded', actions: 'clearSession' },
-              { actions: 'ingestEventSilent' },
-            ],
-            RESET: { target: '#robot.idle', actions: 'clearAll' },
-            THEME_CHANGED: { actions: 'swapTheme' },
-          },
-        },
-        notification: {
-          after: {
-            notificationAutoReturn: {
-              target: '#robot.idle',
-              actions: ['clearOneShot', 'recomputeDisplay'],
-            },
-          },
-          on: {
-            AGENT_HOOK: [
-              { guard: 'sessionEndedAndIsLast', target: '#robot.sleeping', actions: ['clearSession', 'clearOneShot'] },
-              { guard: 'sessionEnded', actions: 'clearSession' },
-              { actions: 'ingestEventSilent' },
-            ],
-            RESET: { target: '#robot.idle', actions: 'clearAll' },
-            THEME_CHANGED: { actions: 'swapTheme' },
-          },
-        },
+        attention:    oneShotState('attentionAutoReturn'),
+        error:        oneShotState('errorAutoReturn'),
+        notification: oneShotState('notificationAutoReturn'),
       },
     },
   },
