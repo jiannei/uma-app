@@ -22,6 +22,13 @@ import { displayStateResolver } from "./display-state-resolver";
 import { DEFAULT_THEME } from "./display-state-constants";
 import { ThemeManager } from "./theme-manager.js";
 import type { DisplayState, HookEvent, ThemeManifest } from "./display-state-types";
+import { useSettings } from "@/composables/useSettings";
+
+// SettingsStore deepening: theme + DND + sound are read via the same
+// `useSettings()` composable the other webviews use. The
+// `theme-change` and `dnd-change` manual listeners below are gone —
+// a single watch on `settings.value.{theme,dnd}` replaces both.
+const { settings } = useSettings();
 
 // ── Theme registration (copied verbatim from robot.html L114-254) ──
 //
@@ -428,11 +435,10 @@ function setDisplayState(state: DisplayState) {
 
 // ── Sound playback (10s cooldown) ───────────────────────────────
 
-const settings = { sound_enabled: true };
 const audioCache = new Map<string, HTMLAudioElement>();
 
 const playSound = useThrottleFn((name: string) => {
-  if (!settings.sound_enabled) return;
+  if (!settings.value.sound_enabled) return;
 
   let audio = audioCache.get(name);
   if (!audio) {
@@ -596,15 +602,19 @@ onMounted(async () => {
     updateHitZone();
   }
 
-  // Theme change broadcasts → swap theme in ThemeManager AND XState.
-// theme-change (tray menu / settings UI) fetches theme.json from
-// Vite's publicDir (works in dev and release). theme-updated (dev
-// panel Save) reloads from disk via theme_load (cfg-gated dev-only).
-  unsubscribers.push(
-    await listen("theme-change", (e) => {
-      void onThemeChanged((e.payload as { theme?: string })?.theme);
-    }),
+  // Theme id change → swap theme in ThemeManager (composable already
+  // updated settings.value.theme via the THEME_CHANGE event listener).
+  watch(
+    () => settings.value.theme,
+    (themeId) => {
+      if (themeId) void onThemeChanged(themeId);
+    },
   );
+
+  // `theme-updated` is dev-only: theme assets on disk were rewritten
+  // via the dev panel. The settings.theme id doesn't change — the
+  // robot must reload the manifest from disk and re-apply. Keep this
+  // as a manual listener; it's not part of the settings-change stream.
   unsubscribers.push(
     await listen("theme-updated", (e) => {
       void onThemeUpdated((e.payload as { theme?: string })?.theme);
@@ -613,13 +623,15 @@ onMounted(async () => {
 
   // DND change → pause any in-flight sounds. ADR-0006 §Context point 5:
   // DND does NOT suppress state transitions (that work is future).
-  unsubscribers.push(
-    await listen("dnd-change", (e) => {
-      const dnd = (e.payload as { dnd?: boolean })?.dnd;
+  // settings.value.dnd is updated by the composable's DND_CHANGE
+  // listener; this watch only triggers the audio-pause side effect.
+  watch(
+    () => settings.value.dnd,
+    (dnd) => {
       if (dnd) {
         audioCache.forEach((a) => a.pause());
       }
-    }),
+    },
   );
 
   // Real agent hook events from HTTP server.

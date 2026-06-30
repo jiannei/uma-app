@@ -20,10 +20,18 @@ import {
   permissionRegistry,
 } from "../permission/registry";
 import { suggestionLabel } from "./suggestion-label";
+import type { Lang } from "./strings";
+import { useSettings } from "@/composables/useSettings";
 
 const props = defineProps<{
   request: SideEffectRequest;
 }>();
+
+// Settings: pull the current language for `suggestionLabel`. The
+// bubble's pre-redesign `lang.ts` singleton is gone; this component
+// owns its own subscription via the same composable the main and
+// robot windows use.
+const { settings } = useSettings();
 
 const emit = defineEmits<{
   (e: "allow-once"): void;
@@ -115,7 +123,7 @@ onUnmounted(() => {
         @click="allowWithSuggestion(s)"
       >
         <span class="key-hint">{{ i + 1 }}</span>
-        <span class="decision-text">{{ suggestionLabel(s) }}</span>
+        <span class="decision-text">{{ suggestionLabel(s, settings.language as Lang) }}</span>
         <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
           <polyline points="3 8 7 12 13 4" />
         </svg>

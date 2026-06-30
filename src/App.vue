@@ -16,7 +16,6 @@
 
 import { ref, reactive, onMounted, defineAsyncComponent } from "vue";
 import { invoke } from "@tauri-apps/api/core";
-import { load } from "@tauri-apps/plugin-store";
 import { RadioGroupRoot, RadioGroupItem, TooltipProvider, TooltipRoot, TooltipTrigger, TooltipPortal, SelectRoot, SelectPortal } from "reka-ui";
 import Button from "@/components/Btn.vue";
 import Badge from "@/components/Badge.vue";
@@ -48,6 +47,7 @@ import {
 
 import ModeToggle from "@/components/ModeToggle.vue";
 import { refAutoReset } from "@vueuse/core";
+import { useSettings } from "@/composables/useSettings";
 
 
 // DevTools panel (dev-only). Dynamic import so release builds don't
@@ -58,15 +58,6 @@ const DevToolsApp = isDev
   : null;
 
 // ── Types ──────────────────────────────────────────────────────
-
-interface Settings {
-  theme: string;
-  dnd: boolean;
-  mini_mode: boolean;
-  sound_enabled: boolean;
-  auto_start: boolean;
-  language: string;
-}
 
 interface AgentInfo {
   id: string;
@@ -94,14 +85,18 @@ type NavId = (typeof navItems)[number]["id"];
 
 const activeNav = ref<NavId>("general");
 
-const settings = ref<Settings>({
-  theme: "uma",
-  dnd: false,
-  mini_mode: false,
-  sound_enabled: true,
-  auto_start: false,
-  language: "zh",
-});
+// Settings: the single source-of-truth owner is `SettingsStore` on
+// the Rust side. `useSettings()` pulls an initial snapshot on mount,
+// subscribes to per-field events, and exposes mutators that map 1:1
+// to Tauri commands — no plugin-store writes happen in this file.
+const {
+  settings,
+  setTheme,
+  setDnd,
+  setSound,
+  setLanguage,
+  setAutoStart,
+} = useSettings();
 
 const themes = [
   { id: "uma", label: "Uma" },
@@ -113,45 +108,12 @@ const LANGUAGES = [
   { id: "zh", label: "中文" },
 ] as const;
 
-const isLoading = ref(true);
 const status = refAutoReset('', 1500);
 
 const agents = ref<AgentInfo[]>([]);
 const agentBusy = reactive<Record<string, boolean>>({});
 
 // ─ Loaders ─────────────────────────────────────────────────────
-
-async function loadSettings() {
-  try {
-    const store = await load("settings.json", { autoSave: false, defaults: {} });
-    const theme = (await store.get<string>("theme")) || "uma";
-    const dnd = (await store.get<boolean>("dnd")) ?? false;
-    const mini_mode = (await store.get<boolean>("mini_mode")) ?? false;
-    const sound_enabled = (await store.get<boolean>("sound_enabled")) ?? true;
-    const auto_start = (await store.get<boolean>("auto_start")) ?? false;
-    const storedLang = (await store.get<string>("language")) || "zh";
-
-    settings.value = {
-      theme,
-      dnd,
-      mini_mode,
-      sound_enabled,
-      auto_start,
-      language: storedLang,
-    };
-
-    try {
-      const rustSettings = await invoke<Settings>("get_settings");
-      settings.value = { ...settings.value, ...rustSettings };
-    } catch {
-      /* ignore */
-    }
-  } catch (err) {
-    status.value = "Failed to load settings: " + err;
-  } finally {
-    isLoading.value = false;
-  }
-}
 
 async function loadAgents() {
   try {
@@ -171,67 +133,6 @@ async function refreshAgent(agentId: string) {
     }
   } catch (err) {
     console.warn(`check_agent_installed(${agentId}) failed:`, err);
-  }
-}
-
-// ── Settings mutators ───────────────────────────────────────────
-
-async function setTheme(theme: string) {
-  try {
-    await invoke("set_theme", { theme });
-    settings.value.theme = theme;
-    status.value = `Theme: ${theme}`;
-  } catch (err) {
-    status.value = "Failed: " + err;
-  }
-}
-
-async function toggleDnd(v: boolean) {
-  try {
-    await invoke("set_dnd", { enabled: v });
-    settings.value.dnd = v;
-    status.value = `DND: ${v ? "on" : "off"}`;
-  } catch (err) {
-    status.value = "Failed: " + err;
-  }
-}
-
-async function toggleSound(v: boolean) {
-  settings.value.sound_enabled = v;
-  try {
-    // Route through the Rust set_sound command (mirrors set_dnd's
-    // pattern). Rust persists to plugin-store AND emits sound-change
-    // so any future consumers (tray checkmark refresh, dev panel
-    // inspector) stay in sync. Previously this function wrote
-    // plugin-store directly — tray flips would silently drift until
-    // next launch because no event was broadcast.
-    await invoke("set_sound", { enabled: v });
-  } catch (err) {
-    console.warn("Failed to set sound:", err);
-    status.value = "Failed: " + err;
-  }
-}
-
-async function toggleAutoStart(v: boolean) {
-  settings.value.auto_start = v;
-  try {
-    const store = await load("settings.json", { autoSave: true, defaults: {} });
-    await store.set("auto_start", v);
-    await store.save();
-  } catch (err) {
-    console.warn("Failed to persist auto_start:", err);
-  }
-}
-
-async function setLanguage(language: string) {
-  settings.value.language = language;
-  try {
-    const store = await load("settings.json", { autoSave: true, defaults: {} });
-    await store.set("language", language);
-    await store.save();
-    status.value = `Language: ${language}`;
-  } catch (err) {
-    status.value = "Failed: " + err;
   }
 }
 
@@ -266,7 +167,6 @@ async function uninstallAgent(agentId: string) {
 }
 
 onMounted(async () => {
-  await loadSettings();
   await loadAgents();
 });
 </script>
@@ -381,7 +281,7 @@ onMounted(async () => {
                       <div class="shrink-0">
                         <Switch
                           :model-value="settings.sound_enabled"
-                          @update:model-value="(v: boolean) => toggleSound(v)"
+                          @update:model-value="(v: boolean) => setSound(v)"
                         />
                       </div>
                     </div>
@@ -416,7 +316,7 @@ onMounted(async () => {
                       <div class="shrink-0">
                         <Switch
                           :model-value="settings.dnd"
-                          @update:model-value="(v: boolean) => toggleDnd(v)"
+                          @update:model-value="(v: boolean) => setDnd(v)"
                         />
                       </div>
                     </div>
@@ -443,7 +343,7 @@ onMounted(async () => {
                       <div class="shrink-0">
                         <Switch
                           :model-value="settings.auto_start"
-                          @update:model-value="(v: boolean) => toggleAutoStart(v)"
+                          @update:model-value="(v: boolean) => setAutoStart(v)"
                         />
                       </div>
                     </div>
