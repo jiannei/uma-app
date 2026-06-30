@@ -120,25 +120,17 @@ onMounted(async () => {
     queue.value.push(e.payload);
   });
 
+  // Timeout: Rust already removed the entry, synthesised the deny,
+  // responded to the agent, and hidden the bubble window. The TS
+  // side's only job is to clean the local queue. No IPC back to
+  // Rust — the previous `respond_permission` call here was a no-op
+  // (entry already gone) whose only effect was to re-hide the
+  // bubble (now done by Rust directly). See `http_server.rs`'s
+  // timeout branch and ADR-0013 决策 8.
   unlistenTimeout = await listen<{ request_id: string }>(
     EVENTS.PERMISSION_TIMEOUT,
-    async (e) => {
-      const reqId = e.payload.request_id;
-      const r = queue.value.find((q) => q.requestId === reqId);
-      if (!r || isTransitioning.value) return;
-      isTransitioning.value = true;
-      const decision = buildReply(r, {
-        behavior: "deny",
-        message: "Request timed out",
-      });
-      try {
-        await invoke("respond_permission", { decision });
-      } catch (err) {
-        console.error("[bubble] timeout respond_permission failed:", err);
-      } finally {
-        isTransitioning.value = false;
-      }
-      queue.value = queue.value.filter((q) => q.requestId !== reqId);
+    (e) => {
+      queue.value = queue.value.filter((q) => q.requestId !== e.payload.request_id);
     },
   );
 });

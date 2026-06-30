@@ -235,6 +235,11 @@ async fn handle_permission(
                 );
             }
 
+            // Rust owns the timeout decision AND its UI side
+            // effect: hide the bubble. The TS handler only cleans
+            // its local queue (see BubbleShellRoot.vue).
+            hide_bubble_window(&state.app);
+
             Ok(Json(payload))
         }
     }
