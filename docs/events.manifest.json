@@ -1,0 +1,64 @@
+{
+  "prod": {
+    "agentHook": {
+      "wire": "agent-hook-event",
+      "description": "Canonical HookEvent broadcast by the HTTP server when an agent reports state. Consumed by the robot window (display-state resolver) and the main window (dev panel)."
+    },
+    "permissionRequest": {
+      "wire": "permission-request",
+      "description": "Outbound permission request from an agent. Consumed by the permission-bubble window."
+    },
+    "permissionTimeout": {
+      "wire": "permission-timeout",
+      "description": "Permission request timed out (5-minute default) without a user decision. Bubbles UI auto-hides; HTTP handler synthesizes a deny."
+    },
+    "themeChange": {
+      "wire": "theme-change",
+      "description": "Theme id changed (settings UI or tray menu). Consumed by the robot window to reload the theme manifest."
+    },
+    "themeUpdated": {
+      "wire": "theme-updated",
+      "description": "Theme asset on disk was rewritten (dev panel Save). Consumed by the robot window to reload from disk."
+    },
+    "dndChange": {
+      "wire": "dnd-change",
+      "description": "Do-not-disturb flag toggled. Consumed by the robot window (pauses sounds) and tray menu (refreshes checkmark)."
+    },
+    "soundChange": {
+      "wire": "sound-change",
+      "description": "Sound-effects flag toggled. Consumed by the robot window."
+    },
+    "languageChange": {
+      "wire": "language-change",
+      "description": "UI language changed. Half-dead: Rust emits, no TS listener; pending remove in Stage B cleanup.",
+      "deprecated": true
+    },
+    "toggleMini": {
+      "wire": "toggle-mini",
+      "description": "Tray menu Mini Mode item clicked. Half-dead: Rust emits, no TS listener; pending remove in Stage B cleanup.",
+      "deprecated": true
+    },
+    "autoStartChange": {
+      "wire": "auto-start-change",
+      "description": "auto_start flag toggled. New channel added with the SettingsStore deepening (settings ownership PR)."
+    }
+  },
+  "dev": {
+    "pendingChanged": {
+      "wire": "devtools-pending-changed",
+      "description": "Dev-only: PendingStore mutated. Consumed by the dev panel to refresh its pending-requests inspector."
+    },
+    "syntheticEvent": {
+      "wire": "devtools-synthetic-event",
+      "description": "Dev-only: synthetic HookEvent fired from the dev panel. Consumed by the robot window's resolver to drive test scenarios."
+    },
+    "reset": {
+      "wire": "devtools-reset",
+      "description": "Dev-only: reset the resolver's session/subagent state. Consumed by the robot window."
+    },
+    "robotDebugStyle": {
+      "wire": "devtools-robot-debug-style",
+      "description": "Dev-only: update CSS debug variables (window-bg, sprite-bg, hitzone-bg). Consumed by the robot window."
+    }
+  }
+}

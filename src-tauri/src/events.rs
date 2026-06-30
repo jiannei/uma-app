@@ -37,6 +37,9 @@ pub mod prod {
     /// Pending remove.
     #[deprecated(note = "no listener in TS; pending remove")]
     pub const TOGGLE_MINI: &str = "toggle-mini";
+
+    /// Settings ownership deepening: auto_start flag toggled.
+    pub const AUTO_START_CHANGE: &str = "auto-start-change";
 }
 
 /// Dev-only channels — cfg-gated. In a release build (cargo build
@@ -79,6 +82,7 @@ pub const PROD_WIRE_STRINGS: &[&str] = &[
     prod::SOUND_CHANGE,
     prod::LANGUAGE_CHANGE,
     prod::TOGGLE_MINI,
+    prod::AUTO_START_CHANGE,
 ];
 
 /// Sorted list of dev-only wire strings. Only available in dev builds.

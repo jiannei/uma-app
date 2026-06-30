@@ -5,44 +5,15 @@ mod adapters;
 mod agent;
 mod events;
 mod http_server;
+mod settings_store;
 mod tray;
+
+pub use settings_store::{Settings, SettingsStore};
 
 use std::collections::HashMap;
 use std::sync::Arc;
 use tauri::{AppHandle, Emitter, Manager, State};
-use tauri_plugin_store::StoreExt;
 use tokio::sync::Mutex;
-
-// ── Settings ──
-
-/// User-facing preferences, persisted in `settings.json` via
-/// `tauri-plugin-store`. Per-agent installation state is NOT here
-/// anymore — read it from `list_agents` (see ADR-0002).
-#[derive(Clone, serde::Serialize, serde::Deserialize, Debug)]
-pub struct Settings {
-    pub theme: String,
-    pub dnd: bool,
-    pub mini_mode: bool,
-    pub sound_enabled: bool,
-    pub auto_start: bool,
-    /// UI / bubble language tag. Matches the `Lang` union in
-    /// `src/bubble/strings.ts`. Unknown values fall back to "en"
-    /// at the bubble boundary.
-    pub language: String,
-}
-
-impl Default for Settings {
-    fn default() -> Self {
-        Self {
-            theme: "uma".into(),
-            dnd: false,
-            mini_mode: false,
-            sound_enabled: true,
-            auto_start: false,
-            language: "en".into(),
-        }
-    }
-}
 
 // ── State wrappers ──
 
@@ -74,105 +45,55 @@ pub struct PendingEntryView {
 #[derive(Clone)]
 pub struct PendingStore(pub Arc<Mutex<HashMap<String, PendingEntry>>>);
 
-#[derive(Clone)]
-pub struct SettingsStore(pub Arc<std::sync::Mutex<Settings>>);
-
 // ── Tauri commands ──
+//
+// Settings mutators are one-line proxies into `SettingsStore`. The
+// real work (validate → write memory → persist → emit) lives in the
+// store; commands exist so the frontend can `invoke()` them by name.
 
 #[tauri::command]
 fn get_settings(store: State<'_, SettingsStore>) -> Settings {
-    store.0.lock().unwrap().clone()
+    store.get()
 }
 
 #[tauri::command]
-fn set_theme(
-    app: AppHandle,
-    store: State<'_, SettingsStore>,
-    theme: String,
-) -> Result<(), String> {
-    eprintln!("[uma] set theme: {theme}");
-    {
-        let mut s = store.0.lock().unwrap();
-        s.theme = theme.clone();
-    }
-    // Persist to plugin-store
-    if let Ok(pstore) = app.store("settings.json") {
-        pstore.set("theme", serde_json::json!(theme.clone()));
-        let _ = pstore.save();
-    }
-    app.emit("theme-change", serde_json::json!({ "theme": &theme }))
-        .map_err(|e| e.to_string())?;
-    // app.emit broadcasts to all webviews (robot window included);
-    // the previous robot.emit was a redundant second delivery.
-    Ok(())
+fn set_theme(store: State<'_, SettingsStore>, theme: String) -> Result<(), String> {
+    store.set_theme(theme)
 }
 
 #[tauri::command]
-fn set_dnd(
-    app: AppHandle,
-    store: State<'_, SettingsStore>,
-    enabled: bool,
-) -> Result<(), String> {
-    eprintln!("[uma] set dnd: {enabled}");
-    {
-        let mut s = store.0.lock().unwrap();
-        s.dnd = enabled;
-    }
-    // Persist to plugin-store
-    if let Ok(pstore) = app.store("settings.json") {
-        pstore.set("dnd", serde_json::json!(enabled));
-        let _ = pstore.save();
-    }
-    app.emit("dnd-change", serde_json::json!({ "dnd": enabled }))
-        .map_err(|e| e.to_string())?;
-    Ok(())
+fn set_dnd(store: State<'_, SettingsStore>, enabled: bool) -> Result<(), String> {
+    store.set_dnd(enabled)
 }
 
 #[tauri::command]
-fn set_sound(
-    app: AppHandle,
-    store: State<'_, SettingsStore>,
-    enabled: bool,
-) -> Result<(), String> {
-    eprintln!("[uma] set sound: {enabled}");
-    {
-        let mut s = store.0.lock().unwrap();
-        s.sound_enabled = enabled;
-    }
-    // Persist to plugin-store
-    if let Ok(pstore) = app.store("settings.json") {
-        pstore.set("sound_enabled", serde_json::json!(enabled));
-        let _ = pstore.save();
-    }
-    app.emit("sound-change", serde_json::json!({ "sound_enabled": enabled }))
-        .map_err(|e| e.to_string())?;
-    Ok(())
+fn set_sound(store: State<'_, SettingsStore>, enabled: bool) -> Result<(), String> {
+    store.set_sound(enabled)
 }
 
 #[tauri::command]
-fn set_language(
-    app: AppHandle,
-    store: State<'_, SettingsStore>,
-    language: String,
-) -> Result<(), String> {
-    // Light validation: only the keys we ship today. Bubble falls
-    // back to "en" for anything it doesn't recognize, so this is a
-    // safety check rather than a strict whitelist.
-    if !matches!(language.as_str(), "en" | "zh") {
-        return Err(format!("unsupported language: {language}"));
-    }
-    eprintln!("[uma] set language: {language}");
-    {
-        let mut s = store.0.lock().unwrap();
-        s.language = language.clone();
-    }
-    if let Ok(pstore) = app.store("settings.json") {
-        pstore.set("language", serde_json::json!(language));
-        let _ = pstore.save();
-    }
-    app.emit("language-change", serde_json::json!({ "language": language }))
-        .map_err(|e| e.to_string())?;
-    Ok(())
+fn set_language(store: State<'_, SettingsStore>, language: String) -> Result<(), String> {
+    store.set_language(language)
+}
+
+#[tauri::command]
+fn set_auto_start(store: State<'_, SettingsStore>, enabled: bool) -> Result<(), String> {
+    store.set_auto_start(enabled)
+}
+
+#[tauri::command]
+fn toggle_dnd(store: State<'_, SettingsStore>) -> Result<bool, String> {
+    store.toggle_dnd()
+}
+
+#[tauri::command]
+fn toggle_sound(store: State<'_, SettingsStore>) -> Result<bool, String> {
+    store.toggle_sound()
+}
+
+#[tauri::command]
+fn toggle_auto_start(store: State<'_, SettingsStore>) -> Result<bool, String> {
+    store.toggle_auto_start()
 }
 
 #[cfg_attr(not(debug_assertions), allow(unused_variables))]
@@ -598,15 +519,16 @@ pub fn run() {
 
     builder
         .manage(PendingStore(pending.clone()))
-        .manage(SettingsStore(Arc::new(std::sync::Mutex::new(
-            Settings::default(),
-        ))))
         .invoke_handler(tauri::generate_handler![
             get_settings,
             set_theme,
             set_dnd,
             set_sound,
             set_language,
+            set_auto_start,
+            toggle_dnd,
+            toggle_sound,
+            toggle_auto_start,
             respond_permission,
             set_bubble_size,
             list_agents,
@@ -720,46 +642,16 @@ pub fn run() {
                 .await;
             });
 
-            // Load persisted settings from plugin-store
-            let initial_settings = if let Ok(pstore) = app.store("settings.json") {
-                Settings {
-                    theme: pstore
-                        .get("theme")
-                        .and_then(|v| v.as_str().map(String::from))
-                        .unwrap_or_else(|| "uma".into()),
-                    dnd: pstore.get("dnd").and_then(|v| v.as_bool()).unwrap_or(false),
-                    mini_mode: pstore
-                        .get("mini_mode")
-                        .and_then(|v| v.as_bool())
-                        .unwrap_or(false),
-                    sound_enabled: pstore
-                        .get("sound_enabled")
-                        .and_then(|v| v.as_bool())
-                        .unwrap_or(true),
-                    auto_start: pstore
-                        .get("auto_start")
-                        .and_then(|v| v.as_bool())
-                        .unwrap_or(false),
-                    language: pstore
-                        .get("language")
-                        .and_then(|v| v.as_str().map(String::from))
-                        .filter(|s| matches!(s.as_str(), "en" | "zh"))
-                        .unwrap_or_else(|| "en".into()),
-                }
-            } else {
-                Settings::default()
-            };
+            // SettingsStore::new loads from plugin-store, validates
+            // each field through `is_valid_*`, and falls back to
+            // defaults for missing/invalid keys. Single source of
+            // truth — no separate `settings_for_tray` clone, no
+            // mirror dance.
+            app.manage(SettingsStore::new(app.handle()));
 
-            // Update in-memory store with loaded settings
-            {
-                let settings_state = app.state::<SettingsStore>();
-                let mut s = settings_state.0.lock().unwrap();
-                *s = initial_settings.clone();
-            }
-
-            // Install system tray
-            let settings_for_tray = Arc::new(std::sync::Mutex::new(initial_settings));
-            if let Err(err) = tray::install_tray(app.handle(), settings_for_tray.clone()) {
+            // Install system tray (uses global SettingsStore via
+            // app.try_state inside the menu handler).
+            if let Err(err) = tray::install_tray(app.handle()) {
                 eprintln!("[uma] failed to install tray: {err}");
             }
 
