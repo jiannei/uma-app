@@ -1,16 +1,35 @@
 <script setup lang="ts">
-// src/robot/Sprite.vue — Dual-element sprite renderer (ADR-0004 §Rendering paths).
+// src/robot/Sprite.vue — Sprite renderer (ADR-0004 §Rendering paths).
 //
-// Encapsulates the img/object dual-element rendering pattern. The
-// robot window needs both: <img> for APNG (browser-native playback)
-// and <object> for SVG (so the browser parses the SVG and the page
-// can read its bounding rect — Tauri webviews return 0×0 for
-// <object>, hence the dual-element dance).
+// Originally a dual-element renderer: <img> for APNG, <object> for SVG.
+// The <object> path was kept around so the SVG would be parsed as a
+// document (allowing outer CSS to target internals if needed) and so
+// getBoundingClientRect could be read from the live element. In
+// practice on Tauri 2 macOS, <object> loaded with an SVG reports a
+// 0×0 bounding rect AND renders as 0×0 visually — the SVG never
+// appears, even though the data attribute is set and no error fires.
+// (See [[tauri-webview-object-rect-zero]] for the longer writeup.)
+//
+// Chromium renders SVG natively inside <img>, so we use <img> for both
+// SVG and APNG themes. **But** <img> has a separate Chromium quirk:
+// when its CSS `width` is a percentage > 100% of its containing block
+// AND the source has intrinsic dimensions (e.g. SVG with width="500"),
+// the rendered offsetWidth is silently clamped to the containing
+// block's width. Same element with `width: 190%` in a 144px box
+// renders at 144px instead of 273.6px; height respects the
+// percentage, so the result is a squashed / off-center sprite.
+// `height: auto` + width-only test reproduces it.
+//
+// Workaround: don't put the percentages directly on <img>. Wrap <img>
+// in a <div> that owns the sizing + positioning (offsetX, bottom,
+// width/height as percentages), and let <img> fill its parent with
+// `width: 100%; height: 100%; object-fit: fill`. Plain <div> doesn't
+// have the replaced-element quirk.
 //
 // This SFC owns:
-//   - The img + object DOM refs
-//   - The `activeSprite` ref (which of the two is currently visible)
-//   - The `spriteStyle` ref (the inline geometry applied to both)
+//   - The wrapper div DOM ref (the geometry carrier)
+//   - The inner img DOM ref (the asset carrier)
+//   - The `spriteStyle` ref (the inline geometry applied to wrapper)
 //   - The `viewportOffsetY` ref (titlebar compensation)
 //   - The refreshSprite() / applyStyle() logic
 //
@@ -23,9 +42,9 @@
 //     is switched or reloaded.
 //
 // Exposed via defineExpose:
-//   - `getActiveElement()` — returns the currently-visible img or
-//     object DOM node. RobotRoot.vue's `updateHitZone()` uses this
-//     to read the bounding rect.
+//   - `getActiveElement()` — returns the visible img DOM node.
+//     RobotRoot.vue's `updateHitZone()` uses this to read the
+//     bounding rect.
 
 import { ref, watch, onMounted, onBeforeUnmount, type CSSProperties } from "vue";
 import type { DisplayState } from "./display-state-types";
@@ -36,21 +55,25 @@ const props = defineProps<{
   themeManager: ThemeManager;
 }>();
 
-const activeSprite = ref<"img" | "svg" | null>(null);
+const activeSprite = ref<"img" | null>(null);
 const spriteStyle = ref<CSSProperties>({});
 const viewportOffsetY = ref(0);
 
+// Wrapper <div> owns sizing + positioning (percentages), the inner
+// <img> fills the wrapper at 100% (avoids Chromium's replaced-
+// element percent-width quirk, see file header).
 const sprite = ref<HTMLImageElement | null>(null);
-const robotObject = ref<HTMLObjectElement | null>(null);
 
-function setActiveElement(type: string): void {
+function setActiveElement(_type: string): void {
   // Until a theme loads, stay hidden — avoids flashing an empty
   // <img src=""> at (0,0) which would show as a 0×0 box.
   if (!props.themeManager.getCurrentTheme()) {
     activeSprite.value = null;
     return;
   }
-  activeSprite.value = type === "svg" ? "svg" : "img";
+  // Always use <img>; both SVG and APNG render correctly inside it
+  // in Chromium-based Tauri webviews (see file header).
+  activeSprite.value = "img";
 }
 
 function applyStyle(): void {
@@ -99,18 +122,14 @@ function refreshSprite(): void {
   const stateDef = currentTheme?.states?.[props.state];
   const type = stateDef?.type || "apng";
   setActiveElement(type);
-  if (url) {
-    if (type === "svg" && robotObject.value) {
-      robotObject.value.data = url;
-    } else if (sprite.value) {
-      sprite.value.src = url;
-    }
+  if (url && sprite.value) {
+    // SVG and APNG both render correctly inside <img> in Chromium.
+    sprite.value.src = url;
   }
   applyStyle();
 }
 
-function getActiveElement(): HTMLImageElement | HTMLObjectElement | null {
-  if (activeSprite.value === "svg") return robotObject.value;
+function getActiveElement(): HTMLImageElement | null {
   if (activeSprite.value === "img") return sprite.value;
   return null;
 }
@@ -136,22 +155,18 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <img
-    ref="sprite"
-    id="robot-sprite"
+  <div
+    id="robot-sprite-wrapper"
     :class="['sprite-base', activeSprite === 'img' ? 'block' : 'hidden']"
     :style="spriteStyle"
-    src=""
-    alt="robot"
-    @load="refreshSprite"
-  />
-  <object
-    ref="robotObject"
-    id="robot-object"
-    type="image/svg+xml"
-    data=""
-    :class="['sprite-base', activeSprite === 'svg' ? 'block' : 'hidden']"
-    :style="spriteStyle"
-    @load="refreshSprite"
-  ></object>
+  >
+    <img
+      ref="sprite"
+      id="robot-sprite"
+      style="width:100%;height:100%;display:block;image-rendering:pixelated;object-fit:fill"
+      src=""
+      alt="robot"
+      @load="refreshSprite"
+    />
+  </div>
 </template>

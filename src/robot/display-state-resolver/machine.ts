@@ -337,7 +337,14 @@ export const displayStateResolver = setup({
   // future state that needs different behaviour for these events
   // can override at the state level.
   on: {
-    RESET: { target: 'idle', actions: 'clearAll' },
+    // Root-level transitions must use `.idle` (explicit child-of-root
+    // syntax) or `#robot.idle` — XState v5 rejects bare `'idle'` as a
+    // target from the root node. The per-state `RESET` handlers before
+    // the cf38681 refactor worked because the parent state had a
+    // sibling `idle`; once RESET was hoisted to the root, the bare
+    // name stopped resolving. machine.test.ts guards against
+    // reverting this.
+    RESET: { target: '.idle', actions: 'clearAll' },
     THEME_CHANGED: { actions: 'swapTheme' },
   },
   states: {
