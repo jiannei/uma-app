@@ -1,65 +1,41 @@
-// src/bubble/composables/useToolColor.ts — per-tool pill color mapping.
-// Maps Claude Code tool names to Tailwind utility classes for the
-// pill background, dot indicator, and ring. Unknown / missing tool
-// names fall back to a neutral zinc palette.
+// src/bubble/composables/useToolColor.ts — per-tool color mapping.
+//
+// `pillHex` is the saturated background color used by the header tool pill
+// in UnifiedBubbleCard, aligned with uma-pet's bubble.css:150-159 palette
+// so the two projects read identically at a glance.
+//
+// `dotClass` is a Tailwind utility class kept for any leftover call site
+// that still wants a small filled dot (the legacy PillShell uses one).
+// It tracks pillHex visually (same hue family) but is not hex-identical —
+// Tailwind's blue-500 (#3b82f6) and uma-pet's Edit blue (#5b8dd9) are
+// deliberately distinct to avoid pinning the palette twice.
+//
+// Unknown / missing tool names fall back to a neutral zinc.
 
 import type { ToolName } from "@/types/permission";
 
-const TOOL_COLOR_MAP: Record<ToolName, { dotClass: string; pillClass: string }> = {
-  Bash: {
-    dotClass: "bg-orange-500",
-    pillClass: "bg-orange-500/20 text-orange-700 ring-1 ring-inset ring-orange-500/30",
-  },
-  Edit: {
-    dotClass: "bg-emerald-500",
-    pillClass: "bg-emerald-500/20 text-emerald-700 ring-1 ring-inset ring-emerald-500/30",
-  },
-  Write: {
-    dotClass: "bg-blue-500",
-    pillClass: "bg-blue-500/20 text-blue-700 ring-1 ring-inset ring-blue-500/30",
-  },
-  Read: {
-    dotClass: "bg-zinc-500",
-    pillClass: "bg-zinc-500/20 text-zinc-700 ring-1 ring-inset ring-zinc-500/30",
-  },
-  Glob: {
-    dotClass: "bg-violet-500",
-    pillClass: "bg-violet-500/20 text-violet-700 ring-1 ring-inset ring-violet-500/30",
-  },
-  Grep: {
-    dotClass: "bg-violet-500",
-    pillClass: "bg-violet-500/20 text-violet-700 ring-1 ring-inset ring-violet-500/30",
-  },
-  Agent: {
-    dotClass: "bg-pink-500",
-    pillClass: "bg-pink-500/20 text-pink-700 ring-1 ring-inset ring-pink-500/30",
-  },
-  Shell: {
-    dotClass: "bg-yellow-500",
-    pillClass: "bg-yellow-500/20 text-yellow-700 ring-1 ring-inset ring-yellow-500/30",
-  },
-  WebFetch: {
-    dotClass: "bg-cyan-500",
-    pillClass: "bg-cyan-500/20 text-cyan-700 ring-1 ring-inset ring-cyan-500/30",
-  },
-  WebSearch: {
-    dotClass: "bg-cyan-500",
-    pillClass: "bg-cyan-500/20 text-cyan-700 ring-1 ring-inset ring-cyan-500/30",
-  },
-  NotebookEdit: {
-    dotClass: "bg-indigo-500",
-    pillClass: "bg-indigo-500/20 text-indigo-700 ring-1 ring-inset ring-indigo-500/30",
-  },
+const TOOL_COLOR_MAP: Record<
+  ToolName,
+  { pillHex: string; dotClass: string }
+> = {
+  Bash: { pillHex: "#d97757", dotClass: "bg-orange-500" },
+  Shell: { pillHex: "#d97757", dotClass: "bg-orange-500" },
+  Edit: { pillHex: "#5b8dd9", dotClass: "bg-blue-500" },
+  Write: { pillHex: "#8b7ec7", dotClass: "bg-violet-500" },
+  NotebookEdit: { pillHex: "#8b7ec7", dotClass: "bg-violet-500" },
+  Read: { pillHex: "#5a9e6f", dotClass: "bg-emerald-500" },
+  Glob: { pillHex: "#5a9eab", dotClass: "bg-cyan-500" },
+  Grep: { pillHex: "#5a9eab", dotClass: "bg-cyan-500" },
+  Agent: { pillHex: "#c47a9a", dotClass: "bg-pink-500" },
+  WebFetch: { pillHex: "#3b82f6", dotClass: "bg-sky-500" },
+  WebSearch: { pillHex: "#3b82f6", dotClass: "bg-sky-500" },
 };
 
-const FALLBACK = {
-  dotClass: "bg-zinc-500",
-  pillClass: "bg-zinc-500/20 text-zinc-700 ring-1 ring-inset ring-zinc-500/30",
-} as const;
+const FALLBACK = { pillHex: "#52525b", dotClass: "bg-zinc-500" } as const;
 
 export function useToolColor(toolName: string | undefined): {
+  pillHex: string;
   dotClass: string;
-  pillClass: string;
 } {
   if (!toolName) return { ...FALLBACK };
   // Normalize: capitalize first letter to match ToolName union

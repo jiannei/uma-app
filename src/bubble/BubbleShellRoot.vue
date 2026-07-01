@@ -1,81 +1,62 @@
 <script setup lang="ts">
 // src/bubble/BubbleShellRoot.vue — Top-level dispatcher + state holder.
-// Spec: docs/superpowers/specs/2026-06-30-bubble-display-design.md
+// Spec: docs/superpowers/specs/2026-07-01-bubble-display-design.md
 //
 // State:
 //   - queue: ref<PermissionRequest[]> (FIFO)
-//   - shellMode: 'idle' | 'pill' | 'panel' (derived from registry)
 //   - current: computed<PermissionRequest | null> (queue[0])
 //   - isTransitioning: ref<boolean> (keyboard/click lock during transitions)
 //
-// Architecture:
-//   - Idle state → render <BubbleIdle />
-//   - Pill state → render <PillShell /> (SideEffect kind)
-//   - Panel state → render <PanelShell /> (Elicitation | PlanReview kind)
+// Architecture (Phase 3 — unified shell):
+//   - queue empty → window.hide()
+//   - queue non-empty → render <UnifiedBubbleCard :request="current" />
+//     (UnifiedBubbleCard dispatches by kind internally; see UnifiedBubbleCard.vue)
 //
-// ADR-0018 Stage B PR2: kind-aware decisions (which shell to render;
-// how to assemble the canonical PermissionDecision) flow through
-// `permissionRegistry[req.kind]` (registry.ts). The local
-// PermissionDecision literal that used to live in submitDecision +
-// the timeout handler is gone.
+// ADR-0018 Stage B: kind-aware decisions flow through
+// `permissionRegistry[req.kind]`. The local PermissionDecision literal
+// that used to live in submitDecision is gone; buildReply handles it.
 
 import { ref, computed, watch, onMounted, onUnmounted, nextTick } from "vue";
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { useThrottleFn, useTimeoutFn, useResizeObserver } from "@vueuse/core";
-import type {
-  ElicitationRequest,
-  PermissionRequest,
-  PlanReviewRequest,
-  SideEffectRequest,
-} from "../types/permission";
-import {
-  decideShellMode,
-  buildReply,
-  type ReplyPick,
-} from "../permission/registry";
+import type { PermissionRequest } from "../types/permission";
+import { buildReply, type ReplyPick } from "../permission/registry";
 import { useBubblePolicy } from "../permission/bubble-policy";
 import { EVENTS } from "@/types/events";
-import BubbleIdle from "./BubbleIdle.vue";
-import PillShell from "./PillShell.vue";
-import PanelShell from "./PanelShell.vue";
+import UnifiedBubbleCard from "./UnifiedBubbleCard.vue";
 
-const PILL_WIDTH = 280;
-const PANEL_WIDTH = 600;
+// Unified shell geometry (Phase 3 — single width, content-sized height).
+// The bubble's visual size is now driven by UnifiedBubbleCard's CSS
+// (--bubble-width / --bubble-min-height / --bubble-max-height in bubble.css).
+// IPC reports the natural body height so the Tauri window can follow.
+const BUBBLE_WIDTH = 360;
 
 const queue = ref<PermissionRequest[]>([]);
 const current = computed<PermissionRequest | null>(() => queue.value[0] ?? null);
 const isTransitioning = ref(false);
 const isHiding = ref(false); // True during the 250ms permission-hide fade-out
 
-type ShellMode = "idle" | "pill" | "panel";
-
-const shellMode = computed<ShellMode>(() => {
-  const r = current.value;
-  if (!r) return "idle";
-  return decideShellMode(r);
-});
-
-// Window resize: call set_bubble_size IPC based on shellMode.
-// The bubble window is content-sized — we compute the target size
-// from shellMode and let the CSS handle the visual layout.
-const PILL_COMPACT_HEIGHT = 60;
-const PILL_EXPANDED_HEIGHT = 420;
-const PANEL_HEIGHT = 400;
-
-const isPillExpanded = ref(false);
-
+// Window resize: call set_bubble_size IPC when current changes.
+// Width is fixed at 360pt (unified shell). Height is content-driven —
+// BubbleShellRoot no longer computes it; the webview reports natural
+// height via useResizeObserver (below). We still call set_bubble_size
+// on queue transitions to reset the window to idle size.
 function getTargetSize() {
-  if (shellMode.value === "idle") return { w: 0, h: 0 };
-  if (shellMode.value === "pill") {
-    return { w: PILL_WIDTH, h: isPillExpanded.value ? PILL_EXPANDED_HEIGHT : PILL_COMPACT_HEIGHT };
-  }
-  return { w: PANEL_WIDTH, h: PANEL_HEIGHT };
+  if (!current.value) return { w: 0, h: 0 };
+  return { w: BUBBLE_WIDTH, h: 80 }; // min height; body reports real height
 }
 
 const scheduleIpcResize = useThrottleFn(async () => {
-  if (!current.value) return;
+  if (!current.value) {
+    try {
+      await invoke("set_bubble_size", { width: 0, height: 0 });
+    } catch (err) {
+      console.error("[bubble] set_bubble_size failed:", err);
+    }
+    return;
+  }
   const { w, h } = getTargetSize();
   try {
     await invoke("set_bubble_size", { width: w, height: h });
@@ -84,9 +65,9 @@ const scheduleIpcResize = useThrottleFn(async () => {
   }
 }, 100);
 
-watch(shellMode, () => { nextTick(() => scheduleIpcResize()); });
-watch(current, () => { nextTick(() => scheduleIpcResize()); });
-watch(isPillExpanded, () => { nextTick(() => scheduleIpcResize()); });
+watch(current, () => {
+  nextTick(() => scheduleIpcResize());
+});
 
 let unlistenRequest: UnlistenFn | undefined;
 let unlistenTimeout: UnlistenFn | undefined;
@@ -140,9 +121,20 @@ watch(current, async (r) => {
 });
 
 onMounted(async () => {
-  unlistenRequest = await listen<PermissionRequest>(EVENTS.PERMISSION_REQUEST, (e) => {
-    queue.value.push(e.payload);
-  });
+  unlistenRequest = await listen<PermissionRequest>(
+    EVENTS.PERMISSION_REQUEST,
+    (e) => {
+      // Defensive dedupe: if Rust ever double-emits the same
+      // requestId (e.g. from a future `bubble_win.emit + app.emit`
+      // regression), don't push twice. Symptom of double-push was
+      // "first Deny removes one copy, second is stuck in the queue
+      // forever and blocks subsequent bubbles."
+      if (queue.value.some((q) => q.requestId === e.payload.requestId)) {
+        return;
+      }
+      queue.value.push(e.payload);
+    },
+  );
 
   // Timeout: Rust already removed the entry, synthesised the deny,
   // responded to the agent, and hidden the bubble window. The TS
@@ -154,7 +146,9 @@ onMounted(async () => {
   unlistenTimeout = await listen<{ request_id: string }>(
     EVENTS.PERMISSION_TIMEOUT,
     (e) => {
-      queue.value = queue.value.filter((q) => q.requestId !== e.payload.request_id);
+      queue.value = queue.value.filter(
+        (q) => q.requestId !== e.payload.request_id,
+      );
     },
   );
 
@@ -167,24 +161,46 @@ onMounted(async () => {
 });
 
 // ── Renderer-driven height reporting ─────────────────────────────
-// The bubble webview's content height varies with the active shell
-// (PillShell ~60pt compact, ToolPillContent ~420pt expanded, etc.).
-// We observe the body element and tell Rust to resize the webview to
-// match, preserving the current width.
-
+// The bubble webview's content height varies with the unified card's
+// body (SideEffect / Elicitation / PlanReview bodies differ). We
+// observe the card element directly (via UnifiedBubbleCard's exposed
+// cardRef) so the reported height reflects actual content, not the
+// window's current constraint. Tell Rust to resize the webview to match.
 const bubbleBody = ref<HTMLElement | null>(null);
+const cardInstance = ref<InstanceType<typeof UnifiedBubbleCard> | null>(null);
 
 const reportHeight = useThrottleFn((height: number) => {
   invoke("report_bubble_height", { height }).catch((err) => {
     // Silent: report failures are non-fatal
     console.warn("report_bubble_height failed", err);
   });
-}, 100);
+}, 50);
 
+// Watch both the wrapper and the card ref; report whichever has real content.
 useResizeObserver(bubbleBody, ([entry]) => {
   const height = entry.contentRect.height;
   if (height > 0) {
     reportHeight(height);
+  }
+});
+
+watch(cardInstance, async (inst) => {
+  await nextTick();
+  const cardEl = inst?.cardRef;
+  if (!cardEl) return;
+  const observer = new ResizeObserver(([entry]) => {
+    if (entry.contentRect.height > 0) {
+      reportHeight(entry.contentRect.height);
+    }
+  });
+  observer.observe(cardEl);
+  // Store observer to clean up when card changes
+  (bubbleBody as any)._cardObserver = observer;
+});
+
+onUnmounted(() => {
+  if ((bubbleBody as any)._cardObserver) {
+    (bubbleBody as any)._cardObserver.disconnect();
   }
 });
 
@@ -195,48 +211,30 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div ref="bubbleBody" class="w-full h-full bg-transparent pointer-events-auto flex justify-center items-start overflow-hidden">
+  <!-- Content-driven height: wrapper has no height constraint so the
+       card's natural size is reported via ResizeObserver. overflow-hidden
+       is dropped from the wrapper — Tauri window is transparent, so any
+       overflow would just paint onto the desktop (which we avoid by
+       sizing the window to the card via report_bubble_height). -->
+  <div
+    ref="bubbleBody"
+    class="w-full bg-transparent pointer-events-auto flex justify-center items-start"
+  >
+    <!-- spring easing + 60pt slide (uma-pet bubble.css .card transition) -->
     <Transition
-      enter-from-class="opacity-0 translate-x-4"
-      enter-active-class="transition duration-200 ease-out"
+      enter-from-class="opacity-0 translate-x-16"
+      enter-active-class="transition duration-[350ms] ease-[var(--ease-spring)]"
       enter-to-class="opacity-100 translate-x-0"
       leave-from-class="opacity-100"
       leave-active-class="transition duration-[250ms] ease-in"
       leave-to-class="opacity-0"
     >
-      <BubbleIdle v-if="shellMode === 'idle'" key="idle" />
-    </Transition>
-    <Transition
-      enter-from-class="opacity-0 translate-x-4"
-      enter-active-class="transition duration-200 ease-out"
-      enter-to-class="opacity-100 translate-x-0"
-      leave-from-class="opacity-100"
-      leave-active-class="transition duration-[250ms] ease-in"
-      leave-to-class="opacity-0"
-    >
-      <PillShell
-        v-if="shellMode === 'pill' && !isHiding"
-        key="pill"
-        :request="(current as SideEffectRequest)"
-        @allow="submitDecision('allow', { updatedPermissions: $event })"
-        @deny="submitDecision('deny', { message: $event })"
-        @expand="isPillExpanded = true"
-        @collapse="isPillExpanded = false"
-      />
-    </Transition>
-    <Transition
-      enter-from-class="opacity-0 translate-x-4"
-      enter-active-class="transition duration-200 ease-out"
-      enter-to-class="opacity-100 translate-x-0"
-      leave-from-class="opacity-100"
-      leave-active-class="transition duration-[250ms] ease-in"
-      leave-to-class="opacity-0"
-    >
-      <PanelShell
-        v-if="shellMode === 'panel' && !isHiding"
-        key="panel"
-        :request="(current as ElicitationRequest | PlanReviewRequest)"
-        @allow="submitDecision('allow', { updatedInput: $event })"
+      <UnifiedBubbleCard
+        v-if="current && !isHiding"
+        key="card"
+        ref="cardInstance"
+        :request="current"
+        @allow="submitDecision('allow', $event)"
         @deny="submitDecision('deny', { message: $event })"
       />
     </Transition>

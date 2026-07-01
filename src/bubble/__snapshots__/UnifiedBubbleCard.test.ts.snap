@@ -1,0 +1,124 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`UnifiedBubbleCard snapshots > bash sideeffect renders unified card 1`] = `
+"<div class="card" data-kind="SideEffect" data-submitting="false">
+  <!-- Header — two rows (uma-pet convention):
+         row 1: title (e.g. "Permission Request" / "Needs Input" / "Plan review")
+         row 2: tool pill + session tag (for SideEffect). Elicitation /
+         PlanReview skip the pill but keep the session tag row. -->
+  <div class="header">
+    <div class="header-title-row"><span class="header-title">Permission Request</span></div>
+    <div class="header-meta-row"><span class="tool-pill" data-tool="Bash" style="background: #d97757;"><span class="pill-text">Bash</span></span><span class="session-tag">#s-123456</span></div>
+  </div>
+  <!-- SideEffect body: command block only. SuggestionList lives
+         below the footer (uma-pet convention) — keeps the primary
+         action visually separate from the always-allow shortcuts. -->
+  <div class="command-block">rm -rf /tmp/foo</div>
+  <!-- Footer — layout varies by kind.
+         SideEffect primary action uses the tool-pill color (uma-pet
+         convention) so the Allow button visually matches the tool
+         pill in the header. PlanReview Approve stays green (single
+         action, no tool context). -->
+  <div class="footer">
+    <!-- SideEffect: [Allow] [Deny] — primary action first, in tool-pill color --><button class="btn btn-allow" style="background: #d97757;">Allow</button><button class="btn btn-deny">Deny</button>
+  </div>
+  <!-- SideEffect suggestion list — below the footer (uma-pet
+         convention: primary action first, "always allow" shortcuts
+         visually separated below). -->
+  <!--v-if-->
+</div>"
+`;
+
+exports[`UnifiedBubbleCard snapshots > elicitation 2 questions renders unified card 1`] = `
+"<div class="card" data-kind="Elicitation" data-submitting="false">
+  <!-- Header — two rows (uma-pet convention):
+         row 1: title (e.g. "Permission Request" / "Needs Input" / "Plan review")
+         row 2: tool pill + session tag (for SideEffect). Elicitation /
+         PlanReview skip the pill but keep the session tag row. -->
+  <div class="header">
+    <div class="header-title-row"><span class="header-title">Needs input</span></div>
+    <div class="header-meta-row">
+      <!--v-if--><span class="session-tag">#s-123456</span>
+    </div>
+  </div>
+  <!-- SideEffect body: command block only. SuggestionList lives
+         below the footer (uma-pet convention) — keeps the primary
+         action visually separate from the always-allow shortcuts. -->
+  <!-- Elicitation body -->
+  <div class="elicitation-progress">Q 1 / 2</div>
+  <div data-v-7d12c901="" class="elicitation-body">
+    <!-- Summary buttons for already-answered questions (click to jump back) -->
+    <div data-v-7d12c901="" class="summary-slot">
+      <!--v-if-->
+    </div>
+    <div data-v-7d12c901="" class="summary-slot">
+      <!--v-if-->
+    </div><!-- Current question card -->
+    <div data-v-7d12c901="" class="question-card">
+      <div data-v-7d12c901="" class="question-header">Tests</div>
+      <div data-v-7d12c901="" class="question-text">Which test runner?</div>
+      <div data-v-7d12c901="" class="question-hint">Choose one option</div>
+      <div data-v-7d12c901="" class="option-list"><label data-v-7d12c901="" class="option-item"><input data-v-7d12c901="" type="radio" name="elicitation-0" value="Vitest">
+          <div data-v-7d12c901="" class="option-item-copy"><span data-v-7d12c901="" class="option-item-label">Vitest</span><span data-v-7d12c901="" class="option-item-description">ESM-native</span></div>
+        </label><label data-v-7d12c901="" class="option-item"><input data-v-7d12c901="" type="radio" name="elicitation-0" value="Jest">
+          <div data-v-7d12c901="" class="option-item-copy"><span data-v-7d12c901="" class="option-item-label">Jest</span><span data-v-7d12c901="" class="option-item-description">Default</span></div>
+        </label><!-- Auto-injected "Other" option (uma-pet bubble-renderer.js:541-610) --><label data-v-7d12c901="" class="option-item option-item-other"><input data-v-7d12c901="" type="radio" name="elicitation-0" data-other="true">
+          <div data-v-7d12c901="" class="option-item-copy"><span data-v-7d12c901="" class="option-item-label">Other</span></div>
+        </label>
+        <!--v-if-->
+      </div>
+    </div>
+  </div>
+  <!-- Footer — layout varies by kind.
+         SideEffect primary action uses the tool-pill color (uma-pet
+         convention) so the Allow button visually matches the tool
+         pill in the header. PlanReview Approve stays green (single
+         action, no tool context). -->
+  <div class="footer">
+    <!-- SideEffect: [Allow] [Deny] — primary action first, in tool-pill color -->
+    <!-- Elicitation: [Previous] [Next|Submit] with strict gate --><button class="btn btn-deny" disabled="">Previous</button><button class="btn btn-allow" disabled="">Next</button>
+  </div>
+  <!-- SideEffect suggestion list — below the footer (uma-pet
+         convention: primary action first, "always allow" shortcuts
+         visually separated below). -->
+  <!--v-if-->
+</div>"
+`;
+
+exports[`UnifiedBubbleCard snapshots > planreview renders unified card 1`] = `
+"<div class="card" data-kind="PlanReview" data-submitting="false">
+  <!-- Header — two rows (uma-pet convention):
+         row 1: title (e.g. "Permission Request" / "Needs Input" / "Plan review")
+         row 2: tool pill + session tag (for SideEffect). Elicitation /
+         PlanReview skip the pill but keep the session tag row. -->
+  <div class="header">
+    <div class="header-title-row"><span class="header-title">Plan review</span></div>
+    <div class="header-meta-row">
+      <!--v-if--><span class="session-tag">#s-123456</span>
+    </div>
+  </div>
+  <!-- SideEffect body: command block only. SuggestionList lives
+         below the footer (uma-pet convention) — keeps the primary
+         action visually separate from the always-allow shortcuts. -->
+  <!-- PlanReview body -->
+  <div data-v-f25b61fa="" class="plan-body"><pre data-v-f25b61fa="" class="plan-text">## Refactor auth
+1. Extract middleware
+2. Wire routes</pre>
+    <div data-v-f25b61fa="" class="suggestions"><button data-v-f25b61fa="" class="btn-suggestion">Tell Claude what to change</button><button data-v-f25b61fa="" class="btn-suggestion">Go to terminal</button></div>
+  </div>
+  <!--v-if-->
+  <!-- Footer — layout varies by kind.
+         SideEffect primary action uses the tool-pill color (uma-pet
+         convention) so the Allow button visually matches the tool
+         pill in the header. PlanReview Approve stays green (single
+         action, no tool context). -->
+  <div class="footer">
+    <!-- SideEffect: [Allow] [Deny] — primary action first, in tool-pill color -->
+    <!-- PlanReview: single [Approve] button --><button class="btn btn-allow" style="flex-grow: 1; flex-shrink: 1; flex-basis: 0%;">Approve</button>
+  </div>
+  <!-- SideEffect suggestion list — below the footer (uma-pet
+         convention: primary action first, "always allow" shortcuts
+         visually separated below). -->
+  <!--v-if-->
+</div>"
+`;

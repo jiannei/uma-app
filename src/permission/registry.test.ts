@@ -113,39 +113,12 @@ describe("permissionRegistry structure", () => {
   });
 });
 
-// ── decideShellMode ──
-
-describe("presentation.decideShellMode", () => {
-  it("SideEffect → pill", () => {
-    expect(
-      permissionRegistry.SideEffect.presentation.decideShellMode(
-        sideEffectRequest(),
-      ),
-    ).toBe("pill");
-  });
-
-  it("Elicitation → panel", () => {
-    expect(
-      permissionRegistry.Elicitation.presentation.decideShellMode(
-        elicitationRequest(),
-      ),
-    ).toBe("panel");
-  });
-
-  it("PlanReview → panel", () => {
-    expect(
-      permissionRegistry.PlanReview.presentation.decideShellMode(
-        planReviewRequest(),
-      ),
-    ).toBe("panel");
-  });
-});
+// ── presentation metadata ──
 
 describe("presentation metadata", () => {
-  it("all kinds expose non-empty focusSelector / badgeVariant / iconKey", () => {
+  it("all kinds expose non-empty badgeVariant / iconKey", () => {
     for (const k of ["SideEffect", "Elicitation", "PlanReview"] as const) {
       const p = permissionRegistry[k].presentation;
-      expect(p.focusSelector.length).toBeGreaterThan(0);
       expect(["warning", "info", "success"]).toContain(p.badgeVariant);
       expect(p.iconKey.length).toBeGreaterThan(0);
     }
@@ -459,24 +432,6 @@ describe("PlanReview.reply", () => {
 // ── 反漂移（behavior 不漂移的测试） ──
 
 describe("registry ↔ existing bubble behavior", () => {
-  it("matches BubbleShellRoot.vue:44 pill/panel gate", () => {
-    expect(
-      permissionRegistry.SideEffect.presentation.decideShellMode(
-        sideEffectRequest(),
-      ),
-    ).toBe("pill");
-    expect(
-      permissionRegistry.Elicitation.presentation.decideShellMode(
-        elicitationRequest(),
-      ),
-    ).toBe("panel");
-    expect(
-      permissionRegistry.PlanReview.presentation.decideShellMode(
-        planReviewRequest(),
-      ),
-    ).toBe("panel");
-  });
-
   it("SideEffect.allow produces the same shape as PillShell onAllowOnce", () => {
     const out = permissionRegistry.SideEffect.reply(sideEffectRequest(), {
       behavior: "allow",

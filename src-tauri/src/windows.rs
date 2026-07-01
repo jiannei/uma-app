@@ -54,11 +54,12 @@ pub fn build_robot(app: &App) -> tauri::Result<WebviewWindow> {
     Ok(window)
 }
 
-/// Build the permission bubble window (280×80, content-sized via
-/// `set_bubble_size` IPC). The window is permanently anchored to
-/// `TopCenter` (set once after build); ADR-0013 click-through
-/// strategy applies — body `pointer-events: none` + content
-/// `pointer-events: auto`.
+/// Build the permission bubble window (360×80, content-sized via
+/// `set_bubble_size` IPC). The window is anchored to the bottom-left
+/// corner of the primary monitor (uma-pet uses bottom-right; left
+/// avoids overlap and mirrors it for easy visual comparison);
+/// ADR-0013 click-through strategy applies — body
+/// `pointer-events: none` + content `pointer-events: auto`.
 pub fn build_bubble(app: &App) -> tauri::Result<WebviewWindow> {
     let mut builder = WebviewWindowBuilder::new(
         app,
@@ -66,9 +67,9 @@ pub fn build_bubble(app: &App) -> tauri::Result<WebviewWindow> {
         WebviewUrl::App("bubble.html".into()),
     )
     .title("Uma Permission")
-    .inner_size(280.0, 80.0)
-    .min_inner_size(280.0, 80.0)
-    .max_inner_size(280.0, 600.0)
+    .inner_size(360.0, 80.0)
+    .min_inner_size(360.0, 80.0)
+    .max_inner_size(360.0, 600.0)
     .decorations(false)
     .always_on_top(true)
     .skip_taskbar(true)
@@ -88,13 +89,26 @@ pub fn build_bubble(app: &App) -> tauri::Result<WebviewWindow> {
 
     let window = builder.build()?;
 
-    // 固定位置：屏幕中央偏上，避免被 dock/menu bar 遮挡
-    // (Tauri 2 dev 环境下 TopCenter 在多显示器/异型屏布局下
-    // 会被错误计算到屏幕外；手动坐标更可靠。)
-    let _ = window.set_position(tauri::PhysicalPosition::new(
-        800i32,
-        400i32,
-    ));
+    // 固定位置：主屏幕左下角，margin 16pt
+    // (tauri-plugin-positioner 的 `current_monitor()` 对隐藏窗口
+    // 返回不可靠的结果；手动坐标 + primary_monitor fallback 更可靠。)
+    let margin = 16i32;
+    let fallback = tauri::PhysicalPosition::new(margin, 600i32);
+    let position = app
+        .primary_monitor()
+        .ok()
+        .and_then(|m| m)
+        .and_then(|monitor| {
+            let size = monitor.size();
+            let scale = monitor.scale_factor();
+            let screen_height_px = size.height;
+            let bubble_height_px = (80.0 * scale) as i32;
+            let y = (screen_height_px as i32) - bubble_height_px - margin;
+            Some(tauri::PhysicalPosition::new(margin, y))
+        })
+        .unwrap_or(fallback);
+
+    let _ = window.set_position(position);
 
     Ok(window)
 }

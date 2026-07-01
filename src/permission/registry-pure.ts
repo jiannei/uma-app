@@ -1,5 +1,7 @@
-// src/permission/registry-pure.ts — pure functions extracted from
-// registry.ts for unit testing without Vue / Tauri runtime.
+// src/permission/registry-pure.ts — pure helpers used by both the
+// runtime registry and the test-side re-export bundle. SideEffect
+// classification (SideEffectRender + classifySideEffect) now lives
+// solely in registry.ts — there is no parallel pure copy.
 //
 // These functions are re-exported via src/permission/__test__/index.ts
 // (the uma-pet "module.exports.__test" pattern). Tests can import
@@ -10,46 +12,6 @@ import type {
   PermissionRequest,
   PermissionUpdateEntry,
 } from "../types/permission";
-
-// ── SideEffect classification ────────────────────────────────────
-
-export type SideEffectRender =
-  | { kind: "bash"; command: string }
-  | { kind: "edit"; filePath: string }
-  | { kind: "write"; filePath: string }
-  | { kind: "read"; filePath: string }
-  | { kind: "json"; raw: unknown };
-
-/**
- * Classify a SideEffect request into a renderable form.
- * Pure function: no I/O, no Vue, no Tauri.
- */
-export function classifySideEffect(
-  toolName: string | undefined,
-  toolInput: unknown,
-): SideEffectRender {
-  const input = (toolInput ?? {}) as Record<string, unknown>;
-  if (toolName === "Bash" || toolName === "Shell") {
-    const command = typeof input.command === "string" ? input.command : "";
-    return { kind: "bash", command };
-  }
-  if (toolName === "Edit") {
-    const filePath =
-      typeof input.file_path === "string" ? input.file_path : "";
-    return { kind: "edit", filePath };
-  }
-  if (toolName === "Write" || toolName === "NotebookEdit") {
-    const filePath =
-      typeof input.file_path === "string" ? input.file_path : "";
-    return { kind: "write", filePath };
-  }
-  if (toolName === "Read") {
-    const filePath =
-      typeof input.file_path === "string" ? input.file_path : "";
-    return { kind: "read", filePath };
-  }
-  return { kind: "json", raw: toolInput };
-}
 
 // ── Decision builders ───────────────────────────────────────────
 

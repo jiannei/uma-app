@@ -195,15 +195,13 @@ async fn handle_permission(
     // longer has to hardcode "claude-code".
     let bubble_payload = serde_json::to_value(&canonical)
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    // Emit to the bubble webview via app.emit (broadcast). Previously
+    // we also called `bubble_win.emit` for an explicit bubble target,
+    // but that meant the bubble received the event twice (once from
+    // bubble_win.emit, once from app.emit) and pushed the same
+    // request into the queue twice — first deny removed only one
+    // copy and the second was stuck forever.
     let app = state.app.clone();
-    if let Some(bubble_win) = app.get_webview_window("permission-bubble") {
-        match bubble_win.emit(prod::PERMISSION_REQUEST, bubble_payload.clone()) {
-            Ok(()) => log::debug!("[http] emitted to permission-bubble webview"),
-            Err(e) => log::warn!("[http] emit to bubble FAILED: {e}"),
-        }
-    } else {
-        log::error!("[http] permission-bubble webview NOT FOUND");
-    }
     match app.emit(prod::PERMISSION_REQUEST, bubble_payload) {
         Ok(()) => log::debug!("[http] emitted app-wide"),
         Err(e) => log::warn!("[http] app.emit FAILED: {e}"),

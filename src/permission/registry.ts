@@ -38,10 +38,17 @@ import type {
   PermissionUpdateEntry,
 } from "../types/permission";
 
-// ── SideEffectRender + classifySideEffect (private) ──────────────
+// ── SideEffectRender + classifySideEffect ───────────────────────
+//
+// Both are exported (re-exported via `__test__/index.ts` for unit tests
+// that want to assert the render shape without pulling in the whole
+// registry surface). The registry's own presentation helpers call
+// classifySideEffect internally and never expose the intermediate render
+// to consumers — that's what the `summary / title / content` API on
+// `permissionRegistry.SideEffect.presentation` is for.
 
 export type SideEffectRender =
-  | { kind: "bash"; command: string }
+  | { kind: "bash"; command: string; description?: string }
   | {
       kind: "edit";
       filePath: string;
@@ -72,7 +79,7 @@ function firstStringValue(
   return "";
 }
 
-function classifySideEffect(
+export function classifySideEffect(
   toolName: string | undefined,
   toolInput: unknown,
 ): SideEffectRender {
@@ -84,7 +91,12 @@ function classifySideEffect(
   switch (toolName) {
     case "Bash": {
       const command = firstStringValue(input, ["command", "cmd"]);
-      if (command) return { kind: "bash", command };
+      if (command) {
+        const description = firstStringValue(input, ["description"]);
+        return description
+          ? { kind: "bash", command, description }
+          : { kind: "bash", command };
+      }
       break;
     }
     case "Edit":
@@ -151,7 +163,6 @@ function classifySideEffect(
 
 // ── Public types ────────────────────────────────────────────────
 
-export type ShellMode = "pill" | "panel";
 export type BadgeVariant = "warning" | "info" | "success";
 export type SideEffectRenderKind = SideEffectRender["kind"];
 
@@ -171,13 +182,6 @@ export interface ReplyPick {
 
 /** Common fields every kind exposes. */
 interface BasePresentation<K extends PermissionKind> {
-  /** SideEffect → 'pill'; Elicitation / PlanReview → 'panel'. */
-  decideShellMode(req: RequestByKind<K>): ShellMode;
-  /** CSS selector for the element to focus on mount. The registry
-   * owns the focus target entirely — consumers just call
-   * `document.querySelector(presentation.focusSelector)?.focus()`,
-   * no consumer-side translation map needed. */
-  focusSelector: string;
   /** StoresPanel badge color. */
   badgeVariant: BadgeVariant;
   /** StoresPanel icon identifier. */
@@ -236,7 +240,12 @@ function sideEffectTitle(req: SideEffectRequest): string {
 
 function sideEffectContent(req: SideEffectRequest): string {
   const r = classifySideEffect(req.toolName, req.toolInput);
-  if (r.kind === "bash") return r.command;
+  // For Bash: prefer `description` (short, human-readable) when
+  // present, fall back to the raw `command`. Mirrors uma-pet's
+  // bubble-format.js:67-68 behavior. Claude Code's Bash tool sends
+  // both `command` and `description` — the description is what users
+  // actually want to see at a glance.
+  if (r.kind === "bash") return r.description ?? r.command;
   if (r.kind === "edit" || r.kind === "write" || r.kind === "read") {
     return r.filePath;
   }
@@ -263,8 +272,6 @@ function planReviewDetail(req: PlanReviewRequest): string {
 
 const sideEffectEntry: KindEntry<"SideEffect"> = {
   presentation: {
-    decideShellMode: () => "pill",
-    focusSelector: ".action-button.allow",
     badgeVariant: "warning",
     iconKey: "tool",
     detail: sideEffectDetail,
@@ -286,8 +293,6 @@ const sideEffectEntry: KindEntry<"SideEffect"> = {
 
 const elicitationEntry: KindEntry<"Elicitation"> = {
   presentation: {
-    decideShellMode: () => "panel",
-    focusSelector: ".option-label",
     badgeVariant: "info",
     iconKey: "ask",
     detail: elicitationDetail,
@@ -306,13 +311,6 @@ const elicitationEntry: KindEntry<"Elicitation"> = {
 
 const planReviewEntry: KindEntry<"PlanReview"> = {
   presentation: {
-    decideShellMode: () => "panel",
-    // Bug fix: this used to be `.footer-button.reject` while focusKey
-    // was "approve" — a semantic contradiction. The registry now owns
-    // the DOM selector directly, so the focus target matches the
-    // semantic key. The approve action is the conventional primary
-    // focus for PlanReview.
-    focusSelector: ".footer-button.approve",
     badgeVariant: "info",
     iconKey: "plan",
     detail: planReviewDetail,
@@ -341,22 +339,12 @@ export const permissionRegistry = {
 
 // ── Cross-kind dispatch surface ─────────────────────────────────
 //
-// Three free functions that switch on req.kind and route to the
+// Two free functions that switch on req.kind and route to the
 // right entry. Before this PR, callers hand-wrote these switches
-// 3 times (BubbleShellRoot.vue x2, StoresPanel.vue x1). Now every
-// cross-kind call goes through here.
-
-/** Decide which shell (pill / panel) to render for this request. */
-export function decideShellMode(req: PermissionRequest): ShellMode {
-  switch (req.kind) {
-    case "SideEffect":
-      return permissionRegistry.SideEffect.presentation.decideShellMode(req);
-    case "Elicitation":
-      return permissionRegistry.Elicitation.presentation.decideShellMode(req);
-    case "PlanReview":
-      return permissionRegistry.PlanReview.presentation.decideShellMode(req);
-  }
-}
+// in BubbleShellRoot.vue and StoresPanel.vue. Now every cross-kind
+// call goes through here. (Shell-mode dispatch was dropped when
+// PillShell + PanelShell collapsed into UnifiedBubbleCard — see
+// the bubble-display-design spec.)
 
 /** Build the canonical PermissionDecision from a user pick. */
 export function buildReply(

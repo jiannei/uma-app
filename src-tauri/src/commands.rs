@@ -124,9 +124,9 @@ pub async fn respond_permission(
     Ok(())
 }
 
-/// Resize the bubble webview to fit content. Re-anchors to
-/// `Position::TopCenter` after resize so the bubble's top edge stays
-/// at the screen top as it grows downward.
+/// Resize the bubble webview to fit content. Re-anchors to the
+/// bottom-left of the primary monitor after resize so the bubble's
+/// bottom edge stays at the screen bottom as it grows upward.
 #[tauri::command]
 pub fn set_bubble_size(
     app: AppHandle,
@@ -142,12 +142,26 @@ pub fn set_bubble_size(
             .set_size(tauri::LogicalSize::new(width, height))
             .map_err(|e| format!("set_bubble_size: {e}"))?;
 
-        // Re-anchor to TopCenter only when width changes (pill ↔ panel).
-        // Height-only changes (compact ↔ expanded within same shell) keep
-        // the same x position and don't need re-centering.
+        // Re-anchor to BottomLeft only when width changes (idle ↔ active
+        // transitions). Height-only changes keep the same x position and
+        // don't need re-anchoring.
         if width_changed {
-            use tauri_plugin_positioner::{Position, WindowExt};
-            let _ = bubble.move_window(Position::TopCenter);
+            let margin = 16i32;
+            let fallback = tauri::PhysicalPosition::new(margin, 600i32);
+            let position = app
+                .primary_monitor()
+                .ok()
+                .and_then(|m| m)
+                .and_then(|monitor| {
+                    let size = monitor.size();
+                    let scale = monitor.scale_factor();
+                    let screen_height_px = size.height;
+                    let bubble_height_px = (height * scale) as i32;
+                    let y = (screen_height_px as i32) - bubble_height_px - margin;
+                    Some(tauri::PhysicalPosition::new(margin, y))
+                })
+                .unwrap_or(fallback);
+            let _ = bubble.set_position(position);
         }
     } else {
         return Err("permission-bubble window not found".into());
@@ -158,7 +172,7 @@ pub fn set_bubble_size(
 /// Renderer-driven height reporting. Called from the bubble webview
 /// via `useResizeObserver` (throttled) when the natural content height
 /// changes. Rust resizes the webview to match, preserving the
-/// current width (and TopCenter anchor).
+/// current width (and bottom-left anchor).
 #[tauri::command]
 pub fn report_bubble_height(
     app: AppHandle,
@@ -168,10 +182,33 @@ pub fn report_bubble_height(
         // Clamp to bubble bounds (60pt min, 600pt max — matches
         // min_inner_size / max_inner_size in windows.rs).
         let h = height.max(80.0).min(600.0);
-        let current_size = bubble.inner_size().map_err(|e| e.to_string())?;
+        // Preserve current width; only change height. Use LogicalSize
+        // (ResizeObserver returns CSS / logical pixels).
+        let current_width = bubble
+            .inner_size()
+            .ok()
+            .map(|s| s.width as f64 / bubble.scale_factor().unwrap_or(1.0))
+            .unwrap_or(360.0);
         bubble
-            .set_size(tauri::PhysicalSize::new(current_size.width, h as u32))
+            .set_size(tauri::LogicalSize::new(current_width, h))
             .map_err(|e| format!("report_bubble_height: {e}"))?;
+        // Re-anchor bottom-left after height change
+        let margin = 16i32;
+        let fallback = tauri::PhysicalPosition::new(margin, 600i32);
+        let position = app
+            .primary_monitor()
+            .ok()
+            .and_then(|m| m)
+            .and_then(|monitor| {
+                let size = monitor.size();
+                let scale = monitor.scale_factor();
+                let screen_height_px = size.height;
+                let bubble_height_px = (h * scale) as i32;
+                let y = (screen_height_px as i32) - bubble_height_px - margin;
+                Some(tauri::PhysicalPosition::new(margin, y))
+            })
+            .unwrap_or(fallback);
+        let _ = bubble.set_position(position);
     } else {
         return Err("permission-bubble window not found".into());
     }

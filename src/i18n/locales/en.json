@@ -28,7 +28,18 @@
     "other": "Other",
     "shellWorkingDirectory": "in {cwd}",
     "requestTimedOut": "Request timed out",
-    "errorOccurred": "An error occurred"
+    "errorOccurred": "An error occurred",
+    "permissionRequest": "Permission Request",
+    "questionProgress": "Q {current} / {total}",
+    "chooseOneOption": "Choose one option",
+    "chooseAtLeastOneOption": "Multi-select, choose at least one",
+    "questionLabel": "Question {index}",
+    "otherPlaceholder": "Type your answer…",
+    "previousQuestion": "Previous",
+    "nextQuestion": "Next",
+    "submitAnswer": "Submit",
+    "planFeedbackPlaceholder": "What should be changed?",
+    "submitFeedback": "Send"
   },
   "settings": {
     "language": "Language",

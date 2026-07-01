@@ -28,7 +28,18 @@
     "other": "其他",
     "shellWorkingDirectory": "在 {cwd}",
     "requestTimedOut": "请求已超时",
-    "errorOccurred": "发生错误"
+    "errorOccurred": "发生错误",
+    "permissionRequest": "权限请求",
+    "questionProgress": "问题 {current} / {total}",
+    "chooseOneOption": "请选择一项",
+    "chooseAtLeastOneOption": "可多选，请至少选择一项",
+    "questionLabel": "问题 {index}",
+    "otherPlaceholder": "输入你的回答…",
+    "previousQuestion": "上一题",
+    "nextQuestion": "下一题",
+    "submitAnswer": "提交答案",
+    "planFeedbackPlaceholder": "哪里需要改？",
+    "submitFeedback": "发送"
   },
   "settings": {
     "language": "语言",

@@ -9,21 +9,8 @@ import type { PermissionUpdateEntry } from "../types/permission";
 /** Type for vue-i18n's t function */
 type TranslateFn = (key: string, vars?: Record<string, unknown>) => string;
 
-/** Detect a directory-shaped ruleContent and extract the
- * human-friendly directory name. CC encodes "Bash in /foo/"
- * patterns as "<dir>/**" — we take the last path segment. */
-function extractDir(ruleContent: string | undefined): string | null {
-  if (!ruleContent) return null;
-  const m = ruleContent.match(/^([^/*]+)/);
-  if (!m) return null;
-  const head = m[1].replace(/[\\/]$/, "");
-  const segments = head.split(/[\\/]/).filter(Boolean);
-  return segments.length ? segments[segments.length - 1] : null;
-}
-
 /** A shortened rule for `Always allow `<rule>`` display. We truncate
- * to 30 chars; we only do this when `extractDir` doesn't recognise
- * the rule as a directory pattern. */
+ * to 30 chars so very long rules don't blow up the bubble. */
 function shortRule(ruleContent: string): string {
   return ruleContent.length > 30
     ? ruleContent.slice(0, 29) + "…"
@@ -58,12 +45,11 @@ export function suggestionLabel(
       const tool = rule.toolName ?? "";
       const deny = entry.behavior === "deny";
       if (rule.ruleContent) {
-        const dir = extractDir(rule.ruleContent);
-        if (dir) {
-          return deny
-            ? t("bubble.alwaysAllowDenyInDir", { tool, dir })
-            : t("bubble.allowInDir", { tool, dir });
-        }
+        // Always show the full ruleContent (truncated if very long) —
+        // the "allow in <dir>" truncation was confusing users because
+        // the regex match ate command flags. Tradeoff: less compact
+        // for glob patterns, but accurate to what CC is actually
+        // allowing.
         return deny
           ? t("bubble.alwaysAllowDeny", { tool })
           : t("bubble.alwaysAllowRule", { rule: shortRule(rule.ruleContent) });

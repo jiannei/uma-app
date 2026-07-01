@@ -1,51 +1,48 @@
 /* src/styles/bubble.css — bubble window only.
  *
- * After ADR-0017 this file is:
- *   1. Bubble-specific tokens (inlined from deleted bubble-tokens.css)
- *   2. Bubble "floating island" token values (`--island-*`, `--allow`, `--deny`)
- *   3. Transparent background override (shared.css .dark background would paint a rect)
- *   4. Sonner toast container override
+ * Tokens + structural styles for UnifiedBubbleCard (Phase 3+).
+ * Aligned with uma-pet bubble.css where possible (hex palette,
+ * spring easing, marquee keyframes, hover-arrow affordance).
  *
  * Imported by src/bubble/main.ts (alongside shared.css + shortcuts.css).
  */
 
-/* === Bubble-specific tokens (inlined from deleted bubble-tokens.css) === */
-/* Spec: docs/superpowers/specs/2026-06-30-bubble-display-design.md
- * Visual language: 灵动岛 (rounded + backdrop-blur + shadow), unified across shells.
- * These are bubble-private tokens — NOT shadcn-vue --color-* tokens. */
+/* === Bubble tokens === */
 :root {
-  /* Shell backgrounds */
+  /* Shell background — translucent "floating island" */
   --bubble-bg: rgba(40, 40, 50, 0.78);
   --bubble-bg-blur: blur(20px) saturate(180%);
   --bubble-shadow: 0 8px 24px rgba(0, 0, 0, 0.32),
     0 1px 0 rgba(255, 255, 255, 0.06) inset;
 
-  /* Icon chip colors */
-  --icon-chip-sideeffect: rgba(245, 158, 11, 0.18);
-  --icon-chip-elicitation: rgba(245, 158, 11, 0.22);
-  --icon-chip-planreview: rgba(34, 197, 94, 0.22);
+  /* Per-tool pill hex (saturated, white text) — uma-pet bubble.css:150-159 */
+  --tool-pill-hex-bash: #d97757;
+  --tool-pill-hex-edit: #5b8dd9;
+  --tool-pill-hex-write: #8b7ec7;
+  --tool-pill-hex-read: #5a9e6f;
+  --tool-pill-hex-glob: #5a9eab;
+  --tool-pill-hex-grep: #5a9eab;
+  --tool-pill-hex-agent: #c47a9a;
+  --tool-pill-hex-web: #3b82f6;
+  --tool-pill-hex-other: #52525b;
 
-  /* Accent colors */
+  /* Accent colors (legacy — kept for storespanel / devtools refs) */
   --accent-orange: #fbbf24;
   --accent-green: #22c55e;
   --accent-red: #ef4444;
 
-  /* Pill geometry */
-  --pill-width: 280pt;
-  --pill-height-compact: 44pt;
-  --pill-radius-compact: 22pt;
-  --pill-radius-expanded: 16pt;
+  /* Geometry */
+  --bubble-width: 360pt;            /* unified shell width (Phase 3) */
+  --bubble-min-height: 80pt;
+  --bubble-max-height: 600pt;
+  --card-radius: 16pt;
+  --tool-pill-radius: 6pt;
 
-  /* Panel geometry */
-  --panel-width: 600pt;
-  --panel-max-height: 600pt;
-
-  /* Transitions */
-  --transition-pill-compact-expanded: 280ms cubic-bezier(0.32, 0.72, 0, 1);
-  --transition-pill-panel: 350ms cubic-bezier(0.32, 0.72, 0, 1);
-  --transition-panel-pill: 300ms cubic-bezier(0.32, 0.72, 0, 1);
-  --transition-panel-panel: 200ms cubic-bezier(0.32, 0.72, 0, 1);
-  --transition-fade-out: 350ms ease-out;
+  /* Spring easing — uma-pet .card transition */
+  --ease-spring: cubic-bezier(0.32, 0.72, 0, 1);
+  --transition-fade-in: 350ms var(--ease-spring);
+  --transition-fade-out: 250ms ease-in;
+  --transition-pill-marquee: 1500ms ease-in-out;
 
   /* Focus ring */
   --focus-ring: 0 0 0 1.5pt rgba(245, 158, 11, 0.5);
@@ -57,9 +54,6 @@
 
 /* === Bubble "floating island" token values (.dark) === */
 .dark {
-  /* Light values intentionally omitted — bubble.html forces
-     `<html class="dark">`. Add a `:root` block here when/if light mode
-     is supported. */
   --island: oklch(0.18 0.01 45 / 0.78);
   --island-solid: oklch(0.18 0.01 45);
   --divider-island: oklch(1 0 0 / 0.08);
@@ -73,10 +67,6 @@
 }
 
 /* === Force transparent background — see ADR-0017 === */
-/* bubble.html body uses UnoCSS [background:var(--debug-window-bg,transparent)]
-   but shared.css .dark { --background: oklch(0.12 ...) } cascades after.
-   Force transparent on the bubble window so the floating island
-   shows its backdrop-blur against the desktop, not a black rect. */
 html, body {
   background: transparent !important;
 }
@@ -85,4 +75,424 @@ html, body {
    pill in sonner li needs auto to be clickable. */
 [data-sonner-toast] {
   pointer-events: auto;
+}
+
+/* === UnifiedBubbleCard structural styles (Phase 3+) === */
+
+/* Card container — 360pt wide, padding 12pt */
+.card {
+  width: var(--bubble-width);
+  max-width: var(--bubble-width);
+  background: var(--island, var(--bubble-bg));
+  border-radius: var(--card-radius);
+  padding: 14pt 16pt;
+  display: flex;
+  flex-direction: column;
+  gap: 10pt;
+  box-shadow: var(--shadow-island-expanded);
+  color: oklch(0.95 0 0);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-size: 12pt;
+  line-height: 1.4;
+  overflow: hidden;
+}
+.card[data-kind="SideEffect"],
+.card[data-kind="Elicitation"],
+.card[data-kind="PlanReview"] {
+  /* per-kind hooks for future tweaks (no-op today) */
+}
+
+/* Header — two rows (uma-pet convention): title on top,
+   tool pill + session tag below. */
+.header {
+  display: flex;
+  flex-direction: column;
+  gap: 6pt;
+  min-width: 0;
+}
+.header-title-row {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+.header-meta-row {
+  display: flex;
+  align-items: center;
+  gap: 8pt;
+  min-width: 0;
+  flex-wrap: wrap;
+}
+
+/* Tool pill — saturated, white text. data-tool maps to a hex variable. */
+.tool-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 3pt 8pt;
+  border-radius: var(--tool-pill-radius);
+  background: var(--tool-pill-hex-other);
+  color: #fff;
+  font-size: 10pt;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  white-space: nowrap;
+  flex-shrink: 0;
+  overflow: hidden;
+}
+.tool-pill[data-tool="Bash"],
+.tool-pill[data-tool="Shell"]       { background: var(--tool-pill-hex-bash); }
+.tool-pill[data-tool="Edit"]        { background: var(--tool-pill-hex-edit); }
+.tool-pill[data-tool="Write"],
+.tool-pill[data-tool="NotebookEdit"]{ background: var(--tool-pill-hex-write); }
+.tool-pill[data-tool="Read"]        { background: var(--tool-pill-hex-read); }
+.tool-pill[data-tool="Glob"],
+.tool-pill[data-tool="Grep"]        { background: var(--tool-pill-hex-glob); }
+.tool-pill[data-tool="Agent"]       { background: var(--tool-pill-hex-agent); }
+.tool-pill[data-tool="WebFetch"],
+.tool-pill[data-tool="WebSearch"]   { background: var(--tool-pill-hex-web); }
+
+/* Long tool names: hover triggers marquee (uma-pet bubble.css:141-149) */
+.tool-pill.is-marquee {
+  text-overflow: clip;
+  overflow: visible;
+}
+.tool-pill .pill-text {
+  display: inline-block;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+.tool-pill.is-marquee .pill-text {
+  text-overflow: clip;
+  overflow: visible;
+  animation: pill-marquee var(--transition-pill-marquee) 1 forwards;
+}
+@keyframes pill-marquee {
+  from { transform: translateX(0); }
+  to   { transform: translateX(var(--marquee-shift, 0)); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .tool-pill.is-marquee .pill-text { animation: none; }
+}
+
+/* Header title — flex-grows */
+.header-title {
+  font-size: 12pt;
+  font-weight: 600;
+  color: oklch(0.85 0 0);
+  letter-spacing: 0.02em;
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Session tag — small mono, right-aligned */
+.session-tag {
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
+  font-size: 10pt;
+  color: oklch(0.65 0 0);
+  flex-shrink: 0;
+}
+
+/* Body — holds the kind-specific content (CommandBlock / ElicitationBody / PlanBody) */
+.body {
+  display: flex;
+  flex-direction: column;
+  gap: 10pt;
+  min-height: 0;
+}
+
+/* Command block — max 80pt + scroll. The pre-formatted look from uma-pet. */
+.command-block {
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
+  font-size: 11pt;
+  line-height: 1.5;
+  padding: 10pt 12pt;
+  background: oklch(0.12 0 0 / 0.4);
+  border: 1px solid var(--border-island, oklch(1 0 0 / 0.08));
+  border-radius: 10pt;
+  color: oklch(0.85 0 0);
+  max-height: 80pt;
+  overflow-y: auto;
+  word-break: break-all;
+  white-space: pre-wrap;
+}
+.command-block::-webkit-scrollbar { width: 6pt; }
+.command-block::-webkit-scrollbar-track { background: transparent; }
+.command-block::-webkit-scrollbar-thumb {
+  background: oklch(1 0 0 / 0.15);
+  border-radius: 3pt;
+}
+.command-block::-webkit-scrollbar-thumb:hover {
+  background: oklch(1 0 0 / 0.25);
+}
+
+/* Suggestion list */
+.suggestions {
+  display: flex;
+  flex-direction: column;
+  gap: 6pt;
+}
+
+/* Elicitation */
+.elicitation-progress {
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
+  font-size: 10pt;
+  color: oklch(0.65 0 0);
+  text-align: center;
+  opacity: 0.8;
+}
+.question-card {
+  padding: 12pt;
+  background: oklch(0.12 0 0 / 0.4);
+  border: 1px solid var(--border-island, oklch(1 0 0 / 0.08));
+  border-radius: 10pt;
+}
+.question-header {
+  font-size: 10pt;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: oklch(0.65 0 0);
+  margin-bottom: 4pt;
+}
+.question-text {
+  font-size: 12pt;
+  line-height: 1.45;
+  color: oklch(0.95 0 0);
+  margin-bottom: 8pt;
+}
+.question-hint {
+  font-size: 10pt;
+  color: oklch(0.65 0 0);
+  opacity: 0.85;
+  margin-bottom: 8pt;
+}
+.option-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6pt;
+}
+.option-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8pt;
+  padding: 8pt 10pt;
+  border-radius: 8pt;
+  border: 1px solid var(--border-island, oklch(1 0 0 / 0.08));
+  background: oklch(1 0 0 / 0.03);
+  cursor: pointer;
+}
+.option-item input {
+  margin-top: 2pt;
+  accent-color: var(--tool-pill-hex-bash);
+}
+.option-item-label {
+  font-size: 11pt;
+  line-height: 1.4;
+  color: oklch(0.95 0 0);
+}
+.option-item-description {
+  font-size: 10pt;
+  line-height: 1.35;
+  color: oklch(0.65 0 0);
+}
+.option-item-textarea {
+  width: 100%;
+  margin-top: 6pt;
+  padding: 8pt 10pt;
+  font-family: inherit;
+  font-size: 11pt;
+  line-height: 1.4;
+  color: oklch(0.95 0 0);
+  background: oklch(0.10 0 0 / 0.6);
+  border: 1px solid var(--border-island, oklch(1 0 0 / 0.08));
+  border-radius: 8pt;
+  resize: vertical;
+  min-height: 48pt;
+  max-height: 120pt;
+  outline: none;
+  box-sizing: border-box;
+  display: none;
+}
+.option-item-textarea.visible { display: block; }
+.option-item-textarea:focus {
+  border-color: var(--tool-pill-hex-bash);
+}
+
+/* Question summary (already-answered question → clickable jump-back button) */
+.question-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 3pt;
+  width: 100%;
+  padding: 8pt 10pt;
+  background: oklch(1 0 0 / 0.03);
+  color: oklch(0.95 0 0);
+  border: 1px solid var(--border-island, oklch(1 0 0 / 0.08));
+  border-radius: 8pt;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+  outline: none;
+}
+.question-summary:hover {
+  background: oklch(1 0 0 / 0.08);
+}
+.question-summary-title {
+  font-size: 10pt;
+  font-weight: 700;
+  color: oklch(0.65 0 0);
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+.question-summary-answer {
+  font-size: 11pt;
+  line-height: 1.35;
+  color: oklch(0.95 0 0);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Plan feedback form (PlanReview rejection with reason) */
+.plan-feedback-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8pt;
+}
+.plan-feedback-textarea {
+  width: 100%;
+  padding: 8pt 10pt;
+  font-family: inherit;
+  font-size: 11pt;
+  line-height: 1.4;
+  color: oklch(0.95 0 0);
+  background: oklch(0.10 0 0 / 0.6);
+  border: 1px solid var(--border-island, oklch(1 0 0 / 0.08));
+  border-radius: 8pt;
+  resize: vertical;
+  min-height: 48pt;
+  max-height: 120pt;
+  outline: none;
+  box-sizing: border-box;
+}
+.plan-feedback-textarea:focus {
+  border-color: var(--tool-pill-hex-bash);
+}
+.plan-feedback-actions {
+  display: flex;
+  gap: 8pt;
+}
+
+/* Footer — buttons vary by kind */
+.footer {
+  display: flex;
+  gap: 8pt;
+  border-top: 1px solid var(--border-island, oklch(1 0 0 / 0.08));
+  padding-top: 10pt;
+}
+
+/* Generic button base */
+.btn {
+  flex: 1;
+  padding: 7pt 0;
+  border-radius: 8pt;
+  font-family: inherit;
+  font-size: 12pt;
+  font-weight: 600;
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: all 200ms var(--ease-spring);
+  outline: none;
+}
+.btn:active:not(:disabled) {
+  transform: scale(0.96);
+}
+.btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.btn:focus-visible {
+  box-shadow: var(--focus-ring);
+}
+.btn-allow {
+  background: var(--allow, var(--accent-green));
+  color: #fff;
+  border-color: transparent;
+}
+.btn-allow:hover:not(:disabled) {
+  filter: brightness(0.92);
+}
+.btn-deny {
+  background: transparent;
+  color: oklch(0.85 0 0);
+  border: 1px solid var(--border-island, oklch(1 0 0 / 0.12));
+}
+.btn-deny:hover:not(:disabled) {
+  background: var(--hover-island, oklch(1 0 0 / 0.08));
+  border-color: var(--ring-island, oklch(1 0 0 / 0.24));
+}
+
+/* Suggestion button — hover reveals → arrow + padding grow (uma-pet bubble.css:437-455) */
+.btn-suggestion {
+  display: block;
+  width: 100%;
+  padding: 7pt 12pt;
+  background: oklch(1 0 0 / 0.03);
+  color: oklch(0.78 0 0);
+  border: 1px solid var(--border-island, oklch(1 0 0 / 0.08));
+  border-radius: 8pt;
+  font-family: inherit;
+  font-size: 11pt;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 200ms var(--ease-spring);
+  outline: none;
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  position: relative;
+}
+.btn-suggestion::after {
+  content: '→';
+  position: absolute;
+  right: 14pt;
+  opacity: 0;
+  transform: translateX(-4pt);
+  transition: all 200ms ease;
+  color: oklch(0.65 0 0);
+}
+.btn-suggestion:hover:not(:disabled) {
+  background: oklch(1 0 0 / 0.08);
+  border-color: var(--ring-island, oklch(1 0 0 / 0.18));
+  color: oklch(0.92 0 0);
+  padding-right: 30pt;
+}
+.btn-suggestion:hover:not(:disabled)::after {
+  opacity: 1;
+  transform: translateX(0);
+}
+.btn-suggestion:active:not(:disabled) {
+  transform: scale(0.98);
+}
+.btn-suggestion:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .btn,
+  .btn-suggestion,
+  .btn-suggestion::after {
+    transition: none;
+  }
+  .btn:active:not(:disabled),
+  .btn-suggestion:active:not(:disabled) {
+    transform: none;
+  }
 }
