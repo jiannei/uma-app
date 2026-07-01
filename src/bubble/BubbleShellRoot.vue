@@ -117,7 +117,11 @@ watch(current, async (r) => {
     armAutoClose();
   }
   await getCurrentWebviewWindow().show();
-  await getCurrentWebviewWindow().setFocus();
+  // Intentionally do NOT call setFocus() — the user is often typing
+  // in terminal / editor when a permission request arrives. Stealing
+  // focus interrupts their keystroke. The bubble shows visually and
+  // can be clicked to focus, but the bubble never grabs focus on
+  // its own.
 });
 
 onMounted(async () => {

@@ -63,9 +63,6 @@ struct AppState {
     pending: PendingStore,
     /// Internal request ID counter (per process).
     request_counter: Arc<Mutex<u64>>,
-    /// Last-captured front app before bubble showed. Used to restore
-    /// focus after hide on macOS. None if never captured or capture failed.
-    front_app: Arc<Mutex<Option<crate::focus_restore::FrontApp>>>,
 }
 
 // ── Handlers ────────────────────────────────────────────────────
@@ -180,10 +177,6 @@ async fn handle_permission(
         return Err(StatusCode::SERVICE_UNAVAILABLE);
     }
 
-    // Capture the front app BEFORE the bubble steals focus, so we
-    // can restore it after hide. On non-macOS this is a no-op.
-    capture_focus_for_bubble(&state).await;
-
     // Show bubble at its fixed TopCenter position (set once at window
     // creation — see lib.rs setup hook + ADR-0013 决策 4).
     if let Err(err) = show_bubble_window(&state.app) {
@@ -215,7 +208,7 @@ async fn handle_permission(
                 "[http] permission response: request_id={} behavior={:?}",
                 decision.request_id, decision.behavior,
             );
-            hide_bubble_window(&state.app, &state).await;
+            hide_bubble_window(&state.app).await;
             // Forward the canonical decision to the agent via the
             // adapter; the agent owns the wire-format envelope
             // (e.g. Claude Code's `hookSpecificOutput.decision`).
@@ -226,7 +219,7 @@ async fn handle_permission(
         }
         Ok(Err(_)) => {
             log::warn!("[http] permission sender dropped");
-            hide_bubble_window(&state.app, &state).await;
+            hide_bubble_window(&state.app).await;
             Err(StatusCode::INTERNAL_SERVER_ERROR)
         }
         Err(_) => {
@@ -262,7 +255,7 @@ async fn handle_permission(
             // Rust owns the timeout decision AND its UI side
             // effect: hide the bubble. The TS handler only cleans
             // its local queue (see BubbleShellRoot.vue).
-            hide_bubble_window(&state.app, &state).await;
+            hide_bubble_window(&state.app).await;
 
             Ok(Json(payload))
         }
@@ -284,26 +277,9 @@ pub fn show_bubble_window(app: &AppHandle) -> Result<(), String> {
     Ok(())
 }
 
-/// Capture the front app before the bubble shows. Called from
-/// `handle_permission` so the focus capture happens before the window
-/// steals focus. On non-macOS this is a no-op.
-pub async fn capture_focus_for_bubble(state: &Arc<AppState>) {
-    if let Some(front) = crate::focus_restore::capture_front_app() {
-        let mut guard = state.front_app.lock().await;
-        *guard = Some(front);
-    }
-}
-
-async fn hide_bubble_window(app: &AppHandle, state: &Arc<AppState>) {
+async fn hide_bubble_window(app: &AppHandle) {
     if let Some(bubble) = app.get_webview_window("permission-bubble") {
         let _ = bubble.hide();
-    }
-
-    // Restore focus to the previously-captured front app. On non-macOS
-    // `restore_front_app` is a no-op.
-    let guard = state.front_app.lock().await;
-    if let Some(front) = guard.as_ref() {
-        crate::focus_restore::restore_front_app(front);
     }
 }
 
@@ -317,7 +293,6 @@ pub fn build_router(
         app,
         pending,
         request_counter: Arc::new(Mutex::new(0)),
-        front_app: Arc::new(Mutex::new(None)),
     });
     Router::new()
         .route("/health", get(health))

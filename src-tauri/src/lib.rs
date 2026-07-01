@@ -26,7 +26,6 @@ mod agent;
 mod commands;
 mod devtools;
 mod events;
-mod focus_restore;
 mod http_server;
 mod pending_store;
 mod settings_store;

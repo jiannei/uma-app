@@ -123,9 +123,13 @@
   --color-sidebar-ring: oklch(0.72 0.15 145);
 }
 
-/* Body baseline — references Tailwind v4's generated CSS variables */
+/* Body baseline — references Tailwind v4's generated CSS variables.
+   NOTE: html, body background is transparent so floating windows
+   (robot, bubble) can compose against the desktop. Per-window
+   backgrounds come from inner components (`<div id="app">` etc.)
+   which paint their own --color-background when needed. */
 html, body {
-  background-color: var(--color-background);
+  background-color: transparent;
   color: var(--color-foreground);
   font-family: var(--default-font-family);
   overscroll-behavior: none;

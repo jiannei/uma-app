@@ -40,11 +40,6 @@ serde_json = "1"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "net", "time"] }
 axum = "0.7"
 tower = "0.4"
-# Cross-platform front-app detection for focus restoration.
-# On macOS we use NSRunningApplication to save/restore the app that was
-# focused before the bubble stole focus. On other platforms the calls
-# become no-ops via `#[cfg]` in `focus_restore.rs`.
-active-win-pos-rs = "0.7"
 
 # Dev-tools commands (`devtools_get_pending`, `devtools_fire_synthetic_permission`,
 # `theme_load`, `theme_save`) and the dev-only Tauri event emits are gated by
