@@ -24,9 +24,10 @@
 // private to this module — they're consumed only by the commands
 // here.
 
-use tauri::{AppHandle, Manager, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 
 use crate::agent;
+use crate::events;
 use crate::pending_store::PendingStore;
 use crate::settings_store::SettingsStore;
 
@@ -77,6 +78,16 @@ pub fn toggle_auto_start(store: State<'_, SettingsStore>) -> Result<bool, String
     store.toggle_auto_start()
 }
 
+#[tauri::command]
+pub fn set_bubble_policy(
+    store: State<'_, SettingsStore>,
+    permission_seconds: u32,
+    notification_seconds: u32,
+    update_seconds: u32,
+) -> Result<(), String> {
+    store.set_bubble_policy(permission_seconds, notification_seconds, update_seconds)
+}
+
 // ── Permission commands ────────────────────────────────────────
 
 /// User responded to a permission request. `PendingStore::resolve`
@@ -101,8 +112,12 @@ pub async fn respond_permission(
     }
 
     // Hide bubble window after user responds (or after a stale
-    // response — the hide is harmless either way).
+    // response — the hide is harmless either way). Emit
+    // permission-hide first so the renderer can play a 250ms
+    // fade-out animation before the webview is hidden.
     if let Some(bubble) = app.get_webview_window("permission-bubble") {
+        let _ = app.emit(events::prod::PERMISSION_HIDE, ());
+        tokio::time::sleep(std::time::Duration::from_millis(250)).await;
         let _ = bubble.hide();
     }
 
@@ -140,7 +155,30 @@ pub fn set_bubble_size(
     Ok(())
 }
 
-// ── Agent commands ──────────────────────────────────────────────
+/// Renderer-driven height reporting. Called from the bubble webview
+/// via `useResizeObserver` (throttled) when the natural content height
+/// changes. Rust resizes the webview to match, preserving the
+/// current width (and TopCenter anchor).
+#[tauri::command]
+pub fn report_bubble_height(
+    app: AppHandle,
+    height: f64,
+) -> Result<(), String> {
+    if let Some(bubble) = app.get_webview_window("permission-bubble") {
+        // Clamp to bubble bounds (60pt min, 600pt max — matches
+        // min_inner_size / max_inner_size in windows.rs).
+        let h = height.max(80.0).min(600.0);
+        let current_size = bubble.inner_size().map_err(|e| e.to_string())?;
+        bubble
+            .set_size(tauri::PhysicalSize::new(current_size.width, h as u32))
+            .map_err(|e| format!("report_bubble_height: {e}"))?;
+    } else {
+        return Err("permission-bubble window not found".into());
+    }
+    Ok(())
+}
+
+// ── Agent commands ─────────────────────────────────────────────
 
 /// Information about a registered agent, surfaced to the settings UI.
 #[derive(serde::Serialize)]

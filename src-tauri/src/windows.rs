@@ -60,7 +60,7 @@ pub fn build_robot(app: &App) -> tauri::Result<WebviewWindow> {
 /// strategy applies — body `pointer-events: none` + content
 /// `pointer-events: auto`.
 pub fn build_bubble(app: &App) -> tauri::Result<WebviewWindow> {
-    let window = WebviewWindowBuilder::new(
+    let mut builder = WebviewWindowBuilder::new(
         app,
         "permission-bubble",
         WebviewUrl::App("bubble.html".into()),
@@ -75,11 +75,26 @@ pub fn build_bubble(app: &App) -> tauri::Result<WebviewWindow> {
     .shadow(false)
     .resizable(false)
     .visible(false)
-    .transparent(true)
-    .build()?;
+    .transparent(true);
 
-    // 固定 TopCenter 一次 — 不再 setPosition。
-    let _ = window.move_window(Position::TopCenter);
+
+    // macOS: ensure the first click on an inactive bubble window
+    // registers without requiring the user to click the window first
+    // to give it focus.
+    #[cfg(target_os = "macos")]
+    {
+        builder = builder.accept_first_mouse(true);
+    }
+
+    let window = builder.build()?;
+
+    // 固定位置：屏幕中央偏上，避免被 dock/menu bar 遮挡
+    // (Tauri 2 dev 环境下 TopCenter 在多显示器/异型屏布局下
+    // 会被错误计算到屏幕外；手动坐标更可靠。)
+    let _ = window.set_position(tauri::PhysicalPosition::new(
+        800i32,
+        400i32,
+    ));
 
     Ok(window)
 }

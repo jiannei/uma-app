@@ -15,9 +15,3 @@ const props = defineProps<{
     <slot />
   </ul>
 </template>
-
-<style scoped>
-.sidebar-menu {
-  @apply flex w-full min-w-0 flex-col gap-0.5;
-}
-</style>

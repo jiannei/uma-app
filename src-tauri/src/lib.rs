@@ -26,6 +26,7 @@ mod agent;
 mod commands;
 mod devtools;
 mod events;
+mod focus_restore;
 mod http_server;
 mod pending_store;
 mod settings_store;
@@ -66,8 +67,10 @@ pub fn run() {
             commands::toggle_dnd,
             commands::toggle_sound,
             commands::toggle_auto_start,
+            commands::set_bubble_policy,
             commands::respond_permission,
             commands::set_bubble_size,
+            commands::report_bubble_height,
             commands::list_agents,
             commands::check_agent_installed,
             commands::install_agent_hook,

@@ -1,0 +1,1216 @@
+/* Tailwind v4 @apply requires @reference to import utility definitions */
+@reference "tailwindcss";
+
+/* Icon utility classes now live in src/styles/shared.css (generated from @iconify-json/lucide) */
+
+/* src/styles/shortcuts.css — Global component class definitions.
+ *
+ * All component classes that were previously in <style scoped> blocks
+ * across ~40 SFC files now live here as either:
+ *   - @utility <name> { @apply ...; }  (class-only abstractions)
+ *   - plain CSS rules with attribute selectors / pseudo-classes
+ *
+ * Templates reference these classes via class="..." unchanged.
+ *
+ * No <style scoped> in any .vue file (Decision 9). All styles are
+ * global — global rule collisions are impossible because each class
+ * name is unique to its source component.
+ *
+ * Migration notes:
+ *   - var(--primary) -> var(--color-primary), var(--background) -> var(--color-background), etc.
+ *   - var(--font-sans) -> var(--default-font-family) (token was renamed in shared.css)
+ *   - rounded-[min(var(--radius-md),10px)] -> rounded-[min(var(--radius-md),10px)]
+ *   - var(--reka-select-*) kept as-is (bubble reka-ui internal, not in our token system)
+ */
+
+/* ============================================================
+ * src/components/Btn.vue (1 @utility + 14 plain CSS rules)
+ * ============================================================ */
+@utility btn {
+  @apply rounded-lg border border-transparent bg-clip-padding text-sm font-medium inline-flex shrink-0 items-center justify-center whitespace-nowrap transition-all outline-none select-none;
+}
+.btn:focus-visible {
+  @apply border-[var(--color-ring)] ring-[var(--color-ring)]/50 ring-3;
+}
+.btn:disabled {
+  @apply pointer-events-none opacity-50;
+}
+.btn[data-variant="default"] {
+  @apply bg-[var(--color-primary)] text-[var(--color-primary-foreground)];
+}
+.btn[data-variant="outline"] {
+  @apply border-[var(--color-border)] bg-[var(--color-background)] hover:bg-[var(--color-muted)] hover:text-[var(--color-foreground)] dark:bg-[var(--color-input)]/30 dark:border-[var(--color-input)] dark:hover:bg-[var(--color-input)]/50;
+}
+.btn[data-variant="secondary"] {
+  @apply bg-[var(--color-secondary)] text-[var(--color-secondary-foreground)] hover:bg-[var(--color-secondary)]/80;
+}
+.btn[data-variant="ghost"] {
+  @apply hover:bg-[var(--color-muted)] hover:text-[var(--color-foreground)] dark:hover:bg-[var(--color-muted)]/50;
+}
+.btn[data-variant="destructive"] {
+  @apply bg-[var(--color-destructive)]/10 dark:bg-[var(--color-destructive)]/20 hover:bg-[var(--color-destructive)]/20 dark:hover:bg-[var(--color-destructive)]/30 text-[var(--color-destructive)] focus-visible:border-[var(--color-destructive)]/40;
+}
+.btn[data-variant="link"] {
+  @apply text-[var(--color-primary)] underline-offset-4 hover:underline;
+}
+.btn[data-size="default"] {
+  @apply h-8 gap-1.5 px-2.5;
+}
+.btn[data-size="default"]:has([data-icon="inline-end"]) {
+  @apply pr-2;
+}
+.btn[data-size="default"]:has([data-icon="inline-start"]) {
+  @apply pl-2;
+}
+.btn[data-size="xs"] {
+  @apply h-6 gap-1 rounded-[min(var(--radius-md),10px)] px-2 text-xs;
+}
+.btn[data-size="xs"]:has([data-icon="inline-end"]) {
+  @apply pr-1.5;
+}
+.btn[data-size="xs"]:has([data-icon="inline-start"]) {
+  @apply pl-1.5;
+}
+.btn[data-size="sm"] {
+  @apply h-7 gap-1 rounded-[min(var(--radius-md),12px)] px-2.5 text-[0.8rem];
+}
+.btn[data-size="sm"]:has([data-icon="inline-end"]) {
+  @apply pr-1.5;
+}
+.btn[data-size="sm"]:has([data-icon="inline-start"]) {
+  @apply pl-1.5;
+}
+.btn[data-size="lg"] {
+  @apply h-9 gap-1.5 px-2.5;
+}
+.btn[data-size="lg"]:has([data-icon="inline-end"]) {
+  @apply pr-2;
+}
+.btn[data-size="lg"]:has([data-icon="inline-start"]) {
+  @apply pl-2;
+}
+.btn[data-size="icon"] {
+  @apply size-8;
+}
+.btn[data-size="icon-xs"] {
+  @apply size-6 rounded-[min(var(--radius-md),10px)];
+}
+.btn[data-size="icon-sm"] {
+  @apply size-7 rounded-[min(var(--radius-md),12px)];
+}
+.btn[data-size="icon-lg"] {
+  @apply size-9;
+}
+
+/* ============================================================
+ * src/components/Input.vue
+ * ============================================================ */
+@utility input {
+  @apply dark:bg-[var(--color-input)]/30 border-[var(--color-input)] h-8 rounded-lg border bg-transparent px-2.5 py-1 text-base transition-colors w-full min-w-0 outline-none md:text-sm;
+}
+.input:focus-visible {
+  @apply border-[var(--color-ring)] ring-[var(--color-ring)]/50 ring-3;
+}
+.input:disabled {
+  @apply bg-[var(--color-input)]/50 dark:bg-[var(--color-input)]/80 pointer-events-none cursor-not-allowed opacity-50;
+}
+.input::placeholder {
+  @apply text-[var(--color-muted-foreground)];
+}
+.input[type="file"] {
+  @apply h-6 text-sm font-medium;
+}
+
+/* ============================================================
+ * src/components/Textarea.vue
+ * ============================================================ */
+@utility textarea {
+  @apply dark:bg-[var(--color-input)]/30 border-[var(--color-input)] focus-visible:border-[var(--color-ring)] focus-visible:ring-[var(--color-ring)]/50 disabled:bg-[var(--color-input)]/50 dark:disabled:bg-[var(--color-input)]/80 rounded-lg border bg-transparent px-2.5 py-2 text-base transition-colors focus-visible:ring-3 md:text-sm flex field-sizing-content min-h-16 w-full outline-none placeholder:text-[var(--color-muted-foreground)] disabled:cursor-not-allowed disabled:opacity-50;
+}
+.textarea:focus-visible {
+  @apply border-[var(--color-ring)] ring-[var(--color-ring)]/50 ring-3;
+}
+.textarea:disabled {
+  @apply bg-[var(--color-input)]/50 dark:bg-[var(--color-input)]/80 pointer-events-none cursor-not-allowed opacity-50;
+}
+.textarea::placeholder {
+  @apply text-[var(--color-muted-foreground)];
+}
+.textarea[aria-invalid="true"] {
+  @apply ring-[var(--color-destructive)]/20 dark:ring-[var(--color-destructive)]/40 border-[var(--color-destructive)] ring-3;
+}
+
+/* ============================================================
+ * src/components/Switch.vue
+ * ============================================================ */
+@utility switch {
+  @apply relative inline-flex shrink-0 items-center rounded-full border border-transparent transition-all outline-none w-8 h-[18.4px];
+}
+.switch[data-checked] {
+  @apply bg-[var(--color-primary)];
+}
+.switch[data-unchecked] {
+  @apply bg-[var(--color-input)];
+}
+.switch:focus-visible {
+  @apply border-[var(--color-ring)] ring-[var(--color-ring)]/50 ring-3;
+}
+.switch[data-disabled] {
+  @apply cursor-not-allowed opacity-50;
+}
+.switch::after {
+  @apply absolute content-[''];
+  inset: -8px -12px;
+}
+.switch-thumb {
+  @apply bg-[var(--color-background)] pointer-events-none block size-4 rounded-full ring-0 transition-transform;
+}
+.switch[data-checked] .switch-thumb {
+  transform: translateX(calc(100% - 2px));
+}
+.switch[data-unchecked] .switch-thumb {
+  transform: translateX(0);
+}
+.dark .switch-thumb[data-unchecked] {
+  @apply bg-[var(--color-foreground)];
+}
+.dark .switch-thumb[data-checked] {
+  @apply bg-[var(--color-primary-foreground)];
+}
+
+/* ============================================================
+ * src/components/Badge.vue
+ * ============================================================ */
+@utility badge {
+  @apply h-5 gap-1 rounded-4xl border border-transparent px-2 py-0.5 text-xs font-medium transition-all inline-flex w-fit shrink-0 items-center justify-center overflow-hidden whitespace-nowrap;
+}
+.badge[data-variant="default"] {
+  @apply bg-[var(--color-primary)] text-[var(--color-primary-foreground)];
+}
+.badge[data-variant="secondary"] {
+  @apply bg-[var(--color-secondary)] text-[var(--color-secondary-foreground)];
+}
+.badge[data-variant="destructive"] {
+  @apply bg-[var(--color-destructive)]/10 dark:bg-[var(--color-destructive)]/20 text-[var(--color-destructive)];
+}
+.badge[data-variant="outline"] {
+  @apply border-[var(--color-border)] text-[var(--color-foreground)];
+}
+
+/* ============================================================
+ * src/components/Separator.vue
+ * ============================================================ */
+@utility separator {
+  @apply shrink-0 bg-[var(--color-border)];
+}
+.separator[data-orientation="horizontal"] {
+  @apply h-px w-full;
+}
+.separator[data-orientation="vertical"] {
+  @apply w-px self-stretch;
+}
+
+/* ============================================================
+ * src/components/Card.vue
+ * ============================================================ */
+@utility card {
+  @apply ring-[var(--color-foreground)]/10 bg-[var(--color-card)] text-[var(--color-card-foreground)] gap-4 overflow-hidden rounded-xl py-4 text-sm ring-1 flex flex-col;
+}
+.card:has([data-slot="card-footer"]) {
+  padding-bottom: 0;
+}
+.card > img:first-child {
+  padding-top: 0;
+  border-top-left-radius: var(--radius-xl, 12px);
+  border-top-right-radius: var(--radius-xl, 12px);
+}
+.card > img:last-child {
+  border-bottom-left-radius: var(--radius-xl, 12px);
+  border-bottom-right-radius: var(--radius-xl, 12px);
+}
+
+/* ============================================================
+ * src/components/CardContent.vue
+ * ============================================================ */
+@utility card-content {
+  @apply px-4;
+}
+
+/* ============================================================
+ * src/components/TabsRoot.vue
+ * ============================================================ */
+@utility tabs {
+  @apply gap-2 flex;
+}
+.tabs[data-orientation="horizontal"] {
+  @apply flex-col;
+}
+
+/* ============================================================
+ * src/components/TabsContent.vue
+ * ============================================================ */
+@utility tabs-content {
+  @apply text-sm flex-1 outline-none;
+}
+
+/* ============================================================
+ * src/components/TooltipContent.vue
+ * ============================================================ */
+@utility tooltip-content {
+  @apply inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs bg-[var(--color-foreground)] text-[var(--color-background)] z-50 w-fit max-w-xs;
+}
+.tooltip-content:has([data-slot="kbd"]) {
+  padding-right: 0.375rem;
+}
+
+/* ============================================================
+ * src/components/TooltipArrow.vue
+ * ============================================================ */
+@utility tooltip-arrow {
+  @apply size-2.5 rotate-45 rounded-xs bg-[var(--color-foreground)] fill-[var(--color-foreground)] z-50;
+  transform: translateY(calc(-50% - 2px));
+}
+
+/* ============================================================
+ * src/components/Label.vue
+ * ============================================================ */
+@utility label {
+  @apply gap-2 text-sm leading-none font-medium flex items-center select-none;
+}
+
+/* ============================================================
+ * src/components/SelectContent.vue
+ * ============================================================ */
+@utility select-content {
+  @apply bg-[var(--color-popover)] text-[var(--color-popover-foreground)] min-w-36 rounded-lg shadow-md ring-1 ring-[var(--color-foreground)]/10 duration-100 relative z-50 max-h-[var(--reka-select-content-available-height)] origin-[var(--reka-select-content-transform-origin)] overflow-x-hidden overflow-y-auto;
+}
+
+/* ============================================================
+ * src/components/SelectItem.vue
+ * ============================================================ */
+@utility select-item {
+  @apply gap-1.5 rounded-md py-1 pr-8 pl-1.5 text-sm relative flex w-full cursor-default items-center outline-hidden select-none;
+}
+.select-item:focus {
+  @apply bg-[var(--color-accent)] text-[var(--color-accent-foreground)];
+}
+.select-item[data-disabled] {
+  @apply pointer-events-none opacity-50;
+}
+
+/* ============================================================
+ * src/components/SelectScrollButton.vue
+ * ============================================================ */
+@utility select-scroll-button {
+  @apply flex cursor-default items-center justify-center py-1;
+}
+
+/* ============================================================
+ * src/components/SelectTrigger.vue
+ * ============================================================ */
+@utility select-trigger {
+  @apply border-[var(--color-input)] gap-1.5 rounded-lg border bg-transparent py-2 pr-2 pl-2.5 text-sm transition-colors select-none flex w-fit items-center justify-between whitespace-nowrap outline-none;
+}
+.select-trigger[data-placeholder] {
+  @apply text-[var(--color-muted-foreground)];
+}
+.select-trigger:focus-visible {
+  @apply border-[var(--color-ring)] ring-[var(--color-ring)]/50 ring-3;
+}
+.select-trigger[data-size="default"] {
+  @apply h-8;
+}
+.select-trigger[data-size="sm"] {
+  @apply h-7 rounded-[min(var(--radius-md),10px)];
+}
+.select-trigger:disabled {
+  @apply cursor-not-allowed opacity-50;
+}
+.dark .select-trigger {
+  @apply bg-[var(--color-input)]/30;
+}
+.dark .select-trigger:hover {
+  @apply bg-[var(--color-input)]/50;
+}
+
+/* ============================================================
+ * src/components/SelectViewport.vue
+ * ============================================================ */
+.select-viewport {
+  /* popper mode sizing via reka-ui CSS vars */
+}
+.select-viewport[data-position="popper"] {
+  height: var(--reka-select-trigger-height);
+  width: 100%;
+  min-width: var(--reka-select-trigger-width);
+}
+
+/* ============================================================
+ * src/components/sidebar/Sidebar.vue
+ * ============================================================ */
+@utility sidebar-base {
+  @apply bg-[var(--color-sidebar)] text-[var(--color-sidebar-foreground)] flex h-full w-[var(--sidebar-width)] flex-col;
+}
+@utility sidebar-gap {
+  @apply transition-[width] duration-200 ease-linear relative w-[var(--sidebar-width)] bg-transparent;
+}
+@utility sidebar-container {
+  @apply fixed inset-y-0 z-10 hidden h-svh w-[var(--sidebar-width)] transition-[left,right,width] duration-200 ease-linear md:flex;
+}
+@utility sidebar-container-default {
+  @apply group-data-[collapsible=icon]:w-[var(--sidebar-width-icon)];
+}
+[data-side="left"] .sidebar-container-default {
+  @apply group-data-[side=left]:border-r;
+}
+[data-side="right"] .sidebar-container-default {
+  @apply group-data-[side=right]:border-l;
+}
+@utility sidebar-container-floating {
+  @apply p-2 group-data-[collapsible=icon]:w-[calc(var(--sidebar-width-icon)+(--spacing(4))+2px)];
+}
+@utility sidebar-inner {
+  @apply bg-[var(--color-sidebar)] flex size-full flex-col;
+}
+@utility sidebar-inner-floating {
+  @apply group-data-[variant=floating]:ring-[var(--color-sidebar-border)] group-data-[variant=floating]:rounded-lg group-data-[variant=floating]:shadow-sm group-data-[variant=floating]:ring-1;
+}
+/* Offcanvas collapse */
+[data-collapsible="offcanvas"] .sidebar-gap {
+  width: 0;
+}
+[data-side="left"][data-collapsible="offcanvas"] .sidebar-container {
+  left: calc(var(--sidebar-width) * -1);
+}
+[data-side="right"][data-collapsible="offcanvas"] .sidebar-container {
+  right: calc(var(--sidebar-width) * -1);
+}
+/* Icon collapse */
+[data-collapsible="icon"] .sidebar-container-default {
+  width: var(--sidebar-width-icon);
+}
+[data-collapsible="icon"] .sidebar-container-floating {
+  width: calc(var(--sidebar-width-icon) + var(--spacing, 1rem) * 4 + 2px);
+}
+
+/* ============================================================
+ * src/components/sidebar/SidebarContent.vue
+ * ============================================================ */
+@utility sidebar-content {
+  @apply gap-0 flex min-h-0 flex-1 flex-col overflow-auto;
+}
+.group[data-collapsible=icon] .sidebar-content {
+  @apply overflow-hidden;
+}
+
+/* ============================================================
+ * src/components/sidebar/SidebarFooter.vue
+ * ============================================================ */
+@utility sidebar-footer {
+  @apply gap-2 p-2 flex flex-col;
+}
+
+/* ============================================================
+ * src/components/sidebar/SidebarHeader.vue
+ * ============================================================ */
+@utility sidebar-header {
+  @apply gap-2 p-2 flex flex-col;
+}
+
+/* ============================================================
+ * src/components/sidebar/SidebarGroup.vue
+ * ============================================================ */
+@utility sidebar-group {
+  @apply p-2 relative flex w-full min-w-0 flex-col;
+}
+
+/* ============================================================
+ * src/components/sidebar/SidebarGroupAction.vue
+ * ============================================================ */
+@utility sidebar-group-action {
+  @apply text-[var(--color-sidebar-foreground)] ring-[var(--color-sidebar-ring)] hover:bg-[var(--color-sidebar-accent)] hover:text-[var(--color-sidebar-accent-foreground)] absolute top-3.5 right-3 w-5 rounded-md p-0 focus-visible:ring-2 flex aspect-square items-center justify-center outline-hidden transition-transform;
+}
+.sidebar-group-action > svg {
+  @apply size-4 shrink-0;
+}
+.group[data-collapsible="icon"] .sidebar-group-action {
+  @apply hidden;
+}
+@media (min-width: 768px) {
+  .sidebar-group-action::after {
+    @apply hidden;
+  }
+}
+
+/* ============================================================
+ * src/components/sidebar/SidebarGroupContent.vue
+ * ============================================================ */
+@utility sidebar-group-content {
+  @apply text-sm w-full;
+}
+
+/* ============================================================
+ * src/components/sidebar/SidebarGroupLabel.vue
+ * ============================================================ */
+@utility sidebar-group-label {
+  @apply text-[var(--color-sidebar-foreground)]/70 ring-[var(--color-sidebar-ring)] h-8 rounded-md px-2 text-xs font-medium transition-[margin,opacity] duration-200 ease-linear focus-visible:ring-2 flex shrink-0 items-center outline-hidden;
+}
+.sidebar-group-label > svg {
+  @apply size-4 shrink-0;
+}
+.group[data-collapsible="icon"] .sidebar-group-label {
+  @apply -mt-8 opacity-0;
+}
+
+/* ============================================================
+ * src/components/sidebar/SidebarInset.vue
+ * ============================================================ */
+@utility sidebar-inset {
+  @apply bg-[var(--color-background)] relative flex w-full flex-1 flex-col;
+}
+
+/* ============================================================
+ * src/components/sidebar/SidebarMenu.vue
+ * ============================================================ */
+@utility sidebar-menu {
+  @apply flex w-full min-w-0 flex-col gap-0.5;
+}
+
+/* ============================================================
+ * src/components/sidebar/SidebarMenuAction.vue
+ * ============================================================ */
+@utility sidebar-menu-action {
+  @apply text-[var(--color-sidebar-foreground)] ring-[var(--color-sidebar-ring)] hover:bg-[var(--color-sidebar-accent)] hover:text-[var(--color-sidebar-accent-foreground)] absolute top-1.5 right-1 aspect-square w-5 rounded-md p-0 focus-visible:ring-2 flex items-center justify-center outline-hidden transition-transform;
+}
+.sidebar-menu-action > svg {
+  @apply size-4 shrink-0;
+}
+.group[data-collapsible="icon"] .sidebar-menu-action {
+  @apply hidden;
+}
+@media (min-width: 768px) {
+  .sidebar-menu-action::after {
+    @apply hidden;
+  }
+}
+@utility sidebar-menu-action-hover {
+  @apply md:opacity-0;
+}
+.group:hover .sidebar-menu-action-hover,
+.group:focus-within .sidebar-menu-action-hover,
+.sidebar-menu-action-hover[aria-expanded="true"] {
+  @apply opacity-100;
+}
+
+/* ============================================================
+ * src/components/sidebar/SidebarMenuBadge.vue
+ * ============================================================ */
+@utility sidebar-menu-badge {
+  @apply text-[var(--color-sidebar-foreground)] pointer-events-none absolute right-1 h-5 min-w-5 rounded-md px-1 text-xs font-medium flex items-center justify-center tabular-nums select-none;
+}
+
+/* ============================================================
+ * src/components/sidebar/SidebarMenuButtonChild.vue
+ * ============================================================ */
+@utility sidebar-menu-button {
+  @apply ring-[var(--color-sidebar-ring)] hover:bg-[var(--color-sidebar-accent)] hover:text-[var(--color-sidebar-accent-foreground)] active:bg-[var(--color-sidebar-accent)] active:text-[var(--color-sidebar-accent-foreground)] gap-2 rounded-md p-2 text-left text-sm transition-[width,height,padding] focus-visible:ring-2 flex w-full items-center overflow-hidden outline-hidden disabled:pointer-events-none disabled:opacity-50 aria-disabled:pointer-events-none aria-disabled:opacity-50;
+}
+.sidebar-menu-button[data-active="true"] {
+  @apply font-medium;
+}
+.sidebar-menu-button > svg,
+.sidebar-menu-button > span:last-child {
+  @apply size-4 shrink-0;
+}
+.sidebar-menu-button > span:last-child {
+  @apply truncate;
+}
+.group[data-collapsible="icon"] .sidebar-menu-button {
+  @apply size-8 p-2;
+}
+@utility sidebar-menu-button-default {
+  @apply hover:bg-[var(--color-sidebar-accent)] hover:text-[var(--color-sidebar-accent-foreground)];
+}
+@utility sidebar-menu-button-outline {
+  @apply bg-[var(--color-background)] hover:bg-[var(--color-sidebar-accent)] hover:text-[var(--color-sidebar-accent-foreground)];
+  box-shadow: 0 0 0 1px var(--color-sidebar-border);
+}
+.sidebar-menu-button-outline:hover {
+  box-shadow: 0 0 0 1px var(--color-sidebar-accent);
+}
+@utility sidebar-menu-button-size-default {
+  @apply h-8 text-sm;
+}
+@utility sidebar-menu-button-size-sm {
+  @apply h-7 text-xs;
+}
+@utility sidebar-menu-button-size-lg {
+  @apply h-12 text-sm;
+}
+.group[data-collapsible="icon"] .sidebar-menu-button-size-lg {
+  @apply p-0;
+}
+
+/* ============================================================
+ * src/components/sidebar/SidebarMenuItem.vue
+ * ============================================================ */
+@utility sidebar-menu-item {
+  @apply relative;
+}
+
+/* ============================================================
+ * src/components/sidebar/SidebarMenuSkeleton.vue
+ * ============================================================ */
+@utility sidebar-menu-skeleton {
+  @apply h-8 gap-2 rounded-md px-2 flex items-center;
+}
+
+/* ============================================================
+ * src/components/sidebar/SidebarMenuSub.vue
+ * ============================================================ */
+@utility sidebar-menu-sub {
+  @apply mx-3.5 flex min-w-0 translate-x-px flex-col gap-1 border-l border-[var(--color-sidebar-border)] px-2.5 py-0.5;
+}
+
+/* ============================================================
+ * src/components/sidebar/SidebarMenuSubButton.vue
+ * ============================================================ */
+@utility sidebar-menu-sub-button {
+  @apply text-[var(--color-sidebar-foreground)] ring-[var(--color-sidebar-ring)] hover:bg-[var(--color-sidebar-accent)] hover:text-[var(--color-sidebar-accent-foreground)] active:bg-[var(--color-sidebar-accent)] active:text-[var(--color-sidebar-accent-foreground)] gap-2 rounded-md h-7 px-2 focus-visible:ring-2 flex w-full items-center overflow-hidden outline-hidden disabled:pointer-events-none disabled:opacity-50 aria-disabled:pointer-events-none aria-disabled:opacity-50;
+}
+.sidebar-menu-sub-button[data-active="true"] {
+  @apply bg-[var(--color-sidebar-accent)] text-[var(--color-sidebar-accent-foreground)];
+}
+.sidebar-menu-sub-button > svg {
+  @apply size-4 shrink-0;
+}
+.sidebar-menu-sub-button > span:last-child {
+  @apply truncate;
+}
+
+/* ============================================================
+ * src/components/sidebar/SidebarMenuSubItem.vue
+ * ============================================================ */
+@utility sidebar-menu-sub-item {
+  @apply relative;
+}
+
+/* ============================================================
+ * src/components/sidebar/SidebarProvider.vue
+ * ============================================================ */
+@utility sidebar-wrapper {
+  @apply flex min-h-svh w-full;
+}
+.sidebar-wrapper:has([data-variant="inset"]) {
+  @apply bg-[var(--color-sidebar)];
+}
+
+/* ============================================================
+ * src/components/sidebar/SidebarRail.vue
+ * ============================================================ */
+@utility sidebar-rail {
+  @apply absolute inset-y-0 z-20 hidden w-4 transition-all ease-linear sm:flex;
+}
+.sidebar-rail:hover::after {
+  @apply bg-[var(--color-sidebar-border)];
+}
+.sidebar-rail::after {
+  @apply absolute inset-y-0 start-1/2 w-0.5 content-[''];
+}
+[data-side="left"] .sidebar-rail {
+  @apply -right-4;
+}
+[data-side="right"] .sidebar-rail {
+  @apply left-0;
+}
+/* Cursors */
+[data-side="left"] .sidebar-rail {
+  cursor: w-resize;
+}
+[data-side="right"] .sidebar-rail {
+  cursor: e-resize;
+}
+[data-side="left"][data-state="collapsed"] .sidebar-rail {
+  cursor: e-resize;
+}
+[data-side="right"][data-state="collapsed"] .sidebar-rail {
+  cursor: w-resize;
+}
+/* Offcanvas */
+[data-collapsible="offcanvas"] .sidebar-rail {
+  @apply translate-x-0;
+}
+[data-collapsible="offcanvas"] .sidebar-rail::after {
+  left: 100%;
+}
+[data-side="left"][data-collapsible="offcanvas"] .sidebar-rail {
+  @apply -right-2;
+}
+[data-side="right"][data-collapsible="offcanvas"] .sidebar-rail {
+  @apply -left-2;
+}
+
+/* ============================================================
+ * src/components/sidebar/SidebarSeparator.vue
+ * ============================================================ */
+@utility sidebar-separator {
+  @apply bg-[var(--color-sidebar-border)] mx-2 w-auto;
+}
+
+/* ============================================================
+ * src/App.vue (@keyframes toast-in + .animate-toast-in)
+ * ============================================================ */
+@keyframes toast-in {
+  from { opacity: 0; transform: translate(-50%, 6px); }
+  to   { opacity: 1; transform: translate(-50%, 0); }
+}
+@utility animate-toast-in {
+  animation: toast-in 0.25s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+/* ============================================================
+ * src/devtools/panels/SyntheticFirePanel.vue
+ * ============================================================ */
+@utility dev-select {
+  @apply bg-[var(--color-secondary)] border border-[var(--color-border)] text-[var(--color-foreground)] rounded px-1.5 py-1 font-mono text-[11px];
+}
+.dev-select:focus {
+  @apply border-[var(--color-ring)] outline-none;
+}
+
+/* ============================================================
+ * src/devtools/panels/ThemeEditorPanel.vue (same .dev-select as above;
+ * duplicate @utility definition is fine because Tailwind v4 merges by name)
+ * ============================================================ */
+
+/* ============================================================
+ * src/bubble/PillLayout.vue
+ * ============================================================ */
+.pill-layout {
+  background: var(--bubble-bg);
+  backdrop-filter: var(--bubble-bg-blur);
+  -webkit-backdrop-filter: var(--bubble-bg-blur);
+  box-shadow: var(--bubble-shadow);
+  overflow: hidden;
+  font: 13px/1 -apple-system, BlinkMacSystemFont, sans-serif;
+  color: #f4f4f5;
+  border-radius: 22pt;
+  transition: border-radius 280ms cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+.pill-layout.expanded {
+  border-radius: 16pt;
+}
+
+.pill-compact {
+  display: flex;
+  align-items: center;
+  padding: 0 6px 0 4px;
+  gap: 4px;
+  height: 100%;
+}
+
+.icon-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 18px;
+  flex-shrink: 0;
+  font-size: 16px;
+  display: none;
+}
+
+.kind-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  margin: 0 8px 0 12px;
+}
+
+.middle-button {
+  flex: 1;
+  min-width: 0;
+  height: 36px;
+  margin: 0 4px;
+  padding: 0 10px;
+  border: none;
+  background: transparent;
+  color: #f4f4f5;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  transition: background 200ms;
+}
+
+.middle-button:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.summary-text {
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.hint-text {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  font-size: 10px;
+  color: rgba(255, 255, 255, 0.45);
+  flex-shrink: 0;
+  font-family: ui-monospace, monospace;
+  transition: color 200ms;
+  display: none;
+}
+
+.middle-button:hover .hint-text {
+  color: rgba(255, 255, 255, 0.85);
+}
+
+.pill-expanded {
+  display: flex;
+  flex-direction: column;
+}
+
+.expanded-header {
+  padding: 12px 14px 10px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.icon-chip-small {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 14px;
+  flex-shrink: 0;
+  font-size: 14px;
+}
+
+.expanded-title {
+  flex: 1;
+  font-weight: 600;
+  font-size: 13px;
+}
+
+.collapse-chip {
+  font-size: 10px;
+  padding: 3px 8px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.08);
+  color: #a1a1aa;
+  border: none;
+  cursor: pointer;
+}
+
+.expanded-body {
+  max-height: 380pt;
+  overflow-y: auto;
+  padding: 0 14px 14px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pill-layout {
+    transition: none !important;
+  }
+}
+
+/* ============================================================
+ * src/bubble/PanelLayout.vue
+ * ============================================================ */
+.panel-layout {
+  width: 600pt;
+  max-height: 600pt;
+  border-radius: 14px;
+  background: var(--bubble-bg);
+  backdrop-filter: var(--bubble-bg-blur);
+  -webkit-backdrop-filter: var(--bubble-bg-blur);
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.42);
+  color: #f4f4f5;
+  font: 13px/1.5 -apple-system, BlinkMacSystemFont, sans-serif;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.panel-header {
+  height: 44px;
+  padding: 0 16px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.panel-title {
+  font-weight: 600;
+  font-size: 13px;
+}
+
+.panel-header-right {
+  flex: 1;
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 8px;
+}
+
+.panel-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 18px 20px;
+}
+
+.panel-footer {
+  height: 52px;
+  padding: 0 16px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  background: rgba(0, 0, 0, 0.18);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .panel-layout {
+    transition: none !important;
+  }
+}
+
+/* ============================================================
+ * src/bubble/PillShell.vue
+ * ============================================================ */
+.action-button {
+  height: 30px;
+  width: 30px;
+  padding: 0;
+  border-radius: 15px;
+  border: none;
+  cursor: pointer;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.action-button.allow {
+  background: #22c55e;
+  color: #052e10;
+}
+
+.action-button.deny {
+  background: rgba(239, 68, 68, 0.18);
+  color: #fca5a5;
+}
+
+/* ============================================================
+ * src/bubble/AskPanelContent.vue
+ * ============================================================ */
+.ask-panel-content {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.question-container {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.question-title {
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.question-subtitle {
+  color: #a1a1aa;
+  font-size: 12px;
+}
+
+.options-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.option-label {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.04);
+  cursor: pointer;
+  transition: background 200ms;
+}
+
+.option-label.selected {
+  background: rgba(245, 158, 11, 0.12);
+  border: 1px solid rgba(245, 158, 11, 0.4);
+}
+
+.option-indicator {
+  width: 16px;
+  height: 16px;
+  border: 1.5px solid rgba(255, 255, 255, 0.3);
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.option-indicator.radio {
+  border-radius: 50%;
+}
+
+.option-indicator.checkbox {
+  border-radius: 4px;
+}
+
+.option-indicator.checked {
+  border-color: #f59e0b;
+  background: #f59e0b;
+}
+
+.indicator-check {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #422006;
+}
+
+.option-text {
+  flex: 1;
+}
+
+.footer-buttons {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: auto;
+}
+
+.footer-button {
+  height: 30px;
+  padding: 0 14px;
+  border-radius: 8px;
+  border: none;
+  font-size: 12px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.footer-button.back {
+  background: transparent;
+  color: #a1a1aa;
+}
+
+.footer-button.back:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.footer-button.deny {
+  background: rgba(255, 255, 255, 0.08);
+  color: #f4f4f5;
+}
+
+.footer-button.primary {
+  background: #f59e0b;
+  color: #422006;
+  font-weight: 600;
+}
+
+/* ============================================================
+ * src/bubble/PlanPanelContent.vue
+ * ============================================================ */
+.plan-panel-content {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.progress-section {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.progress-bar {
+  flex: 1;
+  height: 2px;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.progress-fill {
+  height: 100%;
+  background: #22c55e;
+  transition: width 200ms;
+}
+
+.read-percent {
+  font-size: 11px;
+  color: #a1a1aa;
+}
+
+.read-percent.complete {
+  color: #22c55e;
+}
+
+.plan-text {
+  background: rgba(0, 0, 0, 0.30);
+  padding: 8px 10px;
+  border-radius: 6px;
+  font: 11.5px/1.5 ui-monospace, SFMono-Regular, monospace;
+  color: #e4e4e7;
+  white-space: pre-wrap;
+  max-height: 240pt;
+  overflow-y: auto;
+}
+
+.feedback-section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.feedback-label {
+  font-size: 11px;
+  color: #a1a1aa;
+}
+
+.feedback-textarea {
+  width: 100%;
+  min-height: 48px;
+  resize: vertical;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  color: #f4f4f5;
+  font: 12px/1.5 -apple-system, BlinkMacSystemFont, sans-serif;
+  outline: none;
+}
+
+.footer-hint {
+  font-size: 11px;
+  color: #a1a1aa;
+}
+
+.footer-button.reject {
+  background: rgba(239, 68, 68, 0.18);
+  color: #fca5a5;
+}
+
+.footer-button.approve {
+  background: rgba(255, 255, 255, 0.10);
+  color: rgba(255, 255, 255, 0.5);
+  font-weight: 600;
+}
+
+.footer-button.approve:disabled {
+  cursor: not-allowed;
+}
+
+.footer-button.approve:not(:disabled) {
+  background: #22c55e;
+  color: #052e10;
+}
+
+/* ============================================================
+ * src/bubble/ToolPillContent.vue
+ * ============================================================ */
+.tool-pill-content {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.section-label {
+  font-size: 10px;
+  color: #71717a;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 4px;
+}
+
+.command-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.command-block {
+  background: rgba(0, 0, 0, 0.30);
+  padding: 8px 10px;
+  border-radius: 6px;
+  font: 11.5px/1.5 ui-monospace, SFMono-Regular, monospace;
+  color: #e4e4e7;
+  white-space: pre-wrap;
+  word-break: break-all;
+  max-height: 80pt;
+  overflow-y: auto;
+}
+
+.cwd-hint {
+  font-size: 10px;
+  color: #71717a;
+  font-family: ui-monospace, monospace;
+}
+
+.decision-section {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.decision-button {
+  height: 36px;
+  padding: 0 12px;
+  border: none;
+  font-size: 12px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  box-sizing: border-box;
+  transition: background 200ms;
+}
+
+.decision-button.allow-once {
+  background: rgba(34, 197, 94, 0.18);
+  color: #4ade80;
+  font-weight: 600;
+}
+
+.decision-button.suggestion {
+  background: rgba(255, 255, 255, 0.04);
+  color: #f4f4f5;
+}
+
+.decision-button.deny {
+  background: rgba(239, 68, 68, 0.10);
+  color: #fca5a5;
+  margin-top: 4px;
+}
+
+.decision-text {
+  flex: 1;
+}

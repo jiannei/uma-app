@@ -20,9 +20,3 @@ const forwarded = useForwardProps(props)
     <slot />
   </RekaSelectContent>
 </template>
-
-<style scoped>
-.select-content {
-  @apply bg-[var(--popover)] text-[var(--popover-foreground)] min-w-36 rounded-lg shadow-md ring-1 ring-[var(--foreground)]/10 duration-100 relative z-50 max-h-[var(--reka-select-content-available-height)] origin-[var(--reka-select-content-transform-origin)] overflow-x-hidden overflow-y-auto;
-}
-</style>

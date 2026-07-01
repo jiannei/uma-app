@@ -9,7 +9,8 @@
 
 import { createApp } from "vue";
 import RobotRoot from "./RobotRoot.vue";
-import "virtual:uno.css";
+import "../styles/shared.css";
+import "../styles/shortcuts.css";
 import "../styles/robot.css";
 
 createApp(RobotRoot).mount("#app");

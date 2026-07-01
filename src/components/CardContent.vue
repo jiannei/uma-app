@@ -11,9 +11,3 @@ const props = defineProps<{
     <slot />
   </div>
 </template>
-
-<style scoped>
-.card-content {
-  @apply px-4;
-}
-</style>

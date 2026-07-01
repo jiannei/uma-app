@@ -394,3 +394,31 @@ export type {
   PermissionRequest,
   PermissionKind,
 };
+
+// ── Decision builder helpers ───────────────────────────────────
+//
+// Convenience wrappers for the common decision shapes. Each helper
+// returns a partial PermissionDecision; the caller fills in requestId.
+
+/** PlanReview reject with feedback message. */
+export function buildPlanFeedbackDecision(
+  requestId: string,
+  feedback: string,
+): PermissionDecision {
+  return {
+    requestId,
+    behavior: "deny",
+    message: feedback,
+  };
+}
+
+/** "Deny and go to terminal" — PlanReview/Elicitation shortcut. */
+export function buildDenyAndFocusDecision(
+  requestId: string,
+): PermissionDecision {
+  return {
+    requestId,
+    behavior: "deny",
+    message: "User chose to handle in terminal",
+  };
+}

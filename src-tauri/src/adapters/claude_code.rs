@@ -30,6 +30,10 @@ const MAX_PERMISSION_MODE_LEN: usize = 64;
 const AGENT_ID: &str = "claude-code";
 const AGENT_DISPLAY_NAME: &str = "Claude Code";
 
+/// Maximum number of permission_suggestions the bubble will surface.
+/// CC may send more; we keep the first N (FIFO).
+pub const MAX_PERMISSION_SUGGESTIONS: usize = 20;
+
 /// Tool names that Claude Code uses to spawn a subagent. The resolver
 /// uses this to flip `subagent: true` on the canonical HookEvent;
 /// it never inspects the tool name itself. Keep this in lockstep
@@ -270,7 +274,9 @@ impl Agent for ClaudeCodeAdapter {
                 base,
                 tool_name: (!tool_name.is_empty()).then_some(tool_name),
                 tool_input,
-                permission_suggestions: payload.permission_suggestions,
+                permission_suggestions: normalize_permission_suggestions(
+                    payload.permission_suggestions,
+                ),
             }),
         }
     }
@@ -326,6 +332,43 @@ impl Agent for ClaudeCodeAdapter {
 }
 
 // ── Permission payload extraction (ADR-0011) ─────────────────────
+
+/// Normalize permission_suggestions[] coming from Claude Code:
+/// 1. Merge consecutive `AddRules` entries with same `behavior` and
+///    `destination` into a single entry with combined `rules[]`.
+/// 2. Cap total length at `MAX_PERMISSION_SUGGESTIONS` (FIFO).
+///
+/// This collapses the noisy default CC pattern (`addRules[0]`,
+/// `addRules[1]`, `addRules[2]`) into a single `addRules` with multiple
+/// rules — same wire effect, fewer buttons.
+pub fn normalize_permission_suggestions(
+    raw: Vec<PermissionUpdateEntry>,
+) -> Vec<PermissionUpdateEntry> {
+    let mut out: Vec<PermissionUpdateEntry> = Vec::with_capacity(raw.len());
+    for entry in raw {
+        match (&mut out.last_mut(), &entry) {
+            (
+                Some(PermissionUpdateEntry::AddRules {
+                    rules: last_rules,
+                    behavior: last_behavior,
+                    destination: last_destination,
+                }),
+                PermissionUpdateEntry::AddRules {
+                    rules: new_rules,
+                    behavior: new_behavior,
+                    destination: new_destination,
+                },
+            ) if last_behavior == new_behavior && last_destination == new_destination => {
+                last_rules.extend(new_rules.iter().cloned());
+            }
+            _ => out.push(entry),
+        }
+        if out.len() >= MAX_PERMISSION_SUGGESTIONS {
+            break;
+        }
+    }
+    out
+}
 
 /// Pull `questions[]` out of Claude Code's `AskUserQuestion` tool input.
 /// Each entry is deserialized into the canonical `ElicitationQuestion`
@@ -551,4 +594,86 @@ fn add_http_hook(
         "matcher": "",
         "hooks": [hook_entry]
     }));
+}
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::agent::{Destination, PermissionUpdateEntry, RuleBehavior, RuleSpec};
+
+    fn make_add_rules(
+        behavior: RuleBehavior,
+        destination: Destination,
+        rules: Vec<RuleSpec>,
+    ) -> PermissionUpdateEntry {
+        PermissionUpdateEntry::AddRules {
+            behavior,
+            destination,
+            rules,
+        }
+    }
+
+    #[test]
+    fn merges_consecutive_add_rules_with_same_destination() {
+        let raw = vec![
+            make_add_rules(RuleBehavior::Allow, Destination::UserSettings, vec![
+                RuleSpec { tool_name: "Bash".into(), rule_content: Some("echo *".into()) },
+            ]),
+            make_add_rules(RuleBehavior::Allow, Destination::UserSettings, vec![
+                RuleSpec { tool_name: "Bash".into(), rule_content: Some("ls *".into()) },
+            ]),
+        ];
+        let merged = normalize_permission_suggestions(raw);
+        assert_eq!(merged.len(), 1);
+        if let PermissionUpdateEntry::AddRules { rules, .. } = &merged[0] {
+            assert_eq!(rules.len(), 2);
+        } else {
+            panic!("expected AddRules");
+        }
+    }
+
+    #[test]
+    fn does_not_merge_across_destinations() {
+        let raw = vec![
+            make_add_rules(RuleBehavior::Allow, Destination::UserSettings, vec![
+                RuleSpec { tool_name: "Bash".into(), rule_content: Some("echo *".into()) },
+            ]),
+            make_add_rules(RuleBehavior::Allow, Destination::Session, vec![
+                RuleSpec { tool_name: "Bash".into(), rule_content: Some("ls *".into()) },
+            ]),
+        ];
+        let merged = normalize_permission_suggestions(raw);
+        assert_eq!(merged.len(), 2);
+    }
+
+    #[test]
+    fn does_not_merge_across_behaviors() {
+        let raw = vec![
+            make_add_rules(RuleBehavior::Allow, Destination::UserSettings, vec![
+                RuleSpec { tool_name: "Bash".into(), rule_content: Some("echo *".into()) },
+            ]),
+            make_add_rules(RuleBehavior::Deny, Destination::UserSettings, vec![
+                RuleSpec { tool_name: "Bash".into(), rule_content: Some("ls *".into()) },
+            ]),
+        ];
+        let merged = normalize_permission_suggestions(raw);
+        assert_eq!(merged.len(), 2);
+    }
+
+    #[test]
+    fn caps_at_max_permission_suggestions() {
+        // Alternate destinations so consecutive entries don't merge
+        let mut raw = Vec::new();
+        for i in 0..25 {
+            let dest = if i % 2 == 0 { Destination::UserSettings } else { Destination::Session };
+            raw.push(make_add_rules(
+                RuleBehavior::Allow,
+                dest,
+                vec![RuleSpec { tool_name: format!("T{i}"), rule_content: Some("x".into()) }],
+            ));
+        }
+        let merged = normalize_permission_suggestions(raw);
+        assert_eq!(merged.len(), MAX_PERMISSION_SUGGESTIONS);
+    }
 }

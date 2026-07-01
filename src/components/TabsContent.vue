@@ -16,9 +16,3 @@ const props = defineProps<TabsContentProps & {
     <slot />
   </RekaTabsContent>
 </template>
-
-<style scoped>
-.tabs-content {
-  @apply text-sm flex-1 outline-none;
-}
-</style>

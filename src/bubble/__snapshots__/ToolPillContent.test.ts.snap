@@ -1,0 +1,62 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`ToolPillContent > bash: preview is the command, with one suggestion button 1`] = `
+"<div class="tool-pill-content">
+  <div class="command-section">
+    <div class="section-label">COMMAND</div>
+    <div class="command-block"><pre>ls -la</pre>
+    </div>
+    <!--v-if-->
+  </div>
+  <div class="decision-section">
+    <div class="section-label">ALLOW OPTIONS</div><button class="decision-button allow-once"><span class="key-hint">↵</span><span class="decision-text">Allow once</span><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+        <polyline points="3 8 7 12 13 4"></polyline>
+      </svg></button><button class="decision-button suggestion"><span class="key-hint">1</span><span class="decision-text">Always allow Bash in rm -rf/</span><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+        <polyline points="3 8 7 12 13 4"></polyline>
+      </svg></button><button class="decision-button deny"><span class="key-hint">esc</span><span class="decision-text">Deny</span><svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
+        <line x1="4" y1="4" x2="12" y2="12"></line>
+        <line x1="12" y1="4" x2="4" y2="12"></line>
+      </svg></button>
+  </div>
+</div>"
+`;
+
+exports[`ToolPillContent > edit: preview is the filePath 1`] = `
+"<div class="tool-pill-content">
+  <div class="command-section">
+    <div class="section-label">COMMAND</div>
+    <div class="command-block"><pre>src/foo.ts</pre>
+    </div>
+    <!--v-if-->
+  </div>
+  <div class="decision-section">
+    <div class="section-label">ALLOW OPTIONS</div><button class="decision-button allow-once"><span class="key-hint">↵</span><span class="decision-text">Allow once</span><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+        <polyline points="3 8 7 12 13 4"></polyline>
+      </svg></button><button class="decision-button deny"><span class="key-hint">esc</span><span class="decision-text">Deny</span><svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
+        <line x1="4" y1="4" x2="12" y2="12"></line>
+        <line x1="12" y1="4" x2="4" y2="12"></line>
+      </svg></button>
+  </div>
+</div>"
+`;
+
+exports[`ToolPillContent > json: preview is pretty-printed raw input 1`] = `
+"<div class="tool-pill-content">
+  <div class="command-section">
+    <div class="section-label">COMMAND</div>
+    <div class="command-block"><pre>{
+  "url": "https://example.com"
+}</pre>
+    </div>
+    <!--v-if-->
+  </div>
+  <div class="decision-section">
+    <div class="section-label">ALLOW OPTIONS</div><button class="decision-button allow-once"><span class="key-hint">↵</span><span class="decision-text">Allow once</span><svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+        <polyline points="3 8 7 12 13 4"></polyline>
+      </svg></button><button class="decision-button deny"><span class="key-hint">esc</span><span class="decision-text">Deny</span><svg width="11" height="11" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
+        <line x1="4" y1="4" x2="12" y2="12"></line>
+        <line x1="12" y1="4" x2="4" y2="12"></line>
+      </svg></button>
+  </div>
+</div>"
+`;

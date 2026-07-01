@@ -15,9 +15,3 @@ const props = defineProps<LabelProps & {
     <slot />
   </RekaLabel>
 </template>
-
-<style scoped>
-.label {
-  @apply gap-2 text-sm leading-none font-medium flex items-center select-none;
-}
-</style>

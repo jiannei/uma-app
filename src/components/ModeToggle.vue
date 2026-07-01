@@ -1,7 +1,7 @@
 <!-- src/components/ModeToggle.vue — light/dark theme toggle.
 
 Uses `useDark()` from @vueuse/core for 2-way theme switching.
-Persists to localStorage with default key `vueuse-color-scheme`.
+Persists to localStorage with project key `mode` (overriding the VueUse default).
 Automatically syncs `.dark` class on <html> element (UnoCSS's `dark:` variant matches this).
 
 Placed in the "General" settings row (alongside Theme / DND / Sound).
@@ -10,7 +10,7 @@ Placed in the "General" settings row (alongside Theme / DND / Sound).
 import { useDark, useToggle } from "@vueuse/core";
 import Button from "@/components/Btn.vue";
 
-const isDark = useDark();
+const isDark = useDark({ storageKey: "mode" });
 const toggleDark = useToggle(isDark);
 </script>
 
@@ -27,7 +27,7 @@ const toggleDark = useToggle(isDark);
       ]"
       @click="toggleDark(false)"
     >
-      <div class="i-lucide-sun mr-1.5 h-3.5 w-3.5" />
+      <div class="icon-lucide-sun mr-1.5 h-3.5 w-3.5" />
       Light
     </Button>
     <Button
@@ -41,7 +41,7 @@ const toggleDark = useToggle(isDark);
       ]"
       @click="toggleDark(true)"
     >
-      <div class="i-lucide-moon mr-1.5 h-3.5 w-3.5" />
+      <div class="icon-lucide-moon mr-1.5 h-3.5 w-3.5" />
       Dark
     </Button>
   </div>

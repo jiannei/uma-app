@@ -167,12 +167,3 @@ async function fireSyntheticPermission(kind: PermKind) {
     </div>
   </section>
 </template>
-
-<style scoped>
-.dev-select {
-  @apply bg-[var(--secondary)] border border-[var(--border)] text-[var(--foreground)] rounded px-1.5 py-1 font-mono text-[11px];
-}
-.dev-select:focus {
-  @apply border-[var(--ring)] outline-none;
-}
-</style>

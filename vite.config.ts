@@ -1,16 +1,24 @@
 import { defineConfig } from "vite";
 import vue from "@vitejs/plugin-vue";
-import unocss from "@unocss/vite";
+import tailwindcss from "@tailwindcss/vite";
+import VueI18nPlugin from "@intlify/unplugin-vue-i18n/vite";
 import { fileURLToPath, URL } from "node:url";
+import { resolve } from "node:path";
 
 const host = process.env.TAURI_DEV_HOST;
 
 // https://vite.dev/config/
-// PR-4: @tailwindcss/vite removed. UnoCSS is the sole CSS engine —
-// theme + tokens come from uno.config.ts + shared.css, utility classes
-// are emitted by the virtual:uno.css import in each entry.
+// Tailwind v4 (CSS-first config: @theme / @utility / @plugin in
+// src/styles/shared.css). Iconify for i-lucide-* is loaded via
+// @plugin "@iconify/tailwind4" in shared.css (Task 2).
 export default defineConfig(async () => ({
-  plugins: [vue(), unocss()],
+  plugins: [
+    vue(),
+    tailwindcss(),
+    VueI18nPlugin({
+      include: resolve(__dirname, "src/i18n/locales/*.json"),
+    }),
+  ],
 
   resolve: {
     alias: {

@@ -69,13 +69,13 @@ interface AgentInfo {
 // ── Sidebar nav items ──────────────────────────────────────────
 
 const navItems = [
-  { id: "general", label: "通用", icon: "i-lucide-settings" },
-  { id: "agents", label: "Agent 管理", icon: "i-lucide-zap" },
-  { id: "theme", label: "主题", icon: "i-lucide-palette" },
-  { id: "shortcuts", label: "快捷键", icon: "i-lucide-keyboard" },
-  { id: "about", label: "关于", icon: "i-lucide-info" },
+  { id: "general", label: "通用", icon: "icon-lucide-settings" },
+  { id: "agents", label: "Agent 管理", icon: "icon-lucide-zap" },
+  { id: "theme", label: "主题", icon: "icon-lucide-palette" },
+  { id: "shortcuts", label: "快捷键", icon: "icon-lucide-keyboard" },
+  { id: "about", label: "关于", icon: "icon-lucide-info" },
   ...(import.meta.env.DEV
-    ? [{ id: "devtools" as const, label: "DevTools", icon: "i-lucide-wrench" }]
+    ? [{ id: "devtools" as const, label: "DevTools", icon: "icon-lucide-wrench" }]
     : []),
 ] as const;
 
@@ -218,7 +218,7 @@ onMounted(async () => {
                     <!-- Appearance -->
                     <div class="flex items-center justify-between gap-4 py-3 px-4">
                       <div class="flex-1 min-w-0 flex items-start gap-2.5">
-                        <div class="i-lucide-palette w-4 h-4 mt-0.5 text-[var(--muted-foreground)] shrink-0" />
+                        <div class="icon-lucide-palette w-4 h-4 mt-0.5 text-[var(--muted-foreground)] shrink-0" />
                         <div>
                           <Label class="text-[13px] font-medium text-[var(--foreground)] tracking-[-0.005em]">外观</Label>
                           <div class="text-[12px] text-[var(--muted-foreground)] mt-px leading-snug">Light / Dark / System。</div>
@@ -232,7 +232,7 @@ onMounted(async () => {
                     <!-- Language -->
                     <div class="flex items-center justify-between gap-4 py-3 px-4">
                       <div class="flex-1 min-w-0 flex items-start gap-2.5">
-                        <div class="i-lucide-languages w-4 h-4 mt-0.5 text-[var(--muted-foreground)] shrink-0" />
+                        <div class="icon-lucide-languages w-4 h-4 mt-0.5 text-[var(--muted-foreground)] shrink-0" />
                         <div>
                           <Label class="text-[13px] font-medium text-[var(--foreground)] tracking-[-0.005em]">语言</Label>
                           <div class="text-[12px] text-[var(--muted-foreground)] mt-px leading-snug">菜单和气泡的界面语言。</div>
@@ -272,7 +272,7 @@ onMounted(async () => {
                     <!-- Sound -->
                     <div class="flex items-center justify-between gap-4 py-3 px-4">
                       <div class="flex-1 min-w-0 flex items-start gap-2.5">
-                        <div class="i-lucide-volume-2 w-4 h-4 mt-0.5 text-[var(--muted-foreground)] shrink-0" />
+                        <div class="icon-lucide-volume-2 w-4 h-4 mt-0.5 text-[var(--muted-foreground)] shrink-0" />
                         <div>
                           <Label class="text-[13px] font-medium text-[var(--foreground)] tracking-[-0.005em]">音效</Label>
                           <div class="text-[12px] text-[var(--muted-foreground)] mt-px leading-snug">Clawd 完成任务或需要输入时播放提示音。</div>
@@ -297,7 +297,7 @@ onMounted(async () => {
                     <!-- DND -->
                     <div class="flex items-center justify-between gap-4 py-3 px-4">
                       <div class="flex-1 min-w-0 flex items-start gap-2.5">
-                        <div class="i-lucide-bell-off w-4 h-4 mt-0.5 text-[var(--muted-foreground)] shrink-0" />
+                        <div class="icon-lucide-bell-off w-4 h-4 mt-0.5 text-[var(--muted-foreground)] shrink-0" />
                         <div>
                           <TooltipRoot>
                             <TooltipTrigger as-child>
@@ -324,7 +324,7 @@ onMounted(async () => {
                     <!-- Auto-start -->
                     <div class="flex items-center justify-between gap-4 py-3 px-4">
                       <div class="flex-1 min-w-0 flex items-start gap-2.5">
-                        <div class="i-lucide-power w-4 h-4 mt-0.5 text-[var(--muted-foreground)] shrink-0" />
+                        <div class="icon-lucide-power w-4 h-4 mt-0.5 text-[var(--muted-foreground)] shrink-0" />
                         <div>
                           <TooltipRoot>
                             <TooltipTrigger as-child>
@@ -394,7 +394,7 @@ onMounted(async () => {
                               :disabled="agentBusy[agent.id]"
                               @click="installAgent(agent.id)"
                             >
-                              <div class="i-lucide-download w-3.5 h-3.5 mr-1" />
+                              <div class="icon-lucide-download w-3.5 h-3.5 mr-1" />
                               {{ agentBusy[agent.id] ? "Installing…" : "Install" }}
                             </Button>
                             <Button
@@ -404,7 +404,7 @@ onMounted(async () => {
                               :disabled="agentBusy[agent.id]"
                               @click="uninstallAgent(agent.id)"
                             >
-                              <div class="i-lucide-trash-2 w-3.5 h-3.5 mr-1" />
+                              <div class="icon-lucide-trash-2 w-3.5 h-3.5 mr-1" />
                               {{ agentBusy[agent.id] ? "Removing…" : "Uninstall" }}
                             </Button>
                           </div>
@@ -434,7 +434,7 @@ onMounted(async () => {
                     <!-- Theme -->
                     <div class="flex items-center justify-between gap-4 py-3 px-4">
                       <div class="flex-1 min-w-0 flex items-start gap-2.5">
-                        <div class="i-lucide-palette w-4 h-4 mt-0.5 text-[var(--muted-foreground)] shrink-0" />
+                        <div class="icon-lucide-palette w-4 h-4 mt-0.5 text-[var(--muted-foreground)] shrink-0" />
                         <div>
                           <Label class="text-[13px] font-medium text-[var(--foreground)] tracking-[-0.005em]">Theme</Label>
                           <div class="text-[12px] text-[var(--muted-foreground)] mt-px leading-snug">Choose your desktop robot character.</div>
@@ -478,7 +478,7 @@ onMounted(async () => {
                 <Card class="backdrop-blur-md shadow-sm shadow-black/20">
                   <CardContent class="flex flex-col items-center justify-center py-8 px-4">
                     <div class="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-[var(--muted)] mb-3">
-                      <div class="i-lucide-clock w-7 h-7 text-[var(--muted-foreground)]" />
+                      <div class="icon-lucide-clock w-7 h-7 text-[var(--muted-foreground)]" />
                     </div>
                     <div class="text-[14px] font-semibold text-[var(--muted-foreground)] mb-1">Coming soon</div>
                     <div class="text-[12px] text-[var(--muted-foreground)]">Keyboard shortcuts customization will be available in a future update.</div>
@@ -498,7 +498,7 @@ onMounted(async () => {
                 <Card class="backdrop-blur-md shadow-sm shadow-black/20">
                   <CardContent class="flex flex-col items-center justify-center py-7 px-4">
                     <div class="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-[var(--primary)]/10 mb-3">
-                      <div class="i-lucide-bot w-9 h-9 text-[var(--primary)]" />
+                      <div class="icon-lucide-bot w-9 h-9 text-[var(--primary)]" />
                     </div>
                     <div class="text-[16px] font-bold text-[var(--foreground)] mb-0.5">Uma on Desk</div>
                     <div class="text-[12px] text-[var(--muted-foreground)] mb-3">v1.5.0</div>
@@ -532,13 +532,3 @@ onMounted(async () => {
     </footer>
   </TooltipProvider>
 </template>
-
-<style scoped>
-@keyframes toast-in {
-  from { opacity: 0; transform: translate(-50%, 6px); }
-  to   { opacity: 1; transform: translate(-50%, 0); }
-}
-.animate-toast-in {
-  animation: toast-in 0.25s cubic-bezier(0.2, 0.8, 0.2, 1) both;
-}
-</style>

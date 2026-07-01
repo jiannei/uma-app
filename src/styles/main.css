@@ -1,27 +1,26 @@
-/* src/styles/main.css — main (settings) window styles.
+/* src/styles/main.css — main (settings) window only.
  *
- * Pulls in the shared base (UnoCSS theme + theme tokens + body base
- * styles), then layers on the main-window-specific bits:
- *   - `.scrollbar-thin` opt-in utility for the main scrollable panel
+ * Shared tokens and component utilities come from shared.css and
+ * shortcuts.css (imported in src/main.ts).
  *
- * Imported by src/main.ts.
+ * Window-specific: `.scrollbar-thin` opt-in utility for the main
+ * scrollable panel (macOS default overlay scrollbar is hidden by
+ * shared.css's global *::-webkit-scrollbar rule; main window has
+ * a visible scrollbar by design).
  */
 
-@import "./shared.css";
-
-/* Thin scrollbar for main content area — opt-in via `.scrollbar-thin` */
 .scrollbar-thin::-webkit-scrollbar {
   display: block;
-  width: 1.5px;  /* UnoCSS w-1.5 → 6px? No, w-1.5 is 6px... adjust to var equivalent */
+  width: 1.5px;
 }
 
 .scrollbar-thin::-webkit-scrollbar-thumb {
-  background-color: var(--primary);
+  background-color: var(--color-primary);
   opacity: 0.2;
   border-radius: 0.125rem;
 }
 
 .scrollbar-thin::-webkit-scrollbar-thumb:hover {
-  background-color: var(--primary);
+  background-color: var(--color-primary);
   opacity: 0.3;
 }

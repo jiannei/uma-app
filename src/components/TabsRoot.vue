@@ -25,12 +25,3 @@ const emits = defineEmits<{
     <slot />
   </RekaTabsRoot>
 </template>
-
-<style scoped>
-.tabs {
-  @apply gap-2 flex;
-}
-.tabs[data-orientation="horizontal"] {
-  @apply flex-col;
-}
-</style>

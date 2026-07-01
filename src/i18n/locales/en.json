@@ -1,0 +1,38 @@
+{
+  "bubble": {
+    "allow": "Allow",
+    "deny": "Deny",
+    "allowOnce": "Allow once",
+    "alwaysAllow": "Always allow",
+    "alwaysAllowRule": "Always allow `{rule}`",
+    "allowInDir": "Always allow {tool} in {dir}/",
+    "alwaysAllowDeny": "Always deny {tool}",
+    "alwaysAllowDenyInDir": "Always deny {tool} in {dir}/",
+    "autoAcceptEdits": "Auto-accept edits",
+    "switchToPlanMode": "Switch to plan mode",
+    "setMode": "Set mode: {mode}",
+    "addAllowedDirectories": "Add allowed directories",
+    "removeAllowedDirs": "Remove allowed directories",
+    "applySuggestion": "Apply suggestion",
+    "tellClaudeToChange": "Tell Claude what to change",
+    "feedbackPlaceholder": "What should Claude do differently?",
+    "approve": "Approve",
+    "reject": "Reject",
+    "needsInput": "Needs input",
+    "planReview": "Plan review",
+    "goToTerminal": "Go to terminal",
+    "gotIt": "Got it",
+    "submit": "Submit",
+    "back": "Back",
+    "next": "Next",
+    "other": "Other",
+    "shellWorkingDirectory": "in {cwd}",
+    "requestTimedOut": "Request timed out",
+    "errorOccurred": "An error occurred"
+  },
+  "settings": {
+    "language": "Language",
+    "languageEn": "English",
+    "languageZh": "中文"
+  }
+}

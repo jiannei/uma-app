@@ -19,18 +19,14 @@ import {
   permissionRegistry,
 } from "../permission/registry";
 import { suggestionLabel } from "./suggestion-label";
-import type { Lang } from "./strings";
-import { useSettings } from "@/composables/useSettings";
+import { useI18n } from "vue-i18n";
+
+const { t } = useI18n();
 
 const props = defineProps<{
   request: SideEffectRequest;
 }>();
 
-// Settings: pull the current language for `suggestionLabel`. The
-// bubble's pre-redesign `lang.ts` singleton is gone; this component
-// owns its own subscription via the same composable the main and
-// robot windows use.
-const { settings } = useSettings();
 
 const emit = defineEmits<{
   (e: "allow-once"): void;
@@ -118,7 +114,7 @@ onUnmounted(() => {
         @click="allowWithSuggestion(s)"
       >
         <span class="key-hint">{{ i + 1 }}</span>
-        <span class="decision-text">{{ suggestionLabel(s, settings.language as Lang) }}</span>
+        <span class="decision-text">{{ suggestionLabel(s, t) }}</span>
         <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
           <polyline points="3 8 7 12 13 4" />
         </svg>
@@ -135,91 +131,3 @@ onUnmounted(() => {
     </div>
   </div>
 </template>
-
-<style scoped>
-.tool-pill-content {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-}
-
-.section-label {
-  font-size: 10px;
-  color: #71717a;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-  margin-bottom: 4px;
-}
-
-.command-section {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.command-block {
-  background: rgba(0, 0, 0, 0.30);
-  padding: 8px 10px;
-  border-radius: 6px;
-  font: 11.5px/1.5 ui-monospace, SFMono-Regular, monospace;
-  color: #e4e4e7;
-  white-space: pre-wrap;
-  word-break: break-all;
-  max-height: 80pt;
-  overflow-y: auto;
-}
-
-.cwd-hint {
-  font-size: 10px;
-  color: #71717a;
-  font-family: ui-monospace, monospace;
-}
-
-.decision-section {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.decision-button {
-  height: 36px;
-  padding: 0 12px;
-  border: none;
-  font-size: 12px;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  width: 100%;
-  box-sizing: border-box;
-  transition: background 200ms;
-}
-
-.decision-button.allow-once {
-  background: rgba(34, 197, 94, 0.18);
-  color: #4ade80;
-  font-weight: 600;
-}
-
-.decision-button.suggestion {
-  background: rgba(255, 255, 255, 0.04);
-  color: #f4f4f5;
-}
-
-.decision-button.deny {
-  background: rgba(239, 68, 68, 0.10);
-  color: #fca5a5;
-  margin-top: 4px;
-}
-
-.key-hint {
-  opacity: 0.65;
-  font-family: ui-monospace, monospace;
-  font-size: 10px;
-}
-
-.decision-text {
-  flex: 1;
-  text-align: left;
-}
-</style>

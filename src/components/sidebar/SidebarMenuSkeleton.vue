@@ -33,9 +33,3 @@ const width = computed(() => {
     />
   </div>
 </template>
-
-<style scoped>
-.sidebar-menu-skeleton {
-  @apply h-8 gap-2 rounded-md px-2 flex items-center;
-}
-</style>

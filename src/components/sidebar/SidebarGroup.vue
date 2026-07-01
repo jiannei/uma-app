@@ -15,9 +15,3 @@ const props = defineProps<{
     <slot />
   </div>
 </template>
-
-<style scoped>
-.sidebar-group {
-  @apply p-2 relative flex w-full min-w-0 flex-col;
-}
-</style>

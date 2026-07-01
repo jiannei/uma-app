@@ -14,15 +14,3 @@ const props = defineProps<SeparatorProps & {
     :class="['separator', props.class]"
   />
 </template>
-
-<style scoped>
-.separator {
-  @apply shrink-0 bg-[var(--border)];
-}
-.separator[data-orientation="horizontal"] {
-  @apply h-px w-full;
-}
-.separator[data-orientation="vertical"] {
-  @apply w-px self-stretch;
-}
-</style>

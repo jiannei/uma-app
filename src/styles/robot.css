@@ -1,22 +1,7 @@
-/* src/styles/robot.css — robot window styles.
- *
- * Robot is intentionally minimal: no theme tokens, no shadcn-vue, no
- * base body styles (those live in robot.html as <body> utility classes
- * so the 200×200 transparent window stays click-through — see ADR-0004).
- *
- * PR-4: dropped `@import "tailwindcss"` and `@apply` — UnoCSS emits
- * the utility classes (bg-[var(--debug-sprite-bg,transparent)],
- * absolute, pointer-events-none) used by RobotRoot.vue via its
- * virtual:uno.css import in src/robot/entry.ts. Only the `.sprite-base`
- * component rule remains here as plain CSS.
- *
- * Imported by src/robot/entry.ts.
- */
+/* src/styles/robot.css — robot window only. Shared tokens and component
+ * utilities come from shared.css and shortcuts.css (imported in src/robot/main.ts). */
 
-/* Robot sprite base — shared by <img> and <object> in RobotRoot.vue
-   (see ADR-0004 §Rendering paths). Geometry (size/position) comes
-   from :style="spriteStyle"; this only sets the non-geometry rules
-   that are common to both rendering paths. */
+/* === Sprite rendering — shared by <img> and <object> in RobotRoot.vue === */
 .sprite-base {
   position: absolute;
   pointer-events: none;

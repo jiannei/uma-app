@@ -120,15 +120,20 @@ mod tests {
 
     #[test]
     fn theme_save_creates_backup() {
-        let theme_id = "uma";
+        // Use a unique theme_id so this test doesn't race with
+        // theme_io_roundtrip (both write the "uma" file).
+        let theme_id = "uma-backup-test";
         let path = theme_path(theme_id);
         let backup = path.with_extension("json.bak");
 
         // Pre-condition: backup must not exist (or be from a prior run).
-        // If it does exist, just delete it so we can assert creation.
         let _ = std::fs::remove_file(&backup);
 
-        let original = std::fs::read_to_string(&path).unwrap();
+        // Ensure parent directory exists (it may not for a fake theme id).
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent).unwrap();
+        }
+
         std::fs::write(&path, r#"{"name":"BackupTest"}"#).unwrap();
 
         // The save function's backup step is inline in save_theme;
@@ -139,8 +144,8 @@ mod tests {
         let backup_content = std::fs::read_to_string(&backup).unwrap();
         assert_eq!(backup_content, r#"{"name":"BackupTest"}"#);
 
-        // Restore
-        std::fs::write(&path, &original).unwrap();
-        std::fs::remove_file(&backup).unwrap();
+        // Clean up
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(&backup);
     }
 }

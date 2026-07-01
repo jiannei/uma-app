@@ -14,9 +14,3 @@ const props = defineProps<{
     :class="['sidebar-separator', props.class]"
   />
 </template>
-
-<style scoped>
-.sidebar-separator {
-  @apply bg-[var(--sidebar-border)] mx-2 w-auto;
-}
-</style>

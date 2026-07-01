@@ -15,9 +15,3 @@ const props = defineProps<{
     <slot />
   </div>
 </template>
-
-<style scoped>
-.sidebar-footer {
-  @apply gap-2 p-2 flex flex-col;
-}
-</style>

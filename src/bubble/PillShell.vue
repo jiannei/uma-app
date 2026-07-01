@@ -19,6 +19,7 @@ import {
 } from "../permission/registry";
 import PillLayout from "./PillLayout.vue";
 import ToolPillContent from "./ToolPillContent.vue";
+import { useToolColor } from "./composables/useToolColor";
 
 const props = defineProps<{
   request: SideEffectRequest;
@@ -47,6 +48,7 @@ const summary = computed<string>(() =>
 const expandedTitle = computed<string>(() =>
   permissionRegistry.SideEffect.presentation.title(props.request),
 );
+const { dotClass } = useToolColor(props.request.toolName);
 
 function onExpand() {
   isExpanded.value = true;
@@ -105,7 +107,7 @@ onUnmounted(() => {
     :summary="summary"
     :is-expanded="isExpanded"
     :kind-color="'var(--icon-chip-sideeffect)'"
-    dot-color="#f59e0b"
+    :dot-color-class="dotClass"
     @expand="onExpand"
     @collapse="onCollapse"
   >
@@ -146,28 +148,3 @@ onUnmounted(() => {
     </template>
   </PillLayout>
 </template>
-
-<style scoped>
-.action-button {
-  height: 30px;
-  width: 30px;
-  padding: 0;
-  border-radius: 15px;
-  border: none;
-  cursor: pointer;
-  flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.action-button.allow {
-  background: #22c55e;
-  color: #052e10;
-}
-
-.action-button.deny {
-  background: rgba(239, 68, 68, 0.18);
-  color: #fca5a5;
-}
-</style>

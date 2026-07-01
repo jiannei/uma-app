@@ -1,110 +1,143 @@
-/* src/styles/shared.css — base for main + bubble windows.
+/* src/styles/shared.css — Tailwind v4 entry + shadcn-vue tokens + dark mode.
  *
- * Robot window does NOT use this file (it has its own robot.css) — see
- * ADR-0004 §Rendering paths: the robot sprite is themed by objectScale
- * + viewBox, not by shadcn-vue / warm-dark theme tokens.
+ * Architecture: 5 CSS files total (see docs/superpowers/specs/2026-07-01-unocss-to-tailwind-design.md):
+ *   shared.css     — this file (Tailwind v4 entry, @theme tokens, .dark overrides, body baseline)
+ *   shortcuts.css  — 70-100 @utility / plain CSS rules from SFC scoped blocks
+ *   main.css       — main window only (.scrollbar-thin)
+ *   robot.css      — robot window only (.sprite-base)
+ *   bubble.css     — bubble window only (bubble tokens + .dark overrides + transparent)
  *
- * Token source of truth: `:root` (light) and `.dark` (warm-dark) below
- * define raw oklch values. UnoCSS theme.colors in `uno.config.ts`
- * exposes them as utility classes (bg-primary, text-foreground, etc.).
+ * Robot window does NOT use bubble-tokens or any sidebar/select/tabs/tooltip
+ * utility, but still imports shared.css + shortcuts.css because the robot
+ * theme layer in public/themes/{uma,calico}/theme.json is independent of
+ * shadcn-vue tokens (see ADR-0004).
  *
- * PR-4: dropped `@import "tailwindcss"`, `@theme inline { ... }`,
- * `@layer base { @apply ... }` — UnoCSS handles utility generation;
- * base styles here are plain CSS that reads the same custom properties.
- *
- * ADR-0016: dropped `@custom-variant dark` (Tailwind v4 directive that
- * UnoCSS doesn't read). UnoCSS's `dark:` variant matches `<html class="dark">`
- * by default — the toggle in ModeToggle.vue (now via useColorModeClass)
- * writes that class on the root element.
+ * Token source of truth: 30+ oklch values defined in @theme (light/default)
+ * and .dark (warm-dark). Tailwind v4 generates utilities (bg-primary,
+ * text-foreground, etc.) from these. No CSS variable bridge — class names
+ * reference the generated CSS variables directly (var(--color-primary)).
  */
 
+@import "tailwindcss";
+@import "tw-animate-css";
 
-/* === Theme tokens — single source of truth === */
-:root {
-    /* Light theme — clean, modern palette */
-    --background: oklch(0.98 0.005 75);
-    --foreground: oklch(0.20 0.01 75);
-    --card: oklch(0.97 0.005 75);
-    --card-foreground: oklch(0.20 0.01 75);
-    --popover: oklch(0.98 0.005 75);
-    --popover-foreground: oklch(0.20 0.01 75);
-    --primary: oklch(0.55 0.20 145);
-    --primary-foreground: oklch(0.98 0.005 145);
-    --secondary: oklch(0.93 0.01 75);
-    --secondary-foreground: oklch(0.20 0.01 75);
-    --muted: oklch(0.93 0.01 75);
-    --muted-foreground: oklch(0.50 0.01 75);
-    --accent: oklch(0.93 0.02 145);
-    --accent-foreground: oklch(0.20 0.01 75);
-    --destructive: oklch(0.60 0.20 25);
-    --border: oklch(0.88 0.01 75);
-    --input: oklch(0.90 0.01 75);
-    --ring: oklch(0.55 0.20 145);
-    --chart-1: oklch(0.55 0.20 145);
-    --chart-2: oklch(0.60 0.20 25);
-    --chart-3: oklch(0.55 0.15 260);
-    --chart-4: oklch(0.60 0.15 60);
-    --chart-5: oklch(0.65 0.10 180);
-    --radius: 0.5rem;
-    --sidebar: oklch(0.96 0.005 75);
-    --sidebar-foreground: oklch(0.20 0.01 75);
-    --sidebar-primary: oklch(0.55 0.20 145);
-    --sidebar-primary-foreground: oklch(0.98 0.005 145);
-    --sidebar-accent: oklch(0.93 0.01 75);
-    --sidebar-accent-foreground: oklch(0.20 0.01 75);
-    --sidebar-border: oklch(0.88 0.01 75);
-    --sidebar-ring: oklch(0.55 0.20 145);
+/* Explicit source paths so Tailwind v4 scans Vue files for utility classes
+ * (the iconify plugin's matchComponents needs to find i-lucide-* / icon-lucide-*
+ * classes in templates to generate CSS). */
+@source "../**/*.{vue,ts,js}";
+@source "../../index.html";
+@source "../../robot.html";
+@source "../../bubble.html";
+
+/* Iconify plugin for icon-lucide-* icons. Uses preparsed mode:
+ *   - prefixes: which icon sets to load (loads from @iconify-json/<prefix>)
+ *   - iconSelector: custom selector format with {prefix} and {name} placeholders
+ * Auto-discovers @iconify-json/lucide from node_modules (per the plugin's
+ * helpers/loader.js). The selector ".icon-lucide-{name}" generates
+ * classes like .icon-lucide-settings, .icon-lucide-sun, etc.
+ */
+@plugin "@iconify/tailwind4" {
+  prefixes: "lucide";
+  iconSelector: ".icon-lucide-{name}";
 }
 
+/* Class-based dark mode (matches <html class="dark"> toggled by
+ * useColorModeClass composable + bubble.html hardcoded class="dark").
+ * Must be declared BEFORE @theme. */
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme {
+  --color-background: oklch(0.98 0.005 75);
+  --color-foreground: oklch(0.20 0.01 75);
+  --color-card: oklch(0.97 0.005 75);
+  --color-card-foreground: oklch(0.20 0.01 75);
+  --color-popover: oklch(0.98 0.005 75);
+  --color-popover-foreground: oklch(0.20 0.01 75);
+  --color-primary: oklch(0.55 0.20 145);
+  --color-primary-foreground: oklch(0.98 0.005 145);
+  --color-secondary: oklch(0.93 0.01 75);
+  --color-secondary-foreground: oklch(0.20 0.01 75);
+  --color-muted: oklch(0.93 0.01 75);
+  --color-muted-foreground: oklch(0.50 0.01 75);
+  --color-accent: oklch(0.93 0.02 145);
+  --color-accent-foreground: oklch(0.20 0.01 75);
+  --color-destructive: oklch(0.60 0.20 25);
+  --color-border: oklch(0.88 0.01 75);
+  --color-input: oklch(0.90 0.01 75);
+  --color-ring: oklch(0.55 0.20 145);
+  --color-chart-1: oklch(0.55 0.20 145);
+  --color-chart-2: oklch(0.60 0.20 25);
+  --color-chart-3: oklch(0.55 0.15 260);
+  --color-chart-4: oklch(0.60 0.15 60);
+  --color-chart-5: oklch(0.65 0.10 180);
+  --color-sidebar: oklch(0.96 0.005 75);
+  --color-sidebar-foreground: oklch(0.20 0.01 75);
+  --color-sidebar-primary: oklch(0.55 0.20 145);
+  --color-sidebar-primary-foreground: oklch(0.98 0.005 145);
+  --color-sidebar-accent: oklch(0.93 0.01 75);
+  --color-sidebar-accent-foreground: oklch(0.20 0.01 75);
+  --color-sidebar-border: oklch(0.88 0.01 75);
+  --color-sidebar-ring: oklch(0.55 0.20 145);
+  --radius: 0.5rem;
+  --radius-sm: calc(var(--radius) * 0.5);
+  --radius-md: var(--radius);
+  --radius-lg: calc(var(--radius) * 1.5);
+  --radius-xl: calc(var(--radius) * 2);
+  --default-font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+}
+
+/* .dark block — Tailwind v4 regenerates utility classes per token via
+ * the dark: variant, so each token must be redefined here (not just
+ * overridden via CSS variable swap). */
 .dark {
-    --background: oklch(0.12 0.01 45);
-    --foreground: oklch(0.95 0.01 75);
-    --card: oklch(0.15 0.01 45);
-    --card-foreground: oklch(0.95 0.01 75);
-    --popover: oklch(0.12 0.01 45);
-    --popover-foreground: oklch(0.95 0.01 75);
-    --primary: oklch(0.72 0.15 145);
-    --primary-foreground: oklch(0.12 0.02 145);
-    --secondary: oklch(0.2 0.01 45);
-    --secondary-foreground: oklch(0.95 0.01 75);
-    --muted: oklch(0.22 0.01 45);
-    --muted-foreground: oklch(0.65 0.01 75);
-    --accent: oklch(0.72 0.15 145);
-    --accent-foreground: oklch(0.12 0.02 145);
-    --destructive: oklch(0.65 0.2 25);
-    --border: oklch(0.25 0.01 45);
-    --input: oklch(0.2 0.01 45);
-    --ring: oklch(0.72 0.15 145);
-    --chart-1: oklch(0.72 0.15 145);
-    --chart-2: oklch(0.65 0.2 25);
-    --chart-3: oklch(0.55 0.15 260);
-    --chart-4: oklch(0.6 0.15 60);
-    --chart-5: oklch(0.65 0.1 180);
-    --sidebar: oklch(0.15 0.01 45);
-    --sidebar-foreground: oklch(0.95 0.01 75);
-    --sidebar-primary: oklch(0.72 0.15 145);
-    --sidebar-primary-foreground: oklch(0.12 0.02 145);
-    --sidebar-accent: oklch(0.22 0.01 45);
-    --sidebar-accent-foreground: oklch(0.95 0.01 75);
-    --sidebar-border: oklch(0.25 0.01 45);
-    --sidebar-ring: oklch(0.72 0.15 145);
+  --color-background: oklch(0.12 0.01 45);
+  --color-foreground: oklch(0.95 0.01 75);
+  --color-card: oklch(0.15 0.01 45);
+  --color-card-foreground: oklch(0.95 0.01 75);
+  --color-popover: oklch(0.12 0.01 45);
+  --color-popover-foreground: oklch(0.95 0.01 75);
+  --color-primary: oklch(0.72 0.15 145);
+  --color-primary-foreground: oklch(0.12 0.02 145);
+  --color-secondary: oklch(0.2 0.01 45);
+  --color-secondary-foreground: oklch(0.95 0.01 75);
+  --color-muted: oklch(0.22 0.01 45);
+  --color-muted-foreground: oklch(0.65 0.01 75);
+  --color-accent: oklch(0.72 0.15 145);
+  --color-accent-foreground: oklch(0.12 0.02 145);
+  --color-destructive: oklch(0.65 0.2 25);
+  --color-border: oklch(0.25 0.01 45);
+  --color-input: oklch(0.2 0.01 45);
+  --color-ring: oklch(0.72 0.15 145);
+  --color-chart-1: oklch(0.72 0.15 145);
+  --color-chart-2: oklch(0.65 0.2 25);
+  --color-chart-3: oklch(0.55 0.15 260);
+  --color-chart-4: oklch(0.6 0.15 60);
+  --color-chart-5: oklch(0.65 0.1 180);
+  --color-sidebar: oklch(0.15 0.01 45);
+  --color-sidebar-foreground: oklch(0.95 0.01 75);
+  --color-sidebar-primary: oklch(0.72 0.15 145);
+  --color-sidebar-primary-foreground: oklch(0.12 0.02 145);
+  --color-sidebar-accent: oklch(0.22 0.01 45);
+  --color-sidebar-accent-foreground: oklch(0.95 0.01 75);
+  --color-sidebar-border: oklch(0.25 0.01 45);
+  --color-sidebar-ring: oklch(0.72 0.15 145);
 }
 
-/* === Body baseline — UnoCSS presetWind4 doesn't auto-apply our custom tokens === */
+/* Body baseline — references Tailwind v4's generated CSS variables */
 html, body {
-    background-color: var(--background);
-    color: var(--foreground);
-    font-family: var(--font-sans);
-    overscroll-behavior: none;
+  background-color: var(--color-background);
+  color: var(--color-foreground);
+  font-family: var(--default-font-family);
+  overscroll-behavior: none;
 }
 
 /* Global webkit scrollbar hide — macOS default overlay scrollbar
    looks out of place in the warm-dark UI. */
 *::-webkit-scrollbar {
-    display: none;
+  display: none;
 }
 
-/* Border default for all elements (was `@apply border-border` in v4) */
+/* Border default for all elements */
 * {
-    border-color: var(--border);
+  border-color: var(--color-border);
 }

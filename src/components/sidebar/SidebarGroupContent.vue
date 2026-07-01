@@ -15,9 +15,3 @@ const props = defineProps<{
     <slot />
   </div>
 </template>
-
-<style scoped>
-.sidebar-group-content {
-  @apply text-sm w-full;
-}
-</style>

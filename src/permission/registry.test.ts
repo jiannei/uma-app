@@ -10,7 +10,7 @@ import type {
   PlanReviewRequest,
   SideEffectRequest,
 } from "../types/permission";
-import { permissionRegistry } from "./registry";
+import { permissionRegistry, buildPlanFeedbackDecision, buildDenyAndFocusDecision } from "./registry";
 
 // ── Fixtures ──
 
@@ -504,5 +504,25 @@ describe("registry ↔ existing bubble behavior", () => {
         }),
       ),
     ).toBe("ls -la");
+  });
+});
+
+describe("Decision builder helpers", () => {
+  it("buildPlanFeedbackDecision: deny with feedback message", () => {
+    const decision = buildPlanFeedbackDecision("req-1", "too aggressive");
+    expect(decision).toEqual({
+      requestId: "req-1",
+      behavior: "deny",
+      message: "too aggressive",
+    });
+  });
+
+  it("buildDenyAndFocusDecision: deny with terminal handoff message", () => {
+    const decision = buildDenyAndFocusDecision("req-2");
+    expect(decision).toEqual({
+      requestId: "req-2",
+      behavior: "deny",
+      message: "User chose to handle in terminal",
+    });
   });
 });

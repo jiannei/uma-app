@@ -14,9 +14,11 @@
 
 import { createApp } from "vue";
 import BubbleShellRoot from "./BubbleShellRoot.vue";
-// presetWind4 ships its own Tailwind v4-aligned reset (no separate @unocss/reset
-// needed). UnoCSS utilities override the reset on conflict.
-import "virtual:uno.css";
+import { i18n } from "@/i18n";
+import "../styles/shared.css";
+import "../styles/shortcuts.css";
 import "../styles/bubble.css";
 
-createApp(BubbleShellRoot).mount("#app");
+const app = createApp(BubbleShellRoot);
+app.use(i18n);
+app.mount("#app");

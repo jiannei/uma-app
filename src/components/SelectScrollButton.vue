@@ -11,18 +11,12 @@ const props = defineProps<{
 <template>
   <SelectScrollUpButton v-if="direction === 'up'" :class="['select-scroll-button', props.class]">
     <slot>
-      <div class="i-lucide-chevron-up size-4" />
+      <div class="icon-lucide-chevron-up size-4" />
     </slot>
   </SelectScrollUpButton>
   <SelectScrollDownButton v-else :class="['select-scroll-button', props.class]">
     <slot>
-      <div class="i-lucide-chevron-down size-4" />
+      <div class="icon-lucide-chevron-down size-4" />
     </slot>
   </SelectScrollDownButton>
 </template>
-
-<style scoped>
-.select-scroll-button {
-  @apply flex cursor-default items-center justify-center py-1;
-}
-</style>

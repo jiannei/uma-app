@@ -323,7 +323,7 @@ pub struct RuleSpec {
     pub rule_content: Option<String>,
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum RuleBehavior {
     Allow,
@@ -331,7 +331,7 @@ pub enum RuleBehavior {
     Ask,
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum Destination {
     /// In-memory only; cleared at session end. CC short-circuits
@@ -481,3 +481,47 @@ pub static KNOWN_AGENTS: &[&'static dyn Agent] = &[
     // When more adapters land they go here, e.g.:
     // &crate::adapters::codex::CodexAdapter,
 ];
+
+/// Tools that Claude Code handles internally and should bypass the
+/// permission bubble — silent allow without showing the UI.
+pub const PASSTHROUGH_TOOLS: &[&str] = &[
+    "TaskCreate",
+    "TaskUpdate",
+    "TaskGet",
+    "TaskList",
+    "TaskStop",
+    "TaskOutput",
+];
+
+/// Returns true if the given tool name is in the passthrough whitelist.
+pub fn is_passthrough(tool_name: &str) -> bool {
+    PASSTHROUGH_TOOLS.contains(&tool_name)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn passthrough_includes_task_tools() {
+        assert!(is_passthrough("TaskCreate"));
+        assert!(is_passthrough("TaskUpdate"));
+        assert!(is_passthrough("TaskGet"));
+        assert!(is_passthrough("TaskList"));
+        assert!(is_passthrough("TaskStop"));
+        assert!(is_passthrough("TaskOutput"));
+    }
+
+    #[test]
+    fn passthrough_excludes_bash_and_edit() {
+        assert!(!is_passthrough("Bash"));
+        assert!(!is_passthrough("Edit"));
+        assert!(!is_passthrough("Write"));
+    }
+
+    #[test]
+    fn passthrough_returns_false_for_unknown() {
+        assert!(!is_passthrough("UnknownTool"));
+        assert!(!is_passthrough(""));
+    }
+}

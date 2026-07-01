@@ -116,6 +116,34 @@ export type PermissionRequest =
 
 export type PermissionKind = PermissionRequest["kind"];
 
+/** Known Claude Code tool names that get a dedicated pill color. */
+export type ToolName =
+  | "Bash"
+  | "Edit"
+  | "Write"
+  | "Read"
+  | "Glob"
+  | "Grep"
+  | "Agent"
+  | "Shell"
+  | "WebFetch"
+  | "WebSearch"
+  | "NotebookEdit";
+
+export const KNOWN_TOOL_NAMES: readonly ToolName[] = [
+  "Bash",
+  "Edit",
+  "Write",
+  "Read",
+  "Glob",
+  "Grep",
+  "Agent",
+  "Shell",
+  "WebFetch",
+  "WebSearch",
+  "NotebookEdit",
+] as const;
+
 export type DecisionBehavior = "allow" | "deny";
 
 /** Decision the bubble sends back to the canonical `respond_permission`

@@ -21,15 +21,3 @@ const props = defineProps<{
     </slot>
   </RekaSelectItem>
 </template>
-
-<style scoped>
-.select-item {
-  @apply gap-1.5 rounded-md py-1 pr-8 pl-1.5 text-sm relative flex w-full cursor-default items-center outline-hidden select-none;
-}
-.select-item:focus {
-  @apply bg-[var(--accent)] text-[var(--accent-foreground)];
-}
-.select-item[data-disabled] {
-  @apply pointer-events-none opacity-50;
-}
-</style>

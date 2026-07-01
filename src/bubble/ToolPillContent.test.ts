@@ -17,6 +17,7 @@ import type {
   PermissionUpdateEntry,
   SideEffectRequest,
 } from "../types/permission";
+import { createTestingI18n } from "@/i18n/testing";
 
 function makeRequest(
   overrides: Partial<SideEffectRequest> = {},
@@ -51,6 +52,9 @@ describe("ToolPillContent", () => {
           permissionSuggestions: [suggestion],
         }),
       },
+      global: {
+        plugins: [createTestingI18n("en")],
+      },
     });
     expect(wrapper.html()).toMatchSnapshot();
   });
@@ -67,6 +71,9 @@ describe("ToolPillContent", () => {
           },
         }),
       },
+      global: {
+        plugins: [createTestingI18n("en")],
+      },
     });
     expect(wrapper.html()).toMatchSnapshot();
   });
@@ -78,6 +85,9 @@ describe("ToolPillContent", () => {
           toolName: "WebFetch",
           toolInput: { url: "https://example.com" },
         }),
+      },
+      global: {
+        plugins: [createTestingI18n("en")],
       },
     });
     expect(wrapper.html()).toMatchSnapshot();

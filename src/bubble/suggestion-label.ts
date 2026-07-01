@@ -5,9 +5,9 @@
 // substitute placeholders in the strings table.
 
 import type { PermissionUpdateEntry } from "../types/permission";
-import { bubbleText, type Lang } from "./strings";
 
-const DEFAULT_LANG: Lang = "en";
+/** Type for vue-i18n's t function */
+type TranslateFn = (key: string, vars?: Record<string, unknown>) => string;
 
 /** Detect a directory-shaped ruleContent and extract the
  * human-friendly directory name. CC encodes "Bash in /foo/"
@@ -39,17 +39,17 @@ function firstRule(
 }
 
 /** Render the human label for a CC `permission_suggestions`
- * entry. */
+ * entry. Caller passes the `t` function from useI18n(). */
 export function suggestionLabel(
   entry: PermissionUpdateEntry,
-  lang: Lang = DEFAULT_LANG,
+  t: TranslateFn,
 ): string {
   switch (entry.type) {
     case "setMode": {
       if (entry.mode === "acceptEdits")
-        return bubbleText(lang, "autoAcceptEdits");
-      if (entry.mode === "plan") return bubbleText(lang, "switchToPlanMode");
-      return bubbleText(lang, "setMode", { mode: entry.mode });
+        return t("bubble.autoAcceptEdits");
+      if (entry.mode === "plan") return t("bubble.switchToPlanMode");
+      return t("bubble.setMode", { mode: entry.mode });
     }
     case "addRules":
     case "replaceRules":
@@ -61,22 +61,22 @@ export function suggestionLabel(
         const dir = extractDir(rule.ruleContent);
         if (dir) {
           return deny
-            ? bubbleText(lang, "alwaysAllowDenyInDir", { tool, dir })
-            : bubbleText(lang, "allowInDir", { tool, dir });
+            ? t("bubble.alwaysAllowDenyInDir", { tool, dir })
+            : t("bubble.allowInDir", { tool, dir });
         }
         return deny
-          ? bubbleText(lang, "alwaysAllowDeny", { tool })
-          : bubbleText(lang, "alwaysAllowRule", { rule: shortRule(rule.ruleContent) });
+          ? t("bubble.alwaysAllowDeny", { tool })
+          : t("bubble.alwaysAllowRule", { rule: shortRule(rule.ruleContent) });
       }
       return deny
-        ? bubbleText(lang, "alwaysAllowDeny", { tool })
-        : bubbleText(lang, "alwaysAllow", { tool });
+        ? t("bubble.alwaysAllowDeny", { tool })
+        : t("bubble.alwaysAllow", { tool });
     }
     case "addDirectories":
-      return bubbleText(lang, "addAllowedDirectories");
+      return t("bubble.addAllowedDirectories");
     case "removeDirectories":
-      return bubbleText(lang, "removeAllowedDirs");
+      return t("bubble.removeAllowedDirs");
     default:
-      return bubbleText(lang, "applySuggestion");
+      return t("bubble.applySuggestion");
   }
 }

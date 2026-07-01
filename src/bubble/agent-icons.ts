@@ -9,11 +9,11 @@
 // `<component :is="...">` indirection).
 
 const AGENT_ICONS: Record<string, string> = {
-  "claude-code": "i-lucide-sparkles",
-  cursor: "i-lucide-mouse-pointer-2",
+  "claude-code": "icon-lucide-sparkles",
+  cursor: "icon-lucide-mouse-pointer-2",
 };
 
-const FALLBACK_ICON = "i-lucide-cpu";
+const FALLBACK_ICON = "icon-lucide-cpu";
 
 export function agentIcon(agent: string): string {
   return AGENT_ICONS[agent] ?? FALLBACK_ICON;

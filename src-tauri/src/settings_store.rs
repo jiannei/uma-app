@@ -36,6 +36,16 @@ pub struct Settings {
     /// `src/bubble/strings.ts`. Unknown values fall back to "en"
     /// at the bubble boundary.
     pub language: String,
+    /// Auto-close permission bubbles after this many seconds of
+    /// inactivity. 0 = disabled. Rust 5-min timeout is safety net.
+    #[serde(default)]
+    pub bubble_permission_auto_close_seconds: u32,
+    /// Auto-close notification bubbles.
+    #[serde(default)]
+    pub bubble_notification_auto_close_seconds: u32,
+    /// Auto-close update bubbles.
+    #[serde(default)]
+    pub bubble_update_auto_close_seconds: u32,
 }
 
 impl Default for Settings {
@@ -47,6 +57,9 @@ impl Default for Settings {
             sound_enabled: true,
             auto_start: false,
             language: "en".into(),
+            bubble_permission_auto_close_seconds: 0,
+            bubble_notification_auto_close_seconds: 6,
+            bubble_update_auto_close_seconds: 9,
         }
     }
 }
@@ -97,6 +110,21 @@ impl SettingsStore {
                     .and_then(|v| v.as_str().map(String::from))
                     .filter(|s| is_valid_language(s))
                     .unwrap_or_else(|| "en".into()),
+                bubble_permission_auto_close_seconds: pstore
+                    .get("bubble_permission_auto_close_seconds")
+                    .and_then(|v| v.as_u64())
+                    .map(|v| v as u32)
+                    .unwrap_or(0),
+                bubble_notification_auto_close_seconds: pstore
+                    .get("bubble_notification_auto_close_seconds")
+                    .and_then(|v| v.as_u64())
+                    .map(|v| v as u32)
+                    .unwrap_or(6),
+                bubble_update_auto_close_seconds: pstore
+                    .get("bubble_update_auto_close_seconds")
+                    .and_then(|v| v.as_u64())
+                    .map(|v| v as u32)
+                    .unwrap_or(9),
             },
             Err(_) => Settings::default(),
         };
@@ -165,6 +193,31 @@ impl SettingsStore {
         self.app
             .emit(prod::AUTO_START_CHANGE, serde_json::json!({ "auto_start": enabled }))
             .map_err(|e| e.to_string())
+    }
+
+    pub fn set_bubble_policy(
+        &self,
+        permission_seconds: u32,
+        notification_seconds: u32,
+        update_seconds: u32,
+    ) -> Result<(), String> {
+        let p = permission_seconds.min(3600);
+        let n = notification_seconds.min(3600);
+        let u = update_seconds.min(3600);
+        self.write_and_persist(
+            "bubble_policy",
+            serde_json::json!({
+                "bubble_permission_auto_close_seconds": p,
+                "bubble_notification_auto_close_seconds": n,
+                "bubble_update_auto_close_seconds": u,
+            }),
+            || {
+                let mut s = self.inner.lock().unwrap();
+                s.bubble_permission_auto_close_seconds = p;
+                s.bubble_notification_auto_close_seconds = n;
+                s.bubble_update_auto_close_seconds = u;
+            },
+        )
     }
 
     // ── Toggles: bool fields, atomic flip, return new value ──

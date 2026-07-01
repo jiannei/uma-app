@@ -14,6 +14,7 @@ import type {
   ElicitationRequest,
   PlanReviewRequest,
 } from "../types/permission";
+import { createTestingI18n } from "@/i18n/testing";
 
 const elicitationReq: ElicitationRequest = {
   kind: "Elicitation",
@@ -47,12 +48,18 @@ const planReviewReq: PlanReviewRequest = {
 
 describe("PanelShell", () => {
   it("Elicitation: renders AskPanelContent", () => {
-    const wrapper = mount(PanelShell, { props: { request: elicitationReq } });
+    const wrapper = mount(PanelShell, {
+      props: { request: elicitationReq },
+      global: { plugins: [createTestingI18n("en")] },
+    });
     expect(wrapper.html()).toMatchSnapshot();
   });
 
   it("PlanReview: renders PlanPanelContent", () => {
-    const wrapper = mount(PanelShell, { props: { request: planReviewReq } });
+    const wrapper = mount(PanelShell, {
+      props: { request: planReviewReq },
+      global: { plugins: [createTestingI18n("en")] },
+    });
     expect(wrapper.html()).toMatchSnapshot();
   });
 });

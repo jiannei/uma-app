@@ -20,7 +20,7 @@ const { toggleSidebar } = useSidebar()
     @click="toggleSidebar"
   >
     <!-- preset-icons replaces @lucide/vue PanelLeftIcon -->
-    <div class="i-lucide-panel-left cn-rtl-flip" />
+    <div class="icon-lucide-panel-left cn-rtl-flip" />
     <span class="sr-only">Toggle Sidebar</span>
   </Button>
 </template>

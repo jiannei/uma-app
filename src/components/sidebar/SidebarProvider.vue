@@ -74,12 +74,3 @@ provideSidebarContext({
     </div>
   </TooltipProvider>
 </template>
-
-<style scoped>
-.sidebar-wrapper {
-  @apply flex min-h-svh w-full;
-}
-.sidebar-wrapper:has([data-variant="inset"]) {
-  @apply bg-[var(--sidebar)];
-}
-</style>

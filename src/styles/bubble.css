@@ -1,24 +1,61 @@
-/* src/styles/bubble.css — bubble-specific tokens.
+/* src/styles/bubble.css — bubble window only.
  *
  * After ADR-0017 this file is:
- *   1. Base import (shared tokens)
+ *   1. Bubble-specific tokens (inlined from deleted bubble-tokens.css)
  *   2. Bubble "floating island" token values (`--island-*`, `--allow`, `--deny`)
- *   3. Sonner toast container override
+ *   3. Transparent background override (shared.css .dark background would paint a rect)
+ *   4. Sonner toast container override
  *
- * Animation keyframes (`pill-pulse`, `toast-in`) live in each
- * component's `<style scoped>` block.
- *
- * Imported by src/bubble/main.ts.
+ * Imported by src/bubble/main.ts (alongside shared.css + shortcuts.css).
  */
 
-@import "./bubble-tokens.css";
-@import "./shared.css";
-
-/* === Bubble "floating island" token values === */
+/* === Bubble-specific tokens (inlined from deleted bubble-tokens.css) === */
+/* Spec: docs/superpowers/specs/2026-06-30-bubble-display-design.md
+ * Visual language: 灵动岛 (rounded + backdrop-blur + shadow), unified across shells.
+ * These are bubble-private tokens — NOT shadcn-vue --color-* tokens. */
 :root {
+  /* Shell backgrounds */
+  --bubble-bg: rgba(40, 40, 50, 0.78);
+  --bubble-bg-blur: blur(20px) saturate(180%);
+  --bubble-shadow: 0 8px 24px rgba(0, 0, 0, 0.32),
+    0 1px 0 rgba(255, 255, 255, 0.06) inset;
+
+  /* Icon chip colors */
+  --icon-chip-sideeffect: rgba(245, 158, 11, 0.18);
+  --icon-chip-elicitation: rgba(245, 158, 11, 0.22);
+  --icon-chip-planreview: rgba(34, 197, 94, 0.22);
+
+  /* Accent colors */
+  --accent-orange: #fbbf24;
+  --accent-green: #22c55e;
+  --accent-red: #ef4444;
+
+  /* Pill geometry */
+  --pill-width: 280pt;
+  --pill-height-compact: 44pt;
+  --pill-radius-compact: 22pt;
+  --pill-radius-expanded: 16pt;
+
+  /* Panel geometry */
+  --panel-width: 600pt;
+  --panel-max-height: 600pt;
+
+  /* Transitions */
+  --transition-pill-compact-expanded: 280ms cubic-bezier(0.32, 0.72, 0, 1);
+  --transition-pill-panel: 350ms cubic-bezier(0.32, 0.72, 0, 1);
+  --transition-panel-pill: 300ms cubic-bezier(0.32, 0.72, 0, 1);
+  --transition-panel-panel: 200ms cubic-bezier(0.32, 0.72, 0, 1);
+  --transition-fade-out: 350ms ease-out;
+
+  /* Focus ring */
+  --focus-ring: 0 0 0 1.5pt rgba(245, 158, 11, 0.5);
+
+  /* Island shadows (light defaults — .dark overrides below) */
   --shadow-island: 0 4px 16px rgba(0, 0, 0, 0.10);
   --shadow-island-expanded: 0 4px 16px rgba(0, 0, 0, 0.16);
 }
+
+/* === Bubble "floating island" token values (.dark) === */
 .dark {
   /* Light values intentionally omitted — bubble.html forces
      `<html class="dark">`. Add a `:root` block here when/if light mode
@@ -35,17 +72,17 @@
   --shadow-island-expanded: 0 8px 32px rgba(0, 0, 0, 0.48);
 }
 
-/* Sonner toast container: body is pointer-events-none (robot pattern),
-   pill in sonner li needs auto to be clickable. */
-[data-sonner-toast] {
-  pointer-events: auto;
-}
-
-/* === Override shared.css dark background === */
+/* === Force transparent background — see ADR-0017 === */
 /* bubble.html body uses UnoCSS [background:var(--debug-window-bg,transparent)]
    but shared.css .dark { --background: oklch(0.12 ...) } cascades after.
    Force transparent on the bubble window so the floating island
    shows its backdrop-blur against the desktop, not a black rect. */
 html, body {
   background: transparent !important;
+}
+
+/* Sonner toast container: body is pointer-events-none (robot pattern),
+   pill in sonner li needs auto to be clickable. */
+[data-sonner-toast] {
+  pointer-events: auto;
 }

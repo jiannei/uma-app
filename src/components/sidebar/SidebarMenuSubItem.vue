@@ -15,9 +15,3 @@ const props = defineProps<{
     <slot />
   </li>
 </template>
-
-<style scoped>
-.sidebar-menu-sub-item {
-  @apply relative;
-}
-</style>

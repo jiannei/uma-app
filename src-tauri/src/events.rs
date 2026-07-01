@@ -24,6 +24,7 @@ pub mod prod {
     pub const AGENT_HOOK: &str = "agent-hook-event";
     pub const PERMISSION_REQUEST: &str = "permission-request";
     pub const PERMISSION_TIMEOUT: &str = "permission-timeout";
+    pub const PERMISSION_HIDE: &str = "permission-hide";
     pub const THEME_CHANGE: &str = "theme-change";
     pub const THEME_UPDATED: &str = "theme-updated";
     pub const DND_CHANGE: &str = "dnd-change";
@@ -78,6 +79,7 @@ pub const PROD_WIRE_STRINGS: &[&str] = &[
     prod::AGENT_HOOK,
     prod::PERMISSION_REQUEST,
     prod::PERMISSION_TIMEOUT,
+    prod::PERMISSION_HIDE,
     prod::THEME_CHANGE,
     prod::THEME_UPDATED,
     prod::DND_CHANGE,
