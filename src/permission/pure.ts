@@ -1,42 +1,14 @@
-// src/permission/registry-pure.ts — pure helpers used by both the
-// runtime registry and the test-side re-export bundle. SideEffect
-// classification (SideEffectRender + classifySideEffect) now lives
-// solely in registry.ts — there is no parallel pure copy.
+// src/permission/pure.ts — pure helpers for the permission layer.
 //
-// These functions are re-exported via src/permission/__test__/index.ts
-// (the uma-pet "module.exports.__test" pattern). Tests can import
-// from __test__ without pulling in the full registry surface.
+// No imports from registry.ts or any Vue/Tauri runtime. Each helper is
+// a referentially-transparent function (or constant) that mirrors a
+// Rust-side concern. Kept separate from registry.ts so the
+// kind-routing logic in registry.ts doesn't have to drag in the
+// suggestion-normalization or passthrough helpers — and so tests
+// that only need these helpers don't have to import the full
+// registry surface.
 
-import type {
-  PermissionDecision,
-  PermissionRequest,
-  PermissionUpdateEntry,
-} from "../types/permission";
-
-// ── Decision builders ───────────────────────────────────────────
-
-/** PlanReview reject with feedback message. */
-export function buildPlanFeedbackDecision(
-  requestId: string,
-  feedback: string,
-): PermissionDecision {
-  return {
-    requestId,
-    behavior: "deny",
-    message: feedback,
-  };
-}
-
-/** "Deny and go to terminal" — PlanReview/Elicitation shortcut. */
-export function buildDenyAndFocusDecision(
-  requestId: string,
-): PermissionDecision {
-  return {
-    requestId,
-    behavior: "deny",
-    message: "User chose to handle in terminal",
-  };
-}
+import type { PermissionUpdateEntry } from "../types/permission";
 
 // ── Passthrough whitelist (TS mirror of Rust) ──────────────────
 //
@@ -93,6 +65,3 @@ export function normalizePermissionSuggestions(
   }
   return out;
 }
-
-// Re-export for downstream consumers
-export type { PermissionRequest };

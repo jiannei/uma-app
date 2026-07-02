@@ -20,13 +20,13 @@ import { ref, computed, watch, onUnmounted, nextTick } from "vue";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import {
-  useStorage,
   useThrottleFn,
   useTimeoutFn,
   useResizeObserver,
 } from "@vueuse/core";
 import type { PermissionRequest } from "../types/permission";
 import { buildReply, type ReplyPick } from "../permission/registry";
+import { useSettings } from "@/composables/useSettings";
 import { EVENTS } from "@/types/events";
 import {
   EventPayloadMap,
@@ -81,10 +81,17 @@ watch(current, () => {
 // All PermissionKinds share the same settings key — the per-kind
 // distinction (notification / update) was collapsed out of the
 // bubble-policy module along with the composable.
+//
+// The setting used to bypass `useSettings()` entirely and read from
+// `useStorage` (see `bubble_permission_auto_close_seconds` comment
+// in `src-tauri/src/settings_store.rs` — the seam inconsistency
+// flagged before the SettingsStore deepening). With the deepening,
+// this field is owned by the Rust `SettingsStore` and surfaced via
+// `useSettings()` like every other setting.
 const MAX_AUTO_CLOSE_SECONDS = 3600;
-const seconds = useStorage("bubble.permissionAutoCloseSeconds", 0);
+const { settings } = useSettings();
 const autoCloseMs = computed<number>(() => {
-  const s = seconds.value;
+  const s = settings.value.bubble_permission_auto_close_seconds;
   if (!Number.isFinite(s) || s < 0) return 0;
   return Math.min(s, MAX_AUTO_CLOSE_SECONDS) * 1000;
 });

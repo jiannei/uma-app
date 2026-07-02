@@ -23,6 +23,7 @@ export const EVENTS = {
   SOUND_CHANGE: 'sound-change',
   LANGUAGE_CHANGE: 'language-change',
   AUTO_START_CHANGE: 'auto-start-change',
+  BUBBLE_AUTO_CLOSE_CHANGE: 'bubble-auto-close-change',
 
   // ── Dead-but-kept channel ── Rust emits, no TS listener. Kept here
   // for visibility so future reviewers don't quietly drop the tray emit.
@@ -55,6 +56,7 @@ export const PROD_EVENT_WIRE_STRINGS: readonly string[] = [
   EVENTS.LANGUAGE_CHANGE,
   EVENTS.TOGGLE_MINI,
   EVENTS.AUTO_START_CHANGE,
+  EVENTS.BUBBLE_AUTO_CLOSE_CHANGE,
 ];
 
 export const DEV_EVENT_WIRE_STRINGS: readonly string[] = [

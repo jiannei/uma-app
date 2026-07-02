@@ -87,16 +87,11 @@ const activeNav = ref<NavId>("general");
 
 // Settings: the single source-of-truth owner is `SettingsStore` on
 // the Rust side. `useSettings()` pulls an initial snapshot on mount,
-// subscribes to per-field events, and exposes mutators that map 1:1
-// to Tauri commands — no plugin-store writes happen in this file.
-const {
-  settings,
-  setTheme,
-  setDnd,
-  setSound,
-  setLanguage,
-  setAutoStart,
-} = useSettings();
+// subscribes to per-field events, and exposes a single `update(field,
+// value)` mutator that dispatches into the generic `set_setting`
+// Tauri command — no per-field commands, no plugin-store writes
+// happen in this file.
+const { settings, update } = useSettings();
 
 const themes = [
   { id: "uma", label: "Uma" },
@@ -241,7 +236,7 @@ onMounted(async () => {
                       <div class="shrink-0">
                         <SelectRoot
                           :model-value="settings.language"
-                          @update:model-value="(v) => setLanguage(v as string)"
+                          @update:model-value="(v) => update('language', v as string)"
                         >
                           <SelectTrigger
                             size="sm"
@@ -281,7 +276,7 @@ onMounted(async () => {
                       <div class="shrink-0">
                         <Switch
                           :model-value="settings.sound_enabled"
-                          @update:model-value="(v: boolean) => setSound(v)"
+                          @update:model-value="(v: boolean) => update('sound_enabled', v)"
                         />
                       </div>
                     </div>
@@ -316,7 +311,7 @@ onMounted(async () => {
                       <div class="shrink-0">
                         <Switch
                           :model-value="settings.dnd"
-                          @update:model-value="(v: boolean) => setDnd(v)"
+                          @update:model-value="(v: boolean) => update('dnd', v)"
                         />
                       </div>
                     </div>
@@ -343,7 +338,7 @@ onMounted(async () => {
                       <div class="shrink-0">
                         <Switch
                           :model-value="settings.auto_start"
-                          @update:model-value="(v: boolean) => setAutoStart(v)"
+                          @update:model-value="(v: boolean) => update('auto_start', v)"
                         />
                       </div>
                     </div>
@@ -443,7 +438,7 @@ onMounted(async () => {
                       <div class="shrink-0">
                         <RadioGroupRoot
                           :model-value="settings.theme"
-                          @update:model-value="(v: any) => setTheme(String(v))"
+                          @update:model-value="(v: any) => update('theme', String(v))"
                           class="inline-flex gap-0.5 p-0.5 rounded-lg border border-[var(--border)] bg-[var(--secondary)]/40"
                         >
                           <label

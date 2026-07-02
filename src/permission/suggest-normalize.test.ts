@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   normalizePermissionSuggestions,
   MAX_PERMISSION_SUGGESTIONS,
-} from "./__test__";
+} from "./pure";
 import type { PermissionUpdateEntry } from "@/types/permission";
 
 function addRules(

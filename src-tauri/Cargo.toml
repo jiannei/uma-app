@@ -14,6 +14,10 @@ edition = "2021"
 name = "uma_app_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
+[[bin]]
+name = "export-settings-ts"
+path = "src/bin/export_settings_ts.rs"
+
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 
@@ -43,6 +47,12 @@ axum = "0.8"
 # OnEarlyDropLayer + SetRequestIdLayer (stable since tower-http 0.6.9).
 # Features unused in PR1 — listed now so PR2's diff is dep-only.
 tower-http = { version = "0.7", features = ["on-early-drop", "request-id", "util"] }
+# ts-rs generates TypeScript types from Rust structs so the TS
+# `Settings` interface stays in lockstep with the Rust `Settings`
+# struct. Run `cargo run --bin export-settings-ts` (from
+# `src/bin/export_settings_ts.rs`) to regenerate the file. The
+# output is committed so the frontend build doesn't need Rust.
+ts-rs = "12"
 
 # Dev-tools commands (`devtools_get_pending`, `devtools_fire_synthetic_permission`,
 # `theme_load`, `theme_save`) and the dev-only Tauri event emits are gated by

@@ -50,6 +50,7 @@ export interface EventPayloadMap {
   [EVENTS.SOUND_CHANGE]: { sound_enabled: boolean };
   [EVENTS.LANGUAGE_CHANGE]: { language: string };
   [EVENTS.AUTO_START_CHANGE]: { auto_start: boolean };
+  [EVENTS.BUBBLE_AUTO_CLOSE_CHANGE]: { bubble_permission_auto_close_seconds: number };
 
   // ── Dev-only channels ──
   [EVENTS.DEV.PENDING_CHANGED]: void;
