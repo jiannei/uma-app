@@ -43,6 +43,11 @@ pub mod prod {
 
     /// Settings ownership deepening: auto_start flag toggled.
     pub const AUTO_START_CHANGE: &str = "auto-start-change";
+
+    /// Settings ownership deepening: bubble auto-close seconds changed.
+    /// Emitted by `SettingsStore::apply(Change::SetBubblePermissionAutoCloseSeconds)`
+    /// so the bubble window sees updates made from the main window.
+    pub const BUBBLE_AUTO_CLOSE_CHANGE: &str = "bubble-auto-close-change";
 }
 
 /// Dev-only channels — cfg-gated. In a release build (cargo build
@@ -87,6 +92,7 @@ pub const PROD_WIRE_STRINGS: &[&str] = &[
     prod::LANGUAGE_CHANGE,
     prod::TOGGLE_MINI,
     prod::AUTO_START_CHANGE,
+    prod::BUBBLE_AUTO_CLOSE_CHANGE,
 ];
 
 /// Sorted list of dev-only wire strings. Only available in dev builds.

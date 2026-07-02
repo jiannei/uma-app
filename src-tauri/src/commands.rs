@@ -5,17 +5,16 @@
 // underlying store / helper module:
 //
 //   - SettingsStore (lib.rs re-export, defined in settings_store.rs)
-//     owns the settings read/write + persist + emit pipeline. The
-//     9 settings commands below are 1-line proxies into it.
-//
+//     owns the settings read/write + persist + emit pipeline.
+//     A single generic `set_setting` command replaces the 9
+//     per-field + per-toggle setters — adding a new setting is now
+//     one Change variant + one `set_setting` arm.
 //   - PendingStore (pending_store.rs) holds the in-flight
 //     permission requests with their oneshot senders.
 //     respond_permission removes an entry + resolves the oneshot.
-//
 //   - The Agent trait (agent.rs) is implemented per-adapter in
 //     adapters/. The 4 agent commands below look up an adapter by
 //     id and call the trait method.
-//
 //   - theme_io.rs (lib.rs re-export) owns the public/themes
 //     filesystem read/write. The 2 theme commands below are thin
 //     forwarders.
@@ -29,61 +28,45 @@ use tauri::{AppHandle, Emitter, Manager, State};
 use crate::agent;
 use crate::events;
 use crate::pending_store::PendingStore;
-use crate::settings_store::SettingsStore;
+use crate::settings_store::{Change, SettingsStore};
 
-// ── Settings commands (1-line proxies into SettingsStore) ────────
+// ── Settings commands ────────────────────────────────────────────
 
 #[tauri::command]
 pub fn get_settings(store: State<'_, SettingsStore>) -> crate::settings_store::Settings {
     store.get()
 }
 
+/// Single IPC entry point for every settings mutation. The frontend
+/// (`useSettings().update<K>(field, value)`) sends the field name as
+/// a string and the value as a `serde_json::Value`; this command
+/// dispatches into `SettingsStore::apply(Change)` so the in-memory
+/// state, plugin-store persistence, and per-field event broadcast
+/// stay aligned without call-site coordination.
+///
+/// Adding a new setting = add a `Change` variant in
+/// `settings_store.rs` + one arm in the match below. No new Tauri
+/// command, no new invoke_handler entry, no new frontend
+/// invoke("set_...") call.
 #[tauri::command]
-pub fn set_theme(store: State<'_, SettingsStore>, theme: String) -> Result<(), String> {
-    store.set_theme(theme)
-}
-
-#[tauri::command]
-pub fn set_dnd(store: State<'_, SettingsStore>, enabled: bool) -> Result<(), String> {
-    store.set_dnd(enabled)
-}
-
-#[tauri::command]
-pub fn set_sound(store: State<'_, SettingsStore>, enabled: bool) -> Result<(), String> {
-    store.set_sound(enabled)
-}
-
-#[tauri::command]
-pub fn set_language(store: State<'_, SettingsStore>, language: String) -> Result<(), String> {
-    store.set_language(language)
-}
-
-#[tauri::command]
-pub fn set_auto_start(store: State<'_, SettingsStore>, enabled: bool) -> Result<(), String> {
-    store.set_auto_start(enabled)
-}
-
-#[tauri::command]
-pub fn toggle_dnd(store: State<'_, SettingsStore>) -> Result<bool, String> {
-    store.toggle_dnd()
-}
-
-#[tauri::command]
-pub fn toggle_sound(store: State<'_, SettingsStore>) -> Result<bool, String> {
-    store.toggle_sound()
-}
-
-#[tauri::command]
-pub fn toggle_auto_start(store: State<'_, SettingsStore>) -> Result<bool, String> {
-    store.toggle_auto_start()
-}
-
-#[tauri::command]
-pub fn set_bubble_permission_auto_close_seconds(
+pub fn set_setting(
     store: State<'_, SettingsStore>,
-    seconds: u32,
+    field: String,
+    value: serde_json::Value,
 ) -> Result<(), String> {
-    store.set_bubble_permission_auto_close_seconds(seconds)
+    let change = match (field.as_str(), value) {
+        ("theme", serde_json::Value::String(v)) => Change::SetTheme(v),
+        ("dnd", serde_json::Value::Bool(v)) => Change::SetDnd(v),
+        ("sound_enabled", serde_json::Value::Bool(v)) => Change::SetSound(v),
+        ("language", serde_json::Value::String(v)) => Change::SetLanguage(v),
+        ("auto_start", serde_json::Value::Bool(v)) => Change::SetAutoStart(v),
+        (
+            "bubble_permission_auto_close_seconds",
+            serde_json::Value::Number(n),
+        ) => Change::SetBubblePermissionAutoCloseSeconds(n.as_u64().unwrap_or(0) as u32),
+        _ => return Err(format!("unknown setting field or wrong value type: {field}")),
+    };
+    store.apply(change)
 }
 
 // ── Permission commands ────────────────────────────────────────

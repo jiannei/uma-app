@@ -44,6 +44,10 @@
     "autoStartChange": {
       "wire": "auto-start-change",
       "description": "auto_start flag toggled. New channel added with the SettingsStore deepening (settings ownership PR)."
+    },
+    "bubbleAutoCloseChange": {
+      "wire": "bubble-auto-close-change",
+      "description": "bubble_permission_auto_close_seconds changed. Emitted by SettingsStore so the bubble window picks up changes made from the main window (closes the seam inconsistency that had this field bypassing the canonical pipeline via direct useStorage)."
     }
   },
   "dev": {

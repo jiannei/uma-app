@@ -34,7 +34,7 @@ mod tray;
 mod windows;
 
 pub use pending_store::{PendingEntry, PendingEntryView, PendingStore};
-pub use settings_store::{Settings, SettingsStore};
+pub use settings_store::{Change, Settings, SettingsStore};
 
 use tauri::Manager;
 
@@ -58,15 +58,7 @@ pub fn run() {
     builder
         .invoke_handler(tauri::generate_handler![
             commands::get_settings,
-            commands::set_theme,
-            commands::set_dnd,
-            commands::set_sound,
-            commands::set_language,
-            commands::set_auto_start,
-            commands::toggle_dnd,
-            commands::toggle_sound,
-            commands::toggle_auto_start,
-            commands::set_bubble_permission_auto_close_seconds,
+            commands::set_setting,
             commands::respond_permission,
             commands::set_bubble_size,
             commands::report_bubble_height,

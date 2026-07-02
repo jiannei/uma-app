@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { isPassthrough, PASSTHROUGH_TOOLS } from "./__test__";
+import { isPassthrough, PASSTHROUGH_TOOLS } from "./pure";
 
 describe("isPassthrough (TS mirror of Rust)", () => {
   it("matches the Rust constant for known tools", () => {

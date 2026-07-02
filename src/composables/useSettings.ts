@@ -6,22 +6,24 @@
 //   2. Subscribes to the 5 settings-change events via
 //      `useTauriEvents` and patches the local ref so subscribers
 //      (templates, watches) react.
-//   3. Exposes mutator helpers that call into the matching Tauri
-//      command — no caller can bypass the Rust owner.
+//   3. Exposes a single mutator `update<K>(field, value)` that
+//      dispatches into the canonical Rust `set_setting` command
+//      — no caller can bypass the Rust owner, and there is no
+//      per-field Tauri command surface to maintain.
 //
-// The 6 event subscription blocks that used to live here (one per
-// field) collapsed into a single `useTauriEvents<EventPayloadMap>(...)`
-// call after the helper landed — see composables/useTauriEvents.ts.
-// `LANGUAGE_CHANGE` is now a real subscriber alongside the others
-// (it was previously half-dead; the comment that called it out is
-// gone because the bug it described is gone).
+// Toggle semantics live at the TS layer: `useSettings` does not
+// provide `toggleDnd` etc. Callers that want a toggle read the
+// current value, compute the new value, and call `update`:
 //
-// This is the frontend counterpart to the `SettingsStore` deepening.
-// The two App.vue handlers that used to write plugin-store directly
-// (`setLanguage`, `toggleAutoStart`) are gone; all mutations go
-// through `store.set_*` / `store.toggle_*` on the Rust side, which
-// keeps in-memory state, plugin-store persistence, and event
-// broadcast aligned without call-site coordination.
+//     const { settings, update } = useSettings();
+//     await update("dnd", !settings.value.dnd);
+//
+// The frontend counterpart of the SettingsStore deepening (the
+// Rust `SettingsStore::apply(Change)` is the single entry point;
+// this composable is the single TS entry point). Both App.vue and
+// BubbleShellRoot use it; `bubble_permission_auto_close_seconds`
+// (formerly a `useStorage` bypass) now flows through the same
+// pipeline.
 
 import { ref, onMounted, type Ref } from "vue";
 import { invoke } from "@tauri-apps/api/core";
@@ -35,14 +37,14 @@ import {
 
 export interface UseSettingsReturn {
   settings: Ref<Settings>;
-  setTheme: (theme: string) => Promise<void>;
-  setDnd: (enabled: boolean) => Promise<void>;
-  setSound: (enabled: boolean) => Promise<void>;
-  setLanguage: (language: string) => Promise<void>;
-  setAutoStart: (enabled: boolean) => Promise<void>;
-  toggleDnd: () => Promise<void>;
-  toggleSound: () => Promise<void>;
-  toggleAutoStart: () => Promise<void>;
+  /**
+   * Apply a single field update. Returns when the Rust owner has
+   * validated, persisted, and emitted; rejects if validation fails
+   * or persistence fails (the in-memory state and event broadcast
+   * are skipped in either case, so subscribers never see a
+   * non-durable value).
+   */
+  update: <K extends keyof Settings>(field: K, value: Settings[K]) => Promise<void>;
 }
 
 export function useSettings(): UseSettingsReturn {
@@ -79,17 +81,15 @@ export function useSettings(): UseSettingsReturn {
     [EVENTS.AUTO_START_CHANGE]: ({ auto_start }) => {
       settings.value.auto_start = auto_start;
     },
+    [EVENTS.BUBBLE_AUTO_CLOSE_CHANGE]: ({ bubble_permission_auto_close_seconds }) => {
+      settings.value.bubble_permission_auto_close_seconds = bubble_permission_auto_close_seconds;
+    },
   });
 
   return {
     settings,
-    setTheme: (theme) => invoke("set_theme", { theme }),
-    setDnd: (enabled) => invoke("set_dnd", { enabled }),
-    setSound: (enabled) => invoke("set_sound", { enabled }),
-    setLanguage: (language) => invoke("set_language", { language }),
-    setAutoStart: (enabled) => invoke("set_auto_start", { enabled }),
-    toggleDnd: () => invoke("toggle_dnd"),
-    toggleSound: () => invoke("toggle_sound"),
-    toggleAutoStart: () => invoke("toggle_auto_start"),
+    update: async (field, value) => {
+      await invoke("set_setting", { field, value });
+    },
   };
 }

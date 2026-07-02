@@ -5,15 +5,22 @@
 // `PermissionDecision`, and how a SideEffect toolName + toolInput
 // payload is classified into a SideEffectRender.
 //
-// The registry exposes TWO surfaces:
+// Callers cross the seam via `permissionRegistry[req.kind]`:
 //
-//   1. Per-kind access: `permissionRegistry.SideEffect.presentation.*`
-//      — for kind-specific data (badge variant, icon key, detail string,
-//      and the SideEffect render classification).
+//   - `permissionRegistry[req.kind].reply(req, pick)` — turn a user
+//     click into a canonical `PermissionDecision` (one entry per kind).
+//   - `permissionRegistry[req.kind].presentation.detail(req)` —
+//     the per-kind detail string for the StoresPanel.
+//   - `permissionRegistry.SideEffect.presentation.classification(req)` —
+//     the SideEffect-only structured render.
 //
-//   2. Cross-kind dispatch (this module's reason for existing):
-//      `buildReply(req, pick)` / `detail(req)`. These are 2 free
-//      functions that switch on req.kind and route to the right entry.
+// The kind entries are explicit (not a mapped type) so TypeScript
+// narrows `permissionRegistry.SideEffect.presentation` to
+// `SideEffectPresentation` (with `classification`) without distributing
+// across the union.
+//
+// Pure helpers (passthrough whitelist, suggestion normalization) live
+// in `./pure` — this module only owns the kind-routing surface.
 //
 // ADR-0018 vocabulary:
 //   - SideEffectRenderKind → 'bash' | 'edit' | 'write' | 'read' | 'json'
@@ -31,9 +38,8 @@ import type {
 
 // ── SideEffectRender + classifySideEffect ───────────────────────
 //
-// Both are exported (re-exported via `__test__/index.ts` for unit tests
-// that want to assert the render shape without pulling in the whole
-// registry surface). `permissionRegistry.SideEffect.presentation.classification`
+// Both are exported so unit tests can assert the render shape
+// directly. `permissionRegistry.SideEffect.presentation.classification`
 // returns the same `SideEffectRender` directly so consumers see one
 // opaque value per request.
 
@@ -291,8 +297,14 @@ export const permissionRegistry = {
 
 // ── Cross-kind dispatch surface ─────────────────────────────────
 //
-// Two free functions that switch on req.kind and route to the
-// right entry. Now every cross-kind call goes through here.
+// Each kind entry's `reply` / `presentation.detail` is parameterised
+// by its specific request variant (SideEffectRequest etc.), so callers
+// can't do `permissionRegistry[req.kind].reply(req, pick)` directly:
+// TypeScript can't narrow the union `req: PermissionRequest` to a
+// specific variant through an indexed access. The two free functions
+// below exist to give TS a `switch (req.kind)` to narrow in — once
+// each arm has `req.kind` as a single literal, the call into the
+// matching kind entry is type-safe. Logic stays in the kind entries.
 
 /** Build the canonical PermissionDecision from a user pick. */
 export function buildReply(
@@ -330,31 +342,3 @@ export type {
   PermissionRequest,
   PermissionKind,
 };
-
-// ── Decision builder helpers ───────────────────────────────────
-//
-// Convenience wrappers for the common decision shapes. Each helper
-// returns a partial PermissionDecision; the caller fills in requestId.
-
-/** PlanReview reject with feedback message. */
-export function buildPlanFeedbackDecision(
-  requestId: string,
-  feedback: string,
-): PermissionDecision {
-  return {
-    requestId,
-    behavior: "deny",
-    message: feedback,
-  };
-}
-
-/** "Deny and go to terminal" — PlanReview/Elicitation shortcut. */
-export function buildDenyAndFocusDecision(
-  requestId: string,
-): PermissionDecision {
-  return {
-    requestId,
-    behavior: "deny",
-    message: "User chose to handle in terminal",
-  };
-}
