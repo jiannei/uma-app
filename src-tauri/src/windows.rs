@@ -97,14 +97,14 @@ pub fn build_bubble(app: &App) -> tauri::Result<WebviewWindow> {
     let position = app
         .primary_monitor()
         .ok()
-        .and_then(|m| m)
-        .and_then(|monitor| {
+        .flatten()
+        .map(|monitor| {
             let size = monitor.size();
             let scale = monitor.scale_factor();
             let screen_height_px = size.height;
             let bubble_height_px = (80.0 * scale) as i32;
             let y = (screen_height_px as i32) - bubble_height_px - margin;
-            Some(tauri::PhysicalPosition::new(margin, y))
+            tauri::PhysicalPosition::new(margin, y)
         })
         .unwrap_or(fallback);
 

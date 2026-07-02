@@ -29,7 +29,7 @@
 // `updatedPermissions`; the agent handles persistence and short-circuit.
 
 use axum::{
-    extract::{Path, State},
+    extract::{DefaultBodyLimit, Path, State},
     http::StatusCode,
     routing::{get, post},
     Json, Router,
@@ -299,8 +299,13 @@ pub fn build_router(
         // Per-agent routes. Adding a new agent means it gets a route
         // automatically via KNOWN_AGENTS; the install side writes URLs
         // matching this pattern.
-        .route("/agents/:id/state", post(handle_state))
-        .route("/agents/:id/permission", post(handle_permission))
+        .route("/agents/{id}/state", post(handle_state))
+        .route("/agents/{id}/permission", post(handle_permission))
+        // axum 0.8 raised the default `Json` body limit from 2 KiB to
+        // 2 MiB; restore the previous first-pass cap so PR1 stays a
+        // pure dependency upgrade. Per-field length caps in
+        // `adapters/claude_code.rs` remain the second-line defense.
+        .layer(DefaultBodyLimit::max(2 * 1024))
         .with_state(state)
 }
 

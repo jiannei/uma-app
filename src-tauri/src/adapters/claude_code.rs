@@ -74,6 +74,7 @@ pub struct ClaudeCodeHookPayload {
     #[serde(default)]
     pub cwd: Option<String>,
     #[serde(default)]
+    #[allow(dead_code)] // deserialized from Claude Code hook payload, not yet read
     pub transcript_path: Option<String>,
     #[serde(default)]
     pub permission_mode: Option<String>,
