@@ -51,6 +51,17 @@ use crate::agent::{self, PermissionDecision};
 use crate::events::prod;
 use crate::pending_store::{CapFull, PendingEntry, PendingStore};
 
+// ── HTTP body limit ─────────────────────────────────────────────
+//
+// First-line defense for the loopback hook server. axum 0.7 defaulted
+// the JSON body limit to 2 KiB; axum 0.8 raised it to 2 MiB. Neither
+// extreme fits Claude Code traffic (which sends `tool_input` payloads
+// in the KB-to-low-MB range), so we pick a value well above any
+// realistic agent payload while still rejecting arbitrary unbounded
+// requests from misbehaving local callers. Per-field MAX_*_LEN caps
+// in `adapters/claude_code.rs` remain the second-line defense.
+pub(crate) const HTTP_BODY_LIMIT: usize = 1024 * 1024; // 1 MiB
+
 // ── Internal types ──────────────────────────────────────────────
 
 /// Generic success response for non-blocking endpoints.
@@ -428,11 +439,16 @@ pub fn build_router(
     Router::new()
         .merge(permission_route)
         .merge(other_routes)
-        // axum 0.8 raised the default `Json` body limit from 2 KiB to
-        // 2 MiB; restore the previous first-pass cap so PR1 stays a
-        // pure dependency upgrade. Per-field length caps in
-        // `adapters/claude_code.rs` remain the second-line defense.
-        .layer(DefaultBodyLimit::max(2 * 1024))
+        // Cap the JSON body at `HTTP_BODY_LIMIT` (1 MiB). The 2 KiB
+        // default in axum 0.7 was preserved across the 0.7→0.8 upgrade
+        // (PR1) to keep that PR a pure dependency bump, but real Claude
+        // Code `tool_input` payloads — Bash commands with long
+        // pipelines, Write/Edit with embedded source, NotebookEdit
+        // cells — regularly exceed 2 KiB and were rejected with HTTP
+        // 413. Per-field length caps in `adapters/claude_code.rs`
+        // remain the second-line defense against unbounded inputs
+        // from arbitrary loopback callers.
+        .layer(DefaultBodyLimit::max(HTTP_BODY_LIMIT))
         .with_state(state)
 }
 
@@ -474,5 +490,19 @@ mod tests {
         }
         assert!(!agent::is_passthrough("Bash"));
         assert!(!agent::is_passthrough("Edit"));
+    }
+
+    /// Lock the body limit above the 2 KiB floor that the axum 0.7→0.8
+    /// dep upgrade (PR1) silently restored — Claude Code `tool_input`
+    /// payloads (Bash commands, Write/Edit content) regularly exceed
+    /// 2 KiB and were being rejected with HTTP 413. Also keep it
+    /// strictly bounded so a future "set to usize::MAX" slip doesn't
+    /// silently turn this into a no-op defense.
+    #[test]
+    fn http_body_limit_is_between_two_kib_and_64_mib() {
+        const TWO_KIB: usize = 2 * 1024;
+        const SIXTYFOUR_MIB: usize = 64 * 1024 * 1024;
+        const { assert!(HTTP_BODY_LIMIT > TWO_KIB) };
+        const { assert!(HTTP_BODY_LIMIT <= SIXTYFOUR_MIB) };
     }
 }
