@@ -4,6 +4,10 @@ version = "0.1.0"
 description = "A Tauri App"
 authors = ["you"]
 edition = "2021"
+# `tauri dev` invokes plain `cargo run`, which would otherwise refuse with
+# "could not determine which binary to run" now that `src/bin/` exists.
+# Regenerate settings.ts via `cargo run --bin export-settings-ts`.
+default-run = "uma-app"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
