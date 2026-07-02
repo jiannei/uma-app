@@ -8,11 +8,8 @@
 // ADR-0019: scope = 9 prod + 4 dev + 1 dead-but-kept. `tauri://move`
 // is a Tauri built-in and is NOT in this registry.
 //
-// Stage B execution note: LANGUAGE_CHANGE was previously marked
-// `@deprecated` based on a stale assumption (no TS listener). It's
-// actually live — useSettings.ts:74 subscribes to it. TOGGLE_MINI
-// remains in the "kept but no listener" bucket and is a candidate for
-// future removal.
+// TOGGLE_MINI remains in the "kept but no listener" bucket and is a
+// candidate for future removal.
 
 export const EVENTS = {
   // ── Prod channels ── always present in both build profiles
@@ -34,9 +31,8 @@ export const EVENTS = {
 
   // ── Dev-only channels ── nested under DEV so a prod-side `listen()`
   // site cannot accidentally reference a dev channel without crossing
-  // the namespace. Consumers should expose these via a `setupDevListeners()`
-  // helper gated by `import.meta.env.DEV` so the whole block DCEs in
-  // production builds.
+  // the namespace. Consumers gate any subscription on `import.meta.env.DEV`
+  // so the whole block DCEs in production builds.
   DEV: {
     PENDING_CHANGED: 'devtools-pending-changed',
     SYNTHETIC_EVENT: 'devtools-synthetic-event',

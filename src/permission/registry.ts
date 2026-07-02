@@ -8,25 +8,16 @@
 // The registry exposes TWO surfaces:
 //
 //   1. Per-kind access: `permissionRegistry.SideEffect.presentation.*`
-//      — for kind-specific data (summary text, badge variant, etc.).
+//      — for kind-specific data (badge variant, icon key, detail string,
+//      and the SideEffect render classification).
 //
 //   2. Cross-kind dispatch (this module's reason for existing):
-//      `decideShellMode(req)` / `buildReply(req, pick)` / `detail(req)`.
-//      These are 3 free functions that switch on req.kind and route
-//      to the right entry. Before this PR, callers hand-wrote the
-//      switch 3 times (BubbleShellRoot x2, StoresPanel x1). Now
-//      they all go through here.
+//      `buildReply(req, pick)` / `detail(req)`. These are 2 free
+//      functions that switch on req.kind and route to the right entry.
 //
 // ADR-0018 vocabulary:
-//   - ShellMode → 'pill' | 'panel'
 //   - SideEffectRenderKind → 'bash' | 'edit' | 'write' | 'read' | 'json'
 //   - kind entry: { presentation, reply }
-//
-// Stage B of #5 (this PR's design): the `SideEffectRender`
-// discriminated union and the `classifySideEffect` function live
-// here; the `lookupSideEffectRender` export is gone — consumers
-// see only the opaque presentation methods (summary / title /
-// content) which compute the render internally.
 
 import type {
   ElicitationRequest,
@@ -42,10 +33,9 @@ import type {
 //
 // Both are exported (re-exported via `__test__/index.ts` for unit tests
 // that want to assert the render shape without pulling in the whole
-// registry surface). The registry's own presentation helpers call
-// classifySideEffect internally and never expose the intermediate render
-// to consumers — that's what the `summary / title / content` API on
-// `permissionRegistry.SideEffect.presentation` is for.
+// registry surface). `permissionRegistry.SideEffect.presentation.classification`
+// returns the same `SideEffectRender` directly so consumers see one
+// opaque value per request.
 
 export type SideEffectRender =
   | { kind: "bash"; command: string; description?: string }
@@ -190,14 +180,10 @@ interface BasePresentation<K extends PermissionKind> {
   detail(req: RequestByKind<K>): string;
 }
 
-/** SideEffect adds pill-shell summary/title and expanded content
- * preview. Each method internally computes the SideEffectRender
- * from req.toolName + req.toolInput — callers never see the
- * intermediate render. */
+/** SideEffect adds the per-request render classification. */
 interface SideEffectPresentation extends BasePresentation<"SideEffect"> {
-  summary(req: SideEffectRequest): string;
-  title(req: SideEffectRequest): string;
-  content(req: SideEffectRequest): string;
+  /** Classify toolName + toolInput into a structured render. */
+  classification(req: SideEffectRequest): SideEffectRender;
 }
 
 /** Elicitation / PlanReview only carry the common fields. */
@@ -218,38 +204,6 @@ function baseDecision(
   behavior: "allow" | "deny",
 ): PermissionDecision {
   return { requestId, behavior };
-}
-
-function sideEffectSummary(req: SideEffectRequest): string {
-  const r = classifySideEffect(req.toolName, req.toolInput);
-  switch (r.kind) {
-    case "bash":
-      return r.command;
-    case "edit":
-    case "write":
-    case "read":
-      return r.filePath;
-    case "json":
-      return req.toolName ?? "Tool call";
-  }
-}
-
-function sideEffectTitle(req: SideEffectRequest): string {
-  return req.toolName ?? "Tool call";
-}
-
-function sideEffectContent(req: SideEffectRequest): string {
-  const r = classifySideEffect(req.toolName, req.toolInput);
-  // For Bash: prefer `description` (short, human-readable) when
-  // present, fall back to the raw `command`. Mirrors uma-pet's
-  // bubble-format.js:67-68 behavior. Claude Code's Bash tool sends
-  // both `command` and `description` — the description is what users
-  // actually want to see at a glance.
-  if (r.kind === "bash") return r.description ?? r.command;
-  if (r.kind === "edit" || r.kind === "write" || r.kind === "read") {
-    return r.filePath;
-  }
-  return JSON.stringify(r.raw, null, 2);
 }
 
 function sideEffectDetail(req: SideEffectRequest): string {
@@ -275,9 +229,7 @@ const sideEffectEntry: KindEntry<"SideEffect"> = {
     badgeVariant: "warning",
     iconKey: "tool",
     detail: sideEffectDetail,
-    summary: sideEffectSummary,
-    title: sideEffectTitle,
-    content: sideEffectContent,
+    classification: (req) => classifySideEffect(req.toolName, req.toolInput),
   },
   reply(req, pick) {
     const base = baseDecision(req.requestId, pick.behavior);
@@ -340,11 +292,7 @@ export const permissionRegistry = {
 // ── Cross-kind dispatch surface ─────────────────────────────────
 //
 // Two free functions that switch on req.kind and route to the
-// right entry. Before this PR, callers hand-wrote these switches
-// in BubbleShellRoot.vue and StoresPanel.vue. Now every cross-kind
-// call goes through here. (Shell-mode dispatch was dropped when
-// PillShell + PanelShell collapsed into UnifiedBubbleCard — see
-// the bubble-display-design spec.)
+// right entry. Now every cross-kind call goes through here.
 
 /** Build the canonical PermissionDecision from a user pick. */
 export function buildReply(

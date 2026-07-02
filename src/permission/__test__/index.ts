@@ -26,12 +26,3 @@ export {
   MAX_PERMISSION_SUGGESTIONS,
   type PassthroughTool,
 } from "../registry-pure";
-
-export {
-  getBubblePolicy,
-  clampSeconds,
-  MAX_AUTO_CLOSE_SECONDS,
-  type BubblePolicy,
-  type BubblePolicySnapshot,
-  type BubbleKind,
-} from "../bubble-policy";

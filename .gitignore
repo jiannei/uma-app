@@ -32,3 +32,5 @@ dist-ssr
 .gstack/
 .superpowers/
 .bak
+skills-lock.json
+.agents/

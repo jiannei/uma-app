@@ -10,9 +10,15 @@
 //
 // Per ADR-0019 Stage B the 3 dev-only listeners are gated inside
 // this composable by `import.meta.env.DEV` so Vite DCEs them in
-// production. The call sites for the dev listeners come from
-// `setupDevListeners` in dev-listeners.ts (the helper has no DEV
-// gate itself).
+// production. After the `useTauriEvents` deepening, the 5 registry
+// events go through the helper and the 3 dev-only entries are
+// conditionally spread so production builds don't subscribe to
+// channels the dev panel never emits.
+//
+// `tauri://move` is a Tauri built-in (not an app-defined channel)
+// and intentionally not in the EVENTS registry — see the comment
+// at the top of src/types/events.ts. It keeps a direct `listen()`
+// call below the helper call.
 //
 // Design: the composable takes callbacks for each listener rather
 // than reaching back into useDisplayState / useRobotWindow / etc.
@@ -23,7 +29,10 @@
 import { onMounted, onUnmounted } from "vue";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { EVENTS } from "@/types/events";
-import { setupDevListeners, type DebugStylePatch } from "../dev-listeners";
+import {
+  EventPayloadMap,
+  useTauriEvents,
+} from "@/composables/useTauriEvents";
 import type { HookEvent } from "../display-state-types";
 
 export interface UseRobotEventsDeps {
@@ -37,48 +46,44 @@ export interface UseRobotEventsDeps {
   // Dev-only callbacks (only invoked in DEV builds):
   onSyntheticEvent: (event: HookEvent) => void;
   onReset: () => void;
-  onDebugStyle: (patch: DebugStylePatch) => void;
+  onDebugStyle: (patch: {
+    windowBg?: string;
+    spriteBg?: string;
+    hitzoneBg?: string;
+  }) => void;
 }
 
 export function useRobotEvents(deps: UseRobotEventsDeps): void {
-  const unsubs: UnlistenFn[] = [];
-
-  onMounted(async () => {
-    unsubs.push(
-      await listen(EVENTS.THEME_UPDATED, (e) => {
-        const themeId = (e.payload as { theme?: string })?.theme;
-        if (themeId) deps.onThemeUpdated(themeId);
-      }),
-    );
-
-    unsubs.push(
-      await listen(EVENTS.AGENT_HOOK, (e) => {
-        deps.onAgentHook(e.payload as HookEvent);
-      }),
-    );
-
-    // tauri://move is a Tauri built-in (not an app-defined channel)
-    // and intentionally not in the EVENTS registry — see the
-    // comment at the top of src/types/events.ts.
-    unsubs.push(
-      await listen("tauri://move", () => {
-        deps.onWindowMove();
-      }),
-    );
-
-    if (import.meta.env.DEV) {
-      unsubs.push(
-        ...(await setupDevListeners({
-          sendSynthetic: deps.onSyntheticEvent,
-          reset: deps.onReset,
-          applyDebugStyle: deps.onDebugStyle,
-        })),
-      );
-    }
+  // The dev-only entries live in a separate map so production builds
+  // DCE them entirely. The prod map goes through the helper directly.
+  useTauriEvents<EventPayloadMap>({
+    [EVENTS.THEME_UPDATED]: (p) => {
+      if (p.theme) deps.onThemeUpdated(p.theme);
+    },
+    [EVENTS.AGENT_HOOK]: (event) => deps.onAgentHook(event),
   });
 
+  if (import.meta.env.DEV) {
+    useTauriEvents<EventPayloadMap>({
+      [EVENTS.DEV.SYNTHETIC_EVENT]: (p) => {
+        if (p.event) deps.onSyntheticEvent(p.event);
+      },
+      [EVENTS.DEV.RESET]: () => deps.onReset(),
+      [EVENTS.DEV.ROBOT_DEBUG_STYLE]: (p) => deps.onDebugStyle(p),
+    });
+  }
+
+  // tauri://move is a Tauri built-in (not an app-defined channel)
+  // and intentionally not in the EVENTS registry — see the comment
+  // at the top of src/types/events.ts. It keeps a direct listen
+  // call rather than going through the helper.
+  let unlistenMove: UnlistenFn | undefined;
+  onMounted(async () => {
+    unlistenMove = await listen("tauri://move", () => {
+      deps.onWindowMove();
+    });
+  });
   onUnmounted(() => {
-    for (const u of unsubs) u();
-    unsubs.length = 0;
+    unlistenMove?.();
   });
 }

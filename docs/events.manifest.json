@@ -12,6 +12,10 @@
       "wire": "permission-timeout",
       "description": "Permission request timed out (5-minute default) without a user decision. Bubbles UI auto-hides; HTTP handler synthesizes a deny."
     },
+    "permissionHide": {
+      "wire": "permission-hide",
+      "description": "Rust emits this before hiding the bubble webview so the 250ms fade-out <Transition> plays before the window disappears. Consumed by the permission-bubble window."
+    },
     "themeChange": {
       "wire": "theme-change",
       "description": "Theme id changed (settings UI or tray menu). Consumed by the robot window to reload the theme manifest."
@@ -30,8 +34,7 @@
     },
     "languageChange": {
       "wire": "language-change",
-      "description": "UI language changed. Half-dead: Rust emits, no TS listener; pending remove in Stage B cleanup.",
-      "deprecated": true
+      "description": "UI language changed. Consumed by useSettings (subscribed via useTauriEvents)."
     },
     "toggleMini": {
       "wire": "toggle-mini",

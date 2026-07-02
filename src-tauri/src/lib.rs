@@ -66,7 +66,7 @@ pub fn run() {
             commands::toggle_dnd,
             commands::toggle_sound,
             commands::toggle_auto_start,
-            commands::set_bubble_policy,
+            commands::set_bubble_permission_auto_close_seconds,
             commands::respond_permission,
             commands::set_bubble_size,
             commands::report_bubble_height,

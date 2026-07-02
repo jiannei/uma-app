@@ -79,13 +79,11 @@ pub fn toggle_auto_start(store: State<'_, SettingsStore>) -> Result<bool, String
 }
 
 #[tauri::command]
-pub fn set_bubble_policy(
+pub fn set_bubble_permission_auto_close_seconds(
     store: State<'_, SettingsStore>,
-    permission_seconds: u32,
-    notification_seconds: u32,
-    update_seconds: u32,
+    seconds: u32,
 ) -> Result<(), String> {
-    store.set_bubble_policy(permission_seconds, notification_seconds, update_seconds)
+    store.set_bubble_permission_auto_close_seconds(seconds)
 }
 
 // ── Permission commands ────────────────────────────────────────

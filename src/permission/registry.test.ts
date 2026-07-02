@@ -89,27 +89,23 @@ describe("permissionRegistry structure", () => {
     }
   });
 
-  it("only SideEffect exposes summary / title / content on presentation", () => {
+  it("only SideEffect exposes classification on presentation", () => {
     const sideP = permissionRegistry.SideEffect.presentation;
-    expect(typeof (sideP as { summary?: unknown }).summary).toBe("function");
-    expect(typeof (sideP as { title?: unknown }).title).toBe("function");
-    expect(typeof (sideP as { content?: unknown }).content).toBe("function");
+    expect(typeof (sideP as { classification?: unknown }).classification).toBe(
+      "function",
+    );
 
     const elicitP = permissionRegistry.Elicitation.presentation as unknown as Record<
       string,
       unknown
     >;
-    expect(elicitP.summary).toBeUndefined();
-    expect(elicitP.title).toBeUndefined();
-    expect(elicitP.content).toBeUndefined();
+    expect(elicitP.classification).toBeUndefined();
 
     const planP = permissionRegistry.PlanReview.presentation as unknown as Record<
       string,
       unknown
     >;
-    expect(planP.summary).toBeUndefined();
-    expect(planP.title).toBeUndefined();
-    expect(planP.content).toBeUndefined();
+    expect(planP.classification).toBeUndefined();
   });
 });
 
@@ -217,117 +213,99 @@ describe("presentation.detail", () => {
   });
 });
 
-// ── SideEffect presentation.summary / title / content ──
+// ── SideEffect presentation.classification ──
 
-describe("SideEffect presentation.summary (PillShell)", () => {
-  it("bash: returns the command", () => {
+describe("SideEffect presentation.classification", () => {
+  const classify = (req: SideEffectRequest) =>
+    permissionRegistry.SideEffect.presentation.classification(req);
+
+  it("bash: returns command, with description when present", () => {
     expect(
-      permissionRegistry.SideEffect.presentation.summary(
+      classify(
         sideEffectRequest({
           toolName: "Bash",
           toolInput: { command: "ls -la" },
         }),
       ),
-    ).toBe("ls -la");
+    ).toEqual({ kind: "bash", command: "ls -la" });
+
+    expect(
+      classify(
+        sideEffectRequest({
+          toolName: "Bash",
+          toolInput: { command: "ls -la", description: "list files" },
+        }),
+      ),
+    ).toEqual({ kind: "bash", command: "ls -la", description: "list files" });
   });
 
-  it("edit: returns filePath", () => {
+  it("edit: returns filePath + line counts", () => {
     expect(
-      permissionRegistry.SideEffect.presentation.summary(
+      classify(
         sideEffectRequest({
           toolName: "Edit",
-          toolInput: { file_path: "src/foo.ts", new_string: "x", old_string: "y" },
+          toolInput: {
+            file_path: "src/foo.ts",
+            new_string: "x\ny\nz",
+            old_string: "a\nb",
+          },
         }),
       ),
-    ).toBe("src/foo.ts");
+    ).toEqual({
+      kind: "edit",
+      filePath: "src/foo.ts",
+      addedLines: 3,
+      removedLines: 2,
+    });
   });
 
-  it("write: returns filePath", () => {
+  it("write: returns filePath + charCount", () => {
     expect(
-      permissionRegistry.SideEffect.presentation.summary(
+      classify(
         sideEffectRequest({
           toolName: "Write",
-          toolInput: { file_path: "src/bar.ts", content: "..." },
+          toolInput: { file_path: "src/bar.ts", content: "abcdef" },
         }),
       ),
-    ).toBe("src/bar.ts");
+    ).toEqual({ kind: "write", filePath: "src/bar.ts", charCount: 6 });
   });
 
-  it("read: returns filePath", () => {
+  it("read: returns filePath + optional offset/limit", () => {
     expect(
-      permissionRegistry.SideEffect.presentation.summary(
+      classify(
         sideEffectRequest({
           toolName: "Read",
           toolInput: { file_path: "src/baz.ts" },
         }),
       ),
-    ).toBe("src/baz.ts");
+    ).toEqual({ kind: "read", filePath: "src/baz.ts", offset: undefined, limit: undefined });
+
+    expect(
+      classify(
+        sideEffectRequest({
+          toolName: "Read",
+          toolInput: { file_path: "src/baz.ts", offset: 10, limit: 50 },
+        }),
+      ),
+    ).toEqual({ kind: "read", filePath: "src/baz.ts", offset: 10, limit: 50 });
   });
 
-  it("json: falls back to toolName or 'Tool call'", () => {
+  it("json: falls back for unknown tool or missing input", () => {
     expect(
-      permissionRegistry.SideEffect.presentation.summary(
-        sideEffectRequest({ toolName: undefined, toolInput: undefined }),
-      ),
-    ).toBe("Tool call");
+      classify(sideEffectRequest({ toolName: undefined, toolInput: undefined })),
+    ).toEqual({ kind: "json", toolName: undefined, raw: undefined });
     expect(
-      permissionRegistry.SideEffect.presentation.summary(
+      classify(
         sideEffectRequest({
           toolName: "WebFetch",
           toolInput: { url: "https://example.com" },
         }),
       ),
-    ).toBe("WebFetch");
-  });
-});
-
-describe("SideEffect presentation.title (PillShell expanded-title slot)", () => {
-  it("returns toolName, or 'Tool call' when undefined", () => {
-    expect(
-      permissionRegistry.SideEffect.presentation.title(
-        sideEffectRequest({ toolName: "Bash" }),
-      ),
-    ).toBe("Bash");
-    expect(
-      permissionRegistry.SideEffect.presentation.title(
-        sideEffectRequest({ toolName: undefined, toolInput: undefined }),
-      ),
-    ).toBe("Tool call");
-  });
-});
-
-describe("SideEffect presentation.content (ToolPillContent)", () => {
-  it("bash: returns the command", () => {
-    expect(
-      permissionRegistry.SideEffect.presentation.content(
-        sideEffectRequest({
-          toolName: "Bash",
-          toolInput: { command: "ls -la" },
-        }),
-      ),
-    ).toBe("ls -la");
-  });
-
-  it("edit: returns filePath", () => {
-    expect(
-      permissionRegistry.SideEffect.presentation.content(
-        sideEffectRequest({
-          toolName: "Edit",
-          toolInput: { file_path: "src/foo.ts", new_string: "x", old_string: "y" },
-        }),
-      ),
-    ).toBe("src/foo.ts");
-  });
-
-  it("json: returns pretty-printed raw", () => {
-    const out = permissionRegistry.SideEffect.presentation.content(
-      sideEffectRequest({
-        toolName: "WebFetch",
-        toolInput: { url: "https://example.com" },
-      }),
-    );
-    expect(JSON.parse(out)).toEqual({ url: "https://example.com" });
-    expect(out).toContain("\n"); // pretty-printed
+    ).toEqual({
+      kind: "json",
+      toolName: "WebFetch",
+      raw: { url: "https://example.com" },
+    });
   });
 });
 
@@ -432,7 +410,7 @@ describe("PlanReview.reply", () => {
 // ── 反漂移（behavior 不漂移的测试） ──
 
 describe("registry ↔ existing bubble behavior", () => {
-  it("SideEffect.allow produces the same shape as PillShell onAllowOnce", () => {
+  it("SideEffect.allow produces the canonical 2-key shape", () => {
     const out = permissionRegistry.SideEffect.reply(sideEffectRequest(), {
       behavior: "allow",
     });
@@ -448,17 +426,6 @@ describe("registry ↔ existing bubble behavior", () => {
     expect(permissionRegistry.SideEffect.presentation.detail(reqNoTool)).toBe(
       "—",
     );
-  });
-
-  it("PillShell summary parity: bash returns the command (was PillShell.vue:39)", () => {
-    expect(
-      permissionRegistry.SideEffect.presentation.summary(
-        sideEffectRequest({
-          toolName: "Bash",
-          toolInput: { command: "ls -la" },
-        }),
-      ),
-    ).toBe("ls -la");
   });
 });
 

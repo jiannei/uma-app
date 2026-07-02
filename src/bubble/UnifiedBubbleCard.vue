@@ -2,9 +2,9 @@
 // src/bubble/UnifiedBubbleCard.vue — single card for all permission kinds.
 // Spec: docs/superpowers/specs/2026-07-01-bubble-display-design.md (方案 B).
 //
-// Replaces PillShell + PanelShell. All three kinds (SideEffect / Elicitation
-// / PlanReview) render through this one component, switching body by kind
-// and adapting the footer layout to match uma-pet's footer semantics:
+// All three kinds (SideEffect / Elicitation / PlanReview) render through
+// this one component, switching body by kind and adapting the footer
+// layout to match uma-pet's footer semantics:
 //   - SideEffect: [Deny] [Allow]
 //   - Elicitation: [Back] [Next|Submit] (strict gate — all questions must
 //     be answered before Submit is enabled)

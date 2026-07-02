@@ -1,9 +1,8 @@
 // src/bubble/main.ts — Vue entry for the bubble webview.
 //
-// ADR-0013 + spec 2026-06-30: mounts BubbleShellRoot (new dispatcher)
-// instead of BubbleApp. BubbleShellRoot manages idle / pill / panel
-// states, rendering PillShell (SideEffect) or PanelShell (Elicitation /
-// PlanReview).
+// ADR-0013 + spec 2026-06-30: mounts BubbleShellRoot (new dispatcher).
+// BubbleShellRoot renders <UnifiedBubbleCard> for all three
+// permission kinds (SideEffect / Elicitation / PlanReview).
 //
 // Language flows through `useSettings()` — each component that needs
 // the current language calls the composable itself; no init dance

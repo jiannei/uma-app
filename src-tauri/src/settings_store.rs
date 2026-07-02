@@ -38,14 +38,13 @@ pub struct Settings {
     pub language: String,
     /// Auto-close permission bubbles after this many seconds of
     /// inactivity. 0 = disabled. Rust 5-min timeout is safety net.
+    ///
+    /// Out of note: the frontend currently reads this key directly
+    /// from `useStorage` rather than via `useSettings()` — pre-existing
+    /// seam inconsistency from before the SettingsStore deepening.
+    /// Migration to canonical ownership is a follow-up ADR.
     #[serde(default)]
     pub bubble_permission_auto_close_seconds: u32,
-    /// Auto-close notification bubbles.
-    #[serde(default)]
-    pub bubble_notification_auto_close_seconds: u32,
-    /// Auto-close update bubbles.
-    #[serde(default)]
-    pub bubble_update_auto_close_seconds: u32,
 }
 
 impl Default for Settings {
@@ -58,8 +57,6 @@ impl Default for Settings {
             auto_start: false,
             language: "en".into(),
             bubble_permission_auto_close_seconds: 0,
-            bubble_notification_auto_close_seconds: 6,
-            bubble_update_auto_close_seconds: 9,
         }
     }
 }
@@ -115,16 +112,6 @@ impl SettingsStore {
                     .and_then(|v| v.as_u64())
                     .map(|v| v as u32)
                     .unwrap_or(0),
-                bubble_notification_auto_close_seconds: pstore
-                    .get("bubble_notification_auto_close_seconds")
-                    .and_then(|v| v.as_u64())
-                    .map(|v| v as u32)
-                    .unwrap_or(6),
-                bubble_update_auto_close_seconds: pstore
-                    .get("bubble_update_auto_close_seconds")
-                    .and_then(|v| v.as_u64())
-                    .map(|v| v as u32)
-                    .unwrap_or(9),
             },
             Err(_) => Settings::default(),
         };
@@ -195,27 +182,16 @@ impl SettingsStore {
             .map_err(|e| e.to_string())
     }
 
-    pub fn set_bubble_policy(
+    pub fn set_bubble_permission_auto_close_seconds(
         &self,
-        permission_seconds: u32,
-        notification_seconds: u32,
-        update_seconds: u32,
+        seconds: u32,
     ) -> Result<(), String> {
-        let p = permission_seconds.min(3600);
-        let n = notification_seconds.min(3600);
-        let u = update_seconds.min(3600);
+        let v = seconds.min(3600);
         self.write_and_persist(
-            "bubble_policy",
-            serde_json::json!({
-                "bubble_permission_auto_close_seconds": p,
-                "bubble_notification_auto_close_seconds": n,
-                "bubble_update_auto_close_seconds": u,
-            }),
+            "bubble_permission_auto_close_seconds",
+            serde_json::json!(v),
             || {
-                let mut s = self.inner.lock().unwrap();
-                s.bubble_permission_auto_close_seconds = p;
-                s.bubble_notification_auto_close_seconds = n;
-                s.bubble_update_auto_close_seconds = u;
+                self.inner.lock().unwrap().bubble_permission_auto_close_seconds = v;
             },
         )
     }

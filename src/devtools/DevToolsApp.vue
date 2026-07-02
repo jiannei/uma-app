@@ -16,9 +16,9 @@
 //
 // See CONTEXT.md (DisplayStateResolver) for the domain vocabulary.
 
-import { computed, ref, onMounted, onUnmounted } from "vue";
+import { computed, ref, onMounted } from "vue";
 import { invoke } from "@tauri-apps/api/core";
-import { listen, type UnlistenFn, emit as tauriEmit } from "@tauri-apps/api/event";
+import { emit as tauriEmit } from "@tauri-apps/api/event";
 import {
   computeIngestUpdate,
   recomputeDisplayState,
@@ -31,6 +31,10 @@ import type {
 } from "../robot/display-state-types";
 import type { PermissionRequest } from "../types/permission";
 import { EVENTS } from "@/types/events";
+import {
+  EventPayloadMap,
+  useTauriEvents,
+} from "@/composables/useTauriEvents";
 import Button from "@/components/Btn.vue";
 
 import StateMachinePanel from "./panels/StateMachinePanel.vue";
@@ -133,8 +137,11 @@ async function resetAll() {
 }
 
 // ── Lifecycle: subscribe / unsubscribe ──────────────────────────
-
-const unsubscribers: UnlistenFn[] = [];
+//
+// All event subscriptions go through `useTauriEvents` so mount/unmount
+// is handled once. The map reads as documentation: "this panel
+// reacts to AGENT_HOOK (real events), PENDING_CHANGED (store
+// mutations), and DEV.RESET (cross-source reset)."
 
 onMounted(async () => {
   // Fetch agents list (for SyntheticFirePanel dropdown).
@@ -146,34 +153,19 @@ onMounted(async () => {
 
   // Initial Rust store snapshots.
   await refreshPending();
-
-  // Real events from HTTP server → feed local resolver (ground truth
-  // state machine). Event log was removed — CLI output covers that.
-  unsubscribers.push(
-    await listen(EVENTS.AGENT_HOOK, (e) => {
-      const p = e.payload as HookEvent;
-      sendEvent(p);
-    })
-  );
-
-  // Rust store mutations → re-fetch.
-  unsubscribers.push(
-    await listen(EVENTS.DEV.PENDING_CHANGED, () => {
-      refreshPending();
-    })
-  );
-  // Reset broadcast (from any source — this panel, another dev
-  // panel session, or a future trigger). Reset local resolver.
-  unsubscribers.push(
-    await listen(EVENTS.DEV.RESET, () => {
-      resetLocal();
-    })
-  );
 });
 
-onUnmounted(() => {
-  for (const u of unsubscribers) u();
-  unsubscribers.length = 0;
+useTauriEvents<EventPayloadMap>({
+  // Real events from HTTP server → feed local resolver (ground truth
+  // state machine). Event log was removed — CLI output covers that.
+  [EVENTS.AGENT_HOOK]: (event) => sendEvent(event),
+
+  // Rust store mutations → re-fetch.
+  [EVENTS.DEV.PENDING_CHANGED]: () => refreshPending(),
+
+  // Reset broadcast (from any source — this panel, another dev
+  // panel session, or a future trigger). Reset local resolver.
+  [EVENTS.DEV.RESET]: () => resetLocal(),
 });
 </script>
 

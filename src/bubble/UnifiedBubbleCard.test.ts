@@ -3,8 +3,7 @@
 // spec 方案 B). Covers the three kind branches and the per-kind footer
 // layout.
 //
-// Test patterns (mirrors the deleted PillShell / PanelShell / ToolPill
-// test style):
+// Test patterns:
 //   - `mount(Component, { props, global: { plugins } })` from
 //     `@vue/test-utils`, with `createTestingI18n("en")` for t() calls.
 //   - Snapshot assertions for structure, targeted assertions for

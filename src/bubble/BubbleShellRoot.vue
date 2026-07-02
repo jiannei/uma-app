@@ -16,15 +16,22 @@
 // `permissionRegistry[req.kind]`. The local PermissionDecision literal
 // that used to live in submitDecision is gone; buildReply handles it.
 
-import { ref, computed, watch, onMounted, onUnmounted, nextTick } from "vue";
+import { ref, computed, watch, onUnmounted, nextTick } from "vue";
 import { invoke } from "@tauri-apps/api/core";
-import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
-import { useThrottleFn, useTimeoutFn, useResizeObserver } from "@vueuse/core";
+import {
+  useStorage,
+  useThrottleFn,
+  useTimeoutFn,
+  useResizeObserver,
+} from "@vueuse/core";
 import type { PermissionRequest } from "../types/permission";
 import { buildReply, type ReplyPick } from "../permission/registry";
-import { useBubblePolicy } from "../permission/bubble-policy";
 import { EVENTS } from "@/types/events";
+import {
+  EventPayloadMap,
+  useTauriEvents,
+} from "@/composables/useTauriEvents";
 import UnifiedBubbleCard from "./UnifiedBubbleCard.vue";
 
 // Unified shell geometry (Phase 3 — single width, content-sized height).
@@ -69,20 +76,25 @@ watch(current, () => {
   nextTick(() => scheduleIpcResize());
 });
 
-let unlistenRequest: UnlistenFn | undefined;
-let unlistenTimeout: UnlistenFn | undefined;
-
-// Per-kind autoClose policy from settings. Rust 5-min timeout is safety net;
+// Per-kind autoClose policy. Rust 5-min timeout is safety net;
 // this is a UX nicety that fires earlier if the user opts in.
-const currentKind = computed(() => current.value?.kind ?? null);
-const policy = useBubblePolicy(currentKind.value ?? "SideEffect");
+// All PermissionKinds share the same settings key — the per-kind
+// distinction (notification / update) was collapsed out of the
+// bubble-policy module along with the composable.
+const MAX_AUTO_CLOSE_SECONDS = 3600;
+const seconds = useStorage("bubble.permissionAutoCloseSeconds", 0);
+const autoCloseMs = computed<number>(() => {
+  const s = seconds.value;
+  if (!Number.isFinite(s) || s < 0) return 0;
+  return Math.min(s, MAX_AUTO_CLOSE_SECONDS) * 1000;
+});
 
 const { start: armAutoClose, stop: cancelAutoClose } = useTimeoutFn(
   () => {
     // Timer fired — bubble didn't get user input, auto-dismiss
     submitDecision("deny", { message: "Bubble auto-closed after user idle" });
   },
-  () => policy.value.autoCloseMs,
+  () => autoCloseMs.value,
   { immediate: false },
 );
 
@@ -113,7 +125,7 @@ watch(current, async (r) => {
     return;
   }
   // Restart autoClose timer if policy enabled
-  if (policy.value.enabled) {
+  if (autoCloseMs.value > 0) {
     armAutoClose();
   }
   await getCurrentWebviewWindow().show();
@@ -124,21 +136,24 @@ watch(current, async (r) => {
   // its own.
 });
 
-onMounted(async () => {
-  unlistenRequest = await listen<PermissionRequest>(
-    EVENTS.PERMISSION_REQUEST,
-    (e) => {
-      // Defensive dedupe: if Rust ever double-emits the same
-      // requestId (e.g. from a future `bubble_win.emit + app.emit`
-      // regression), don't push twice. Symptom of double-push was
-      // "first Deny removes one copy, second is stuck in the queue
-      // forever and blocks subsequent bubbles."
-      if (queue.value.some((q) => q.requestId === e.payload.requestId)) {
-        return;
-      }
-      queue.value.push(e.payload);
-    },
-  );
+// Tauri event subscription. Each entry here IS a documentation line
+// saying "this component reacts to <event>" — adding/removing a
+// listener is a single map entry, the helper owns mount/unmount
+// lifecycle. Previously these were three `await listen()` calls
+// inside onMounted, with the `permission-hide` listener leaking
+// (no onUnmounted cleanup); the helper closes that hole.
+useTauriEvents<EventPayloadMap>({
+  [EVENTS.PERMISSION_REQUEST]: (req) => {
+    // Defensive dedupe: if Rust ever double-emits the same
+    // requestId (e.g. from a future `bubble_win.emit + app.emit`
+    // regression), don't push twice. Symptom of double-push was
+    // "first Deny removes one copy, second is stuck in the queue
+    // forever and blocks subsequent bubbles."
+    if (queue.value.some((q) => q.requestId === req.requestId)) {
+      return;
+    }
+    queue.value.push(req);
+  },
 
   // Timeout: Rust already removed the entry, synthesised the deny,
   // responded to the agent, and hidden the bubble window. The TS
@@ -147,21 +162,18 @@ onMounted(async () => {
   // (entry already gone) whose only effect was to re-hide the
   // bubble (now done by Rust directly). See `http_server.rs`'s
   // timeout branch and ADR-0013 决策 8.
-  unlistenTimeout = await listen<{ request_id: string }>(
-    EVENTS.PERMISSION_TIMEOUT,
-    (e) => {
-      queue.value = queue.value.filter(
-        (q) => q.requestId !== e.payload.request_id,
-      );
-    },
-  );
+  [EVENTS.PERMISSION_TIMEOUT]: ({ request_id }) => {
+    queue.value = queue.value.filter(
+      (q) => q.requestId !== request_id,
+    );
+  },
 
   // permission-hide: Rust emits this before hiding the webview.
   // We set isHiding so the <Transition> plays a 250ms fade-out
   // animation before the window actually disappears.
-  await listen(EVENTS.PERMISSION_HIDE, () => {
+  [EVENTS.PERMISSION_HIDE]: () => {
     isHiding.value = true;
-  });
+  },
 });
 
 // ── Renderer-driven height reporting ─────────────────────────────
@@ -206,11 +218,6 @@ onUnmounted(() => {
   if ((bubbleBody as any)._cardObserver) {
     (bubbleBody as any)._cardObserver.disconnect();
   }
-});
-
-onUnmounted(() => {
-  unlistenRequest?.();
-  unlistenTimeout?.();
 });
 </script>
 

@@ -4,11 +4,11 @@
 // in UnifiedBubbleCard, aligned with uma-pet's bubble.css:150-159 palette
 // so the two projects read identically at a glance.
 //
-// `dotClass` is a Tailwind utility class kept for any leftover call site
-// that still wants a small filled dot (the legacy PillShell uses one).
-// It tracks pillHex visually (same hue family) but is not hex-identical —
-// Tailwind's blue-500 (#3b82f6) and uma-pet's Edit blue (#5b8dd9) are
-// deliberately distinct to avoid pinning the palette twice.
+// `dotClass` is a Tailwind utility class kept for any caller that wants a
+// small filled dot; it tracks pillHex visually (same hue family) but is
+// not hex-identical — Tailwind's blue-500 (#3b82f6) and uma-pet's Edit
+// blue (#5b8dd9) are deliberately distinct to avoid pinning the palette
+// twice.
 //
 // Unknown / missing tool names fall back to a neutral zinc.
 
