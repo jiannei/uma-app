@@ -34,3 +34,4 @@ dist-ssr
 .bak
 skills-lock.json
 .agents/
+.claude/
