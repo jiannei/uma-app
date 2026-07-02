@@ -149,14 +149,14 @@ pub fn set_bubble_size(
             let position = app
                 .primary_monitor()
                 .ok()
-                .and_then(|m| m)
-                .and_then(|monitor| {
+                .flatten()
+                .map(|monitor| {
                     let size = monitor.size();
                     let scale = monitor.scale_factor();
                     let screen_height_px = size.height;
                     let bubble_height_px = (height * scale) as i32;
                     let y = (screen_height_px as i32) - bubble_height_px - margin;
-                    Some(tauri::PhysicalPosition::new(margin, y))
+                    tauri::PhysicalPosition::new(margin, y)
                 })
                 .unwrap_or(fallback);
             let _ = bubble.set_position(position);
@@ -177,9 +177,9 @@ pub fn report_bubble_height(
     height: f64,
 ) -> Result<(), String> {
     if let Some(bubble) = app.get_webview_window("permission-bubble") {
-        // Clamp to bubble bounds (60pt min, 600pt max — matches
+        // Clamp to bubble bounds (80pt min, 600pt max — matches
         // min_inner_size / max_inner_size in windows.rs).
-        let h = height.max(80.0).min(600.0);
+        let h = height.clamp(80.0, 600.0);
         // Preserve current width; only change height. Use LogicalSize
         // (ResizeObserver returns CSS / logical pixels).
         let current_width = bubble
@@ -196,14 +196,14 @@ pub fn report_bubble_height(
         let position = app
             .primary_monitor()
             .ok()
-            .and_then(|m| m)
-            .and_then(|monitor| {
+            .flatten()
+            .map(|monitor| {
                 let size = monitor.size();
                 let scale = monitor.scale_factor();
                 let screen_height_px = size.height;
                 let bubble_height_px = (h * scale) as i32;
                 let y = (screen_height_px as i32) - bubble_height_px - margin;
-                Some(tauri::PhysicalPosition::new(margin, y))
+                tauri::PhysicalPosition::new(margin, y)
             })
             .unwrap_or(fallback);
         let _ = bubble.set_position(position);

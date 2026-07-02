@@ -85,11 +85,10 @@ pub async fn devtools_fire_synthetic_permission(
     let base = PermissionBase {
         request_id: request_id.clone(),
         session_id: "synth-session".into(),
-        agent: agent::AgentId(agent_id_str.clone().into()),
-        agent_display_name: agent_display_name.into(),
+        agent: agent::AgentId(agent_id_str.clone()),
+        agent_display_name: agent_display_name.clone(),
         cwd: Some("/tmp".into()),
     };
-
     let request = match kind.as_str() {
         "SideEffect" => PermissionRequest::SideEffect {
             base,
