@@ -27,13 +27,16 @@
  * src/components/Btn.vue (1 @utility + 14 plain CSS rules)
  * ============================================================ */
 @utility btn {
-  @apply rounded-lg border border-transparent bg-clip-padding text-sm font-medium inline-flex shrink-0 items-center justify-center whitespace-nowrap transition-all outline-none select-none;
+  @apply rounded-lg border border-transparent bg-clip-padding text-sm font-medium inline-flex shrink-0 items-center justify-center whitespace-nowrap transition-[background-color,border-color,box-shadow,transform,color] duration-150 outline-none select-none;
 }
 .btn:focus-visible {
   @apply border-[var(--color-ring)] ring-[var(--color-ring)]/50 ring-3;
 }
 .btn:disabled {
   @apply pointer-events-none opacity-50;
+}
+.btn:active:not(:disabled) {
+  transform: scale(0.97);
 }
 .btn[data-variant="default"] {
   @apply bg-[var(--color-primary)] text-[var(--color-primary-foreground)];
@@ -516,7 +519,7 @@
   @apply ring-[var(--color-sidebar-ring)] hover:bg-[var(--color-sidebar-accent)] hover:text-[var(--color-sidebar-accent-foreground)] active:bg-[var(--color-sidebar-accent)] active:text-[var(--color-sidebar-accent-foreground)] gap-2 rounded-md p-2 text-left text-sm transition-[width,height,padding] focus-visible:ring-2 flex w-full items-center overflow-hidden outline-hidden disabled:pointer-events-none disabled:opacity-50 aria-disabled:pointer-events-none aria-disabled:opacity-50;
 }
 .sidebar-menu-button[data-active="true"] {
-  @apply font-medium;
+  @apply bg-[var(--color-sidebar-accent)] text-[var(--color-sidebar-accent-foreground)] font-medium;
 }
 .sidebar-menu-button > svg,
 .sidebar-menu-button > span:last-child {

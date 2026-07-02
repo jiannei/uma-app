@@ -206,8 +206,8 @@ onMounted(async () => {
             <!-- General -->
             <TabsContent value="general" class="flex-1 max-w-[560px] mt-0">
               <div class="mb-6">
-                <h1 class="text-[22px] font-bold m-0 mb-1 tracking-[-0.02em] text-[var(--foreground)]">设置</h1>
-                <p class="text-[13px] m-0 text-[var(--muted-foreground)]">配置 Clawd 在桌面上的行为。</p>
+                <h1 class="text-[24px] font-serif font-semibold m-0 mb-1 tracking-[-0.015em] text-[var(--foreground)]">设置</h1>
+                <p class="text-[13px] m-0 text-[var(--muted-foreground)]">配置 Uma 在桌面上的行为。</p>
               </div>
 
               <!-- Appearance group -->
@@ -275,7 +275,7 @@ onMounted(async () => {
                         <div class="icon-lucide-volume-2 w-4 h-4 mt-0.5 text-[var(--muted-foreground)] shrink-0" />
                         <div>
                           <Label class="text-[13px] font-medium text-[var(--foreground)] tracking-[-0.005em]">音效</Label>
-                          <div class="text-[12px] text-[var(--muted-foreground)] mt-px leading-snug">Clawd 完成任务或需要输入时播放提示音。</div>
+                          <div class="text-[12px] text-[var(--muted-foreground)] mt-px leading-snug">Uma 完成任务或需要输入时播放提示音。</div>
                         </div>
                       </div>
                       <div class="shrink-0">
@@ -356,7 +356,7 @@ onMounted(async () => {
             <!-- Agents -->
             <TabsContent value="agents" class="flex-1 max-w-[560px] mt-0">
               <div class="mb-6">
-                <h1 class="text-[22px] font-bold m-0 mb-1 tracking-[-0.02em] text-[var(--foreground)]">Agent 管理</h1>
+                <h1 class="text-[24px] font-serif font-semibold m-0 mb-1 tracking-[-0.015em] text-[var(--foreground)]">Agent 管理</h1>
                 <p class="text-[13px] m-0 text-[var(--muted-foreground)]">安装或移除 AI agent 的 hook 集成。</p>
               </div>
 
@@ -424,7 +424,7 @@ onMounted(async () => {
             <!-- Theme -->
             <TabsContent value="theme" class="flex-1 max-w-[560px] mt-0">
               <div class="mb-6">
-                <h1 class="text-[22px] font-bold m-0 mb-1 tracking-[-0.02em] text-[var(--foreground)]">主题</h1>
+                <h1 class="text-[24px] font-serif font-semibold m-0 mb-1 tracking-[-0.015em] text-[var(--foreground)]">主题</h1>
                 <p class="text-[13px] m-0 text-[var(--muted-foreground)]">选择你的桌面机器人外观。</p>
               </div>
 
@@ -470,7 +470,7 @@ onMounted(async () => {
             <!-- Shortcuts -->
             <TabsContent value="shortcuts" class="flex-1 max-w-[560px] mt-0">
               <div class="mb-6">
-                <h1 class="text-[22px] font-bold m-0 mb-1 tracking-[-0.02em] text-[var(--foreground)]">快捷键</h1>
+                <h1 class="text-[24px] font-serif font-semibold m-0 mb-1 tracking-[-0.015em] text-[var(--foreground)]">快捷键</h1>
                 <p class="text-[13px] m-0 text-[var(--muted-foreground)]">自定义键盘快捷键。</p>
               </div>
 
@@ -490,7 +490,7 @@ onMounted(async () => {
             <!-- About -->
             <TabsContent value="about" class="flex-1 max-w-[560px] mt-0">
               <div class="mb-6">
-                <h1 class="text-[22px] font-bold m-0 mb-1 tracking-[-0.02em] text-[var(--foreground)]">关于</h1>
+                <h1 class="text-[24px] font-serif font-semibold m-0 mb-1 tracking-[-0.015em] text-[var(--foreground)]">关于</h1>
                 <p class="text-[13px] m-0 text-[var(--muted-foreground)]">Uma on Desk — Desktop robot for AI coding agents.</p>
               </div>
 
@@ -500,7 +500,7 @@ onMounted(async () => {
                     <div class="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-[var(--primary)]/10 mb-3">
                       <div class="icon-lucide-bot w-9 h-9 text-[var(--primary)]" />
                     </div>
-                    <div class="text-[16px] font-bold text-[var(--foreground)] mb-0.5">Uma on Desk</div>
+                    <div class="text-[17px] font-serif font-semibold tracking-[-0.01em] text-[var(--foreground)] mb-0.5">Uma on Desk</div>
                     <div class="text-[12px] text-[var(--muted-foreground)] mb-3">v1.5.0</div>
                     <Separator class="w-[60%]" />
                     <div class="text-[12.5px] text-[var(--muted-foreground)] leading-relaxed max-w-[400px] mx-auto mt-3">A transparent, always-on-top animated robot that lives on your desktop and reacts to events from AI coding agents via HTTP webhooks.</div>
@@ -527,7 +527,7 @@ onMounted(async () => {
     <!-- Sonner toast portal — renders feedback toasts at top-center -->
     <!-- Footer status toast -->
     <footer v-if="status" class="fixed left-1/2 bottom-6 -translate-x-1/2 inline-flex items-center gap-2 py-2 px-4 text-[12px] text-[var(--foreground)] bg-[var(--card)]/90 border border-[var(--border)] rounded-full shadow-xl shadow-black/40 backdrop-blur-xl z-50 animate-toast-in">
-      <span class="w-1.5 h-1.5 rounded-full bg-[var(--primary)] shadow-[0_0_6px_var(--primary)]" />
+      <span class="w-1.5 h-1.5 rounded-full bg-[var(--color-sun-yellow)] shadow-[0_0_6px_var(--color-sun-yellow)]" />
       {{ status }}
     </footer>
   </TooltipProvider>
