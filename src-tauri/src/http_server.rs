@@ -29,15 +29,23 @@
 // `updatedPermissions`; the agent handles persistence and short-circuit.
 
 use axum::{
-    extract::{DefaultBodyLimit, Path, State},
-    http::StatusCode,
+    extract::{DefaultBodyLimit, Extension, Path, State},
+    http::{HeaderValue, Request, StatusCode},
     routing::{get, post},
     Json, Router,
 };
 use serde::Serialize;
-use std::sync::Arc;
+use std::collections::HashMap;
+use std::sync::{
+    atomic::{AtomicU64, Ordering},
+    Arc,
+};
 use tauri::{AppHandle, Emitter, Manager};
 use tokio::sync::{oneshot, Mutex};
+use tower_http::{
+    on_early_drop::OnEarlyDropLayer,
+    request_id::{MakeRequestId, RequestId, SetRequestIdLayer},
+};
 
 use crate::agent::{self, PermissionDecision};
 use crate::events::prod;
@@ -52,6 +60,25 @@ pub struct HookResponse {
     pub message: String,
 }
 
+/// Custom `MakeRequestId` impl that produces `perm-{counter}` IDs
+/// compatible with the existing PendingStore key format. Uses
+/// `AtomicU64` because `MakeRequestId::make_request_id` is sync (not
+/// async) — cannot `await` a `Mutex` inside the callback.
+#[derive(Clone, Default)]
+struct CounterRequestId {
+    counter: Arc<AtomicU64>,
+}
+
+impl MakeRequestId for CounterRequestId {
+    fn make_request_id<B>(&mut self, _request: &Request<B>) -> Option<RequestId> {
+        let n = self.counter.fetch_add(1, Ordering::SeqCst) + 1;
+        let id_str = format!("perm-{n}");
+        HeaderValue::from_str(&id_str)
+            .ok()
+            .map(RequestId::new)
+    }
+}
+
 // ── App state ───────────────────────────────────────────────────
 
 #[derive(Clone)]
@@ -61,8 +88,37 @@ struct AppState {
     /// the cap check, and the devtools-emit invariant. The cap
     /// itself lives in `pending_store::MAX_PENDING_REQUESTS`.
     pending: PendingStore,
-    /// Internal request ID counter (per process).
-    request_counter: Arc<Mutex<u64>>,
+    /// Abort signal registry. Maps `perm-{N}` request IDs to a
+    /// oneshot sender. When `OnEarlyDropLayer` detects a client
+    /// disconnect, it fires the sender; the corresponding watchdog
+    /// task receives the signal and cleans up the pending entry +
+    /// hides the bubble.
+    abort_registry: Arc<Mutex<HashMap<String, oneshot::Sender<()>>>>,
+}
+
+// ── Abort detection ──────────────────────────────────────────────
+//
+// When a client disconnects mid-request (e.g., user answered the
+// permission prompt in Claude Code's TUI), we want to auto-close the
+// bubble instead of waiting for the 5-minute timeout. We use
+// `tower_http::OnEarlyDropLayer` to detect early drops of the
+// response future, and a per-request watchdog task to clean up.
+
+/// Watchdog task: listens for an abort signal from `OnEarlyDropLayer`
+/// and performs cleanup (remove from PendingStore + hide bubble).
+/// Drops cleanly when the handler completes normally (abort_tx is
+/// removed from registry, so abort_rx returns Err → task exits).
+async fn make_watchdog(
+    state: Arc<AppState>,
+    app: AppHandle,
+    request_id: String,
+    abort_rx: oneshot::Receiver<()>,
+) {
+    if abort_rx.await.is_ok() {
+        log::info!("[http] client disconnected — aborting permission request {request_id}");
+        state.pending.timeout(&request_id).await;
+        hide_bubble_window(&app).await;
+    }
 }
 
 // ── Handlers ────────────────────────────────────────────────────
@@ -112,23 +168,26 @@ async fn handle_state(
 /// POST /agents/{id}/permission — blocking permission request.
 ///
 /// The handler blocks until either the user picks a button in the
-/// bubble (response arrives via `respond_permission`) or the 5-minute
-/// timeout elapses. On timeout, returns 204 so the agent can fall
-/// back to its native prompt.
+/// bubble (response arrives via `respond_permission`), the 5-minute
+/// timeout elapses, or the client disconnects mid-request (detected
+/// via `OnEarlyDropLayer`). On timeout or disconnect, returns 204
+/// so the agent can fall back to its native prompt.
 async fn handle_permission(
     State(state): State<Arc<AppState>>,
     Path(agent_id): Path<String>,
+    Extension(request_id_ext): Extension<RequestId>,
     Json(raw): Json<serde_json::Value>,
 ) -> Result<Json<serde_json::Value>, StatusCode> {
     let adapter = agent::lookup_agent(&agent_id).ok_or(StatusCode::NOT_FOUND)?;
 
-    // Allocate internal request id BEFORE calling the adapter, so the
-    // canonical PermissionRequest carries it for the bubble UI.
-    let request_id = {
-        let mut counter = state.request_counter.lock().await;
-        *counter += 1;
-        format!("perm-{}", *counter)
-    };
+    // Extract request ID from the extension set by SetRequestIdLayer.
+    // The ID is already in `perm-{counter}` format (generated by
+    // CounterRequestId::make_request_id).
+    let request_id = request_id_ext
+        .header_value()
+        .to_str()
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .to_string();
 
     let canonical = adapter
         .parse_permission_payload(raw, request_id.clone())
@@ -177,6 +236,23 @@ async fn handle_permission(
         return Err(StatusCode::SERVICE_UNAVAILABLE);
     }
 
+    // Spawn watchdog task + register abort sender. The watchdog listens
+    // for an abort signal from OnEarlyDropLayer (client disconnect) and
+    // performs cleanup. The sender is removed from the registry on
+    // normal completion (below) to prevent spurious abort signals.
+    let (abort_tx, abort_rx) = oneshot::channel();
+    state
+        .abort_registry
+        .lock()
+        .await
+        .insert(request_id.clone(), abort_tx);
+    let watchdog = tokio::spawn(make_watchdog(
+        state.clone(),
+        state.app.clone(),
+        request_id.clone(),
+        abort_rx,
+    ));
+
     // Show bubble at its fixed TopCenter position (set once at window
     // creation — see lib.rs setup hook + ADR-0013 决策 4).
     if let Err(err) = show_bubble_window(&state.app) {
@@ -202,7 +278,7 @@ async fn handle_permission(
 
     // Block until user response or timeout.
     let timeout = tokio::time::Duration::from_secs(300);
-    match tokio::time::timeout(timeout, rx).await {
+    let result = match tokio::time::timeout(timeout, rx).await {
         Ok(Ok(decision)) => {
             log::info!(
                 "[http] permission response: request_id={} behavior={:?}",
@@ -259,7 +335,15 @@ async fn handle_permission(
 
             Ok(Json(payload))
         }
-    }
+    };
+
+    // Normal completion: remove abort_tx from registry and abort
+    // the watchdog task. This prevents spurious abort signals if
+    // the client disconnects after we've already sent the response.
+    state.abort_registry.lock().await.remove(&request_id);
+    watchdog.abort();
+
+    result
 }
 
 // ── Bubble window positioning ───────────────────────────────────
@@ -289,18 +373,61 @@ pub fn build_router(
     app: AppHandle,
     pending: PendingStore,
 ) -> Router {
+    let abort_registry = Arc::new(Mutex::new(HashMap::new()));
     let state = Arc::new(AppState {
-        app,
+        app: app.clone(),
         pending,
-        request_counter: Arc::new(Mutex::new(0)),
+        abort_registry: abort_registry.clone(),
     });
-    Router::new()
-        .route("/health", get(health))
-        // Per-agent routes. Adding a new agent means it gets a route
-        // automatically via KNOWN_AGENTS; the install side writes URLs
-        // matching this pattern.
-        .route("/agents/{id}/state", post(handle_state))
+
+    // Permission route: wraps handler with SetRequestIdLayer (outer) +
+    // OnEarlyDropLayer (inner). Layer order matters: SetRequestIdLayer
+    // generates the request ID first, then OnEarlyDropLayer captures it
+    // for the abort callback.
+    let permission_route = Router::new()
         .route("/agents/{id}/permission", post(handle_permission))
+        .layer(
+            OnEarlyDropLayer::builder()
+                .on_future_drop({
+                    let registry = abort_registry.clone();
+                    move |req: &Request<_>| {
+                        let request_id = req
+                            .extensions()
+                            .get::<RequestId>()
+                            .and_then(|rid| {
+                                rid.header_value().to_str().ok().map(|s| s.to_string())
+                            });
+                        let registry = registry.clone();
+                        // Inline the abort callback logic. If RequestId is missing
+                        // (shouldn't happen), the closure does nothing.
+                        move || {
+                            if let Some(rid) = request_id {
+                                // Spawn a non-blocking task to avoid blocking the drop context.
+                                // The sender is fire-and-forget; if the watchdog already
+                                // exited, the send returns Err (ignored).
+                                let registry = registry.clone();
+                                tokio::spawn(async move {
+                                    if let Some(tx) = registry.lock().await.remove(&rid) {
+                                        let _ = tx.send(());
+                                    }
+                                });
+                            }
+                        }
+                    }
+                }),
+        )
+        .layer(SetRequestIdLayer::x_request_id(CounterRequestId {
+            counter: Arc::new(AtomicU64::new(0)),
+        }));
+
+    // Other routes: no abort detection needed.
+    let other_routes = Router::new()
+        .route("/health", get(health))
+        .route("/agents/{id}/state", post(handle_state));
+
+    Router::new()
+        .merge(permission_route)
+        .merge(other_routes)
         // axum 0.8 raised the default `Json` body limit from 2 KiB to
         // 2 MiB; restore the previous first-pass cap so PR1 stays a
         // pure dependency upgrade. Per-field length caps in
